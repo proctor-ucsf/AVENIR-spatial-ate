@@ -1,0 +1,65 @@
+##############################################
+# Spatial analysis of mortality rates in Dosso
+# Secondary data analysis of AVENIR study data
+
+# Configure data paths and load required packages
+
+# by Mia Navarro (mia.navarro@ucsf.edu)
+##############################################
+
+# set wd
+wd_path = here::here()
+setwd(wd_path)
+
+# load required packages
+library(assertthat)
+library(cowplot)
+library(dplyr)
+library(foreign)
+library(gee)
+library(geeM) #> Warning: package 'geeM' was built under R version 3.6.2
+library(geepack) #> Warning: package 'geepack' was built under R version 3.6.2
+library(geosphere)
+library(geodist)
+library(ggplot2) # tidyverse data visualization package
+library(ggraph)
+library(ggmap)
+library(ggpubr)
+library(grid)
+library(gridExtra)
+library(gtsummary)
+library(here)
+library(igraph)
+library(leaflet) # for interactive maps
+library(lme4)
+library(MASS)
+library(Matrix)
+library(psych)
+library(purrr)
+library(readr)
+library(readxl)
+library(recipes)
+library(sf)
+library(sjPlot)
+library(spData)
+library(spDataLarge)
+library(splines)
+library(tableone)
+library(terra)
+library(tidyverse)
+library(tmap)    # for static and interactive maps
+
+# define data paths
+raw_data_path = paste0(here::here(), "/data/untouched-raw/")
+
+# generated data paths
+temp_data_path = paste0(here::here(), "/data/temp/")
+final_data_path = paste0(here::here(), "/data/final/")
+
+# load base functions
+source(paste0(here::here(),"/analysis/0-functions-processing.R"))
+source(paste0(here::here(),"/analysis/0-functions-analysis.R"))
+
+# define figure and table paths
+figure_path = paste0(here::here(), "/results/figs/")
+table_path = paste0(here::here(), "/results/tables/")
