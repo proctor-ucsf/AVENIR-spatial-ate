@@ -9,7 +9,7 @@
 
 # set wd
 wd_path = here::here()
-setwd(wd_path)
+# setwd(wd_path)
 
 # load required packages
 library(assertthat)
@@ -34,13 +34,17 @@ library(leaflet) # for interactive maps
 library(lme4)
 library(MASS)
 library(Matrix)
+library(patchwork)
 library(psych)
 library(purrr)
+library(raster)
 library(readr)
 library(readxl)
 library(recipes)
+library(scales)
 library(sf)
 library(sjPlot)
+library(spaMM)
 library(spData)
 library(spDataLarge)
 library(splines)
@@ -50,11 +54,13 @@ library(tidyverse)
 library(tmap)    # for static and interactive maps
 
 # define data paths
-raw_data_path = paste0(here::here(), "/data/untouched-raw/")
+# raw_data_path = paste0(here::here(), "/data/untouched-raw/")
+final_data <- "~/Library/CloudStorage/Box-Box/AVENIR/Data/Mortality/rounds_1to5/final/"
+shp_data <- "~/Library/CloudStorage/Box-Box/AVENIR/Publications/Primary Mortality/avenir-primary/data/ner_adm_shapefiles/"
 
 # generated data paths
-temp_data_path = paste0(here::here(), "/data/temp/")
-final_data_path = paste0(here::here(), "/data/final/")
+my_temp_data_path = paste0(here::here(), "/data/temp/")
+my_final_data_path = paste0(here::here(), "/data/final/")
 
 # load base functions
 source(paste0(here::here(),"/analysis/0-functions-processing.R"))
