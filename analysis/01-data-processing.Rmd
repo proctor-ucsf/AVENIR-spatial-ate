@@ -109,7 +109,51 @@ grappe_gps_mort <-
 # locally--PHI
 # -------------------------
 
-grappe_gps_mort
+df_all <- grappe_gps_mort
+df_tx1 <- grappe_gps_mort %>% filter(as.integer(tx)==1)
+df_tx2 <- grappe_gps_mort %>% filter(as.integer(tx)==2)
+df_tx3 <- grappe_gps_mort %>% filter(as.integer(tx)==3)
+
+df_tx1; df_tx2; df_tx3
 
 ```
 
+# Prep map elements
+
+```{r convert to spatial data}
+
+#-------------------------------
+# format grappe data as sf
+#-------------------------------
+d_sf <- st_as_sf(grappe_gps_mort, 
+                 coords = c("lon","lat"), 
+                 crs    = 4326) # set coordinate ref system to WGS1984
+
+#-------------------------------
+# load administrative boundaries
+# downloaded from 
+# humanitarian data exchange
+# https://data.humdata.org/dataset/cod-ab-ner?
+#-------------------------------
+niger_adm0 <- st_read(dsn = paste0(shp_data,"ner_adm00_feb2018/NER_adm00_feb2018.shp"))
+niger_adm1 <- st_read(dsn = paste0(shp_data,"ner_adm01_feb2018/NER_adm01_feb2018.shp"))
+niger_adm2 <- st_read(dsn = paste0(shp_data,"ner_adm02_feb2018/NER_adm02_feb2018.shp"))
+
+# filter admin level 2 subdistricts to just Dosso and Tahoua
+niger_adm2 <- niger_adm2 %>%
+  # filter(adm_01 %in% c("Dosso","Tahoua"))
+  filter(adm_02 %in% c("Dosso")) ## for initial analysis, just doing Dosso
+
+
+#---------------------------
+# identify the bounding box
+# around subdistricts that
+# contain the WASHB Bangladesh
+# clusters
+#---------------------------
+b_boxgrid <- st_make_grid(niger_adm2,
+                          n    = c(100,100),
+                          what = "centers"
+                          )
+
+```

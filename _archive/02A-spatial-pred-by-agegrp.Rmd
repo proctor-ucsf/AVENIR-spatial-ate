@@ -1,0 +1,166 @@
+---
+title: "02A-spatial-pred-by-agegrp"
+author: "Mia Navarro"
+date: "2024-10-09"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+### Configure environment. Load data.
+```{r warning=F}
+
+source(here::here("0-config.R"))
+
+#---------------------------
+# requires the following data:
+# grappe_gps_mort
+#---------------------------
+
+```
+
+## Spatial predictions of diarrhea and ATE
+```{r}
+
+#---------------------------
+# identify the bounding box
+# around subdistricts that
+# contain the WASHB Bangladesh
+# clusters
+#---------------------------
+b_boxgrid <- st_make_grid(niger_adm2,
+                          n    = c(100,100),
+                          what = "centers"
+                          )
+
+#-------------------------
+# data frame for
+# mortality spatial modeling
+#-------------------------
+grappe_gps_mort
+
+#-------------------------
+# fit spatial model for
+# diarrhea prevalence in 
+# the control group
+#-------------------------
+b_fitmort_1to59 <- spaMM::fitme(n_deaths_1to59 ~ 
+                                  1 +
+                                  lat + lon + 
+                                  Matern(1|lat + lon) +
+                                  (1|site_code),
+                                resid.model = 
+                                  list(formula=~0+offset(log(pt_year_1to59))),
+                                data = grappe_gps_mort,
+                                family = poisson(link = "log")
+                          )
+
+b_fitmort_1to11 <- spaMM::fitme(n_deaths_1to11 ~ 
+                                  1 +
+                                  lat + lon + 
+                                  Matern(1|lat + lon) +
+                                  (1|site_code),
+                                resid.model = 
+                                  list(formula=~0+offset(log(pt_year_1to11))),
+                                data = grappe_gps_mort,
+                                family = poisson(link = "log")
+                          )
+
+b_fitmort_12to59 <- spaMM::fitme(n_deaths_12to59 ~ 
+                                  1 +
+                                  lat + lon + 
+                                  Matern(1|lat + lon) +
+                                  (1|site_code),
+                                resid.model = 
+                                  list(formula=~0+offset(log(pt_year_12to59))),
+                                data = grappe_gps_mort,
+                                family = poisson(link = "log")
+                          )
+```
+
+
+```{r}
+
+plot_materncor_mort_1to59  <- plot_matern_corr(b_fitmort_1to59)
+plot_materncor_mort_1to11  <- plot_matern_corr(b_fitmort_1to11)
+plot_materncor_mort_12to59 <- plot_matern_corr(b_fitmort_12to59)
+
+ggsave(filename=paste0(figure_path,"avenir-materncor-01to59.png"),
+       plot=plot_materncor_mort_1to59,
+       device="png",
+       width=3.3,
+       height=3.5)
+
+ggsave(filename=paste0(figure_path,"avenir-materncor-01to11.png"),
+       plot=plot_materncor_mort_1to11,
+       device="png",
+       width=3.3,
+       height=3.5)
+
+ggsave(filename=paste0(figure_path,"avenir-materncor-12to59.png"),
+       plot=plot_materncor_mort_12to59,
+       device="png",
+       width=3.3,
+       height=3.5)
+
+```
+
+
+```{r}
+#--------------------------------------
+# get model predictions on a grid
+# (see function in washb-geopair-Functions.R)
+#--------------------------------------
+b_preds_mort_1to59 <- get_grid_preds(input_grid      = b_boxgrid,
+                                     spamm_model_fit = b_fitmort_1to59)
+
+b_preds_mort_1to11 <- get_grid_preds(input_grid      = b_boxgrid,
+                                     spamm_model_fit = b_fitmort_1to11)
+
+b_preds_mort_12to59 <- get_grid_preds(input_grid     = b_boxgrid,
+                                     spamm_model_fit = b_fitmort_12to59)
+
+#--------------------------------------
+# convert predicted surface of the mean
+# to a raster to make it a regular
+# set of tiles (rather than points), 
+# then to tibble for ggplot2
+# scale prevalence by 100
+# to be in units of percent (%)
+#--------------------------------------
+b_preds_mort_coords_1to59  <- st_coordinates(b_preds_mort_1to59)
+b_preds_mort_coords_1to11  <- st_coordinates(b_preds_mort_1to11)
+b_preds_mort_coords_12to59 <- st_coordinates(b_preds_mort_12to59)
+
+b_preds_mort_raster_1to59 <- points_to_raster(
+  x = b_preds_mort_coords_1to59[,1],
+  y = b_preds_mort_coords_1to59[,2],
+  z = b_preds_mort_1to59$pred*100,
+  mask1 = niger_adm2,
+  crop1 = niger_adm2
+)
+
+b_preds_mort_raster_1to11 <- points_to_raster(
+  x = b_preds_mort_coords_1to11[,1],
+  y = b_preds_mort_coords_1to11[,2],
+  z = b_preds_mort_1to11$pred*100,
+  mask1 = niger_adm2,
+  crop1 = niger_adm2
+)
+
+b_preds_mort_raster_12to59 <- points_to_raster(
+  x = b_preds_mort_coords_12to59[,1],
+  y = b_preds_mort_coords_12to59[,2],
+  z = b_preds_mort_12to59$pred*100,
+  mask1 = niger_adm2,
+  crop1 = niger_adm2
+)
+
+b_preds_mort_raster2_1to59  <- raster_to_tibble(b_preds_mort_raster_1to59)
+b_preds_mort_raster2_1to11  <- raster_to_tibble(b_preds_mort_raster_1to11)
+b_preds_mort_raster2_12to59 <- raster_to_tibble(b_preds_mort_raster_12to59)
+
+```

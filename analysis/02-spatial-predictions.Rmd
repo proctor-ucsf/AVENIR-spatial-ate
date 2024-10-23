@@ -1,7 +1,7 @@
 ---
 title: "02-spatial-predictions"
 author: "Mia Navarro"
-date: "2024-10-02"
+date: "2024-10-09"
 output: html_document
 ---
 
@@ -22,89 +22,88 @@ source(here::here("0-config.R"))
 
 ```
 
-# Prep map elements
-
-```{r convert to spatial data}
-
-#-------------------------------
-# format grappe data as sf
-#-------------------------------
-d_sf <- st_as_sf(grappe_gps_mort, coords=c("lon","lat"), 
-                 crs=4326) # set coordinate ref system to WGS1984
-
-#-------------------------------
-# load administrative boundaries
-# downloaded from 
-# humanitarian data exchange
-# https://data.humdata.org/dataset/cod-ab-ner?
-#-------------------------------
-niger_adm0 <- st_read(dsn = paste0(shp_data,"ner_adm00_feb2018/NER_adm00_feb2018.shp"))
-niger_adm1 <- st_read(dsn = paste0(shp_data,"ner_adm01_feb2018/NER_adm01_feb2018.shp"))
-niger_adm2 <- st_read(dsn = paste0(shp_data,"ner_adm02_feb2018/NER_adm02_feb2018.shp"))
-
-# filter admin level 2 subdistricts to just Dosso and Tahoua
-niger_adm2 <- niger_adm2 %>%
-  # filter(adm_01 %in% c("Dosso","Tahoua"))
-  filter(adm_02 %in% c("Dosso")) ## for initial analysis, just doing Dosso
-
-```
-
 ## Spatial predictions of diarrhea and ATE
 ```{r}
 
-#---------------------------
-# identify the bounding box
-# around subdistricts that
-# contain the WASHB Bangladesh
-# clusters
-#---------------------------
-b_boxgrid <- st_make_grid(niger_adm2,
-                          n=c(100,100),
-                          what = "centers"
-                          )
-
-#-------------------------
-# data frame for
+#-------------------------------
+# data frames for
 # mortality spatial modeling
-#-------------------------
-grappe_gps_mort
+#-------------------------------
+df_all; df_tx1; df_tx2; df_tx3
 
-#-------------------------
-# fit spatial model for
-# diarrhea prevalence in 
-# the control group
-#-------------------------
-b_fitmort <- spaMM::fitme(n_deaths_1to59 ~ 
-                            1 +
-                            lat + lon + 
-                            Matern(1|lat + lon) +
-                            (1|adaptive_rand),
-                          resid.model = list(formula=~0+
-                                               offset(log(pt_year_1to59))
-                                             ),
-                          data = grappe_gps_mort,
-                          family = poisson(link = "log")
-                          )
+#-------------------------------
+# fit spatial models for
+# mortality rate
+# strata 1: age group of deaths
+# strata 2: treatment arm
+#-------------------------------
 
-plot_materncor_mort <- plot_matern_corr(b_fitmort)
+for (agegroup in c("1to59","1to11","12to59")) {
+  
+  i=0
+  
+  for (txarm in list(df_all, df_tx1, df_tx2, df_tx3)) {
+    
+    assign(paste0("fitmort_",agegroup,"_",i),
+           create_fitme(df = txarm, age = agegroup))
+    i=i+1
+    
+  }
+  
+}
 
-plot_materncor_mort
 
-ggsave(filename=paste0(figure_path,"avenir-materncor.png"),
-       plot=plot_materncor_mort,
-       device="png",
-       width=3.3,
-       height=3.5)
+### for one quick simulation ###
+# agegroup2 <- "1to59"; df_use <- df_all; i = 0
+# assign(paste0("fitmort_",agegroup2,"_",i),
+#        create_fitme(df = df_use, age = agegroup2))
+
+# fitmort_1to59_0;  fitmort_1to59_1;  fitmort_1to59_2;  fitmort_1to59_3
+# fitmort_1to11_0;  fitmort_1to11_1;  fitmort_1to11_2;  fitmort_1to11_3
+# fitmort_12to59_0; fitmort_12to59_1; fitmort_12to59_2; fitmort_12to59_3
+
+```
+##   JUMP HERE (10/10/2024)
+###  Q: WHICH AGE GROUP ARE WE USING FOR MORTALITY?
+#### Indicate this for plot_materncor and b_preds.
+```{r}
+
+df_s0 <- fitmort_1to59_0
+df_s1 <- fitmort_1to59_1
+df_s2 <- fitmort_1to59_2
+df_s3 <- fitmort_1to59_3
+
 ```
 
+
+```{r}
+#--------------------------------------
+# generate and store
+# matern correlation plots per strata
+#--------------------------------------
+materncorr_s0  <- plot_matern_corr(df_s0, "avenir-materncorr-s0")
+materncorr_s1  <- plot_matern_corr(df_s1, "avenir-materncorr-s1")
+materncorr_s2  <- plot_matern_corr(df_s2, "avenir-materncorr-s2")
+materncorr_s3  <- plot_matern_corr(df_s3, "avenir-materncorr-s3")
+
+```
 
 ```{r}
 #--------------------------------------
 # get model predictions on a grid
 # (see function in washb-geopair-Functions.R)
 #--------------------------------------
-b_preds_mort <- get_grid_preds(input_grid=b_boxgrid, 
-                              spamm_model_fit = b_fitmort)
+b_preds_mort_s0 <- get_grid_preds(input_grid      = b_boxgrid,
+                                  spamm_model_fit = df_s0)
+
+b_preds_mort_s1 <- get_grid_preds(input_grid      = b_boxgrid,
+                                  spamm_model_fit = df_s1)
+
+b_preds_mort_s2 <- get_grid_preds(input_grid      = b_boxgrid,
+                                  spamm_model_fit = df_s2)
+
+b_preds_mort_s3 <- get_grid_preds(input_grid      = b_boxgrid,
+                                  spamm_model_fit = df_s3)
 
 #--------------------------------------
 # convert predicted surface of the mean
@@ -114,64 +113,46 @@ b_preds_mort <- get_grid_preds(input_grid=b_boxgrid,
 # scale prevalence by 100
 # to be in units of percent (%)
 #--------------------------------------
-b_preds_mort_coords <- st_coordinates(b_preds_mort)
+b_preds_mort_coords_s0 <- st_coordinates(b_preds_mort_s0)
+b_preds_mort_coords_s1 <- st_coordinates(b_preds_mort_s1)
+b_preds_mort_coords_s2 <- st_coordinates(b_preds_mort_s2)
+b_preds_mort_coords_s3 <- st_coordinates(b_preds_mort_s3)
 
-b_preds_mort_raster <- points_to_raster(
-  x = b_preds_mort_coords[,1],
-  y = b_preds_mort_coords[,2],
-  z = b_preds_mort$pred*100,
+b_preds_mort_raster_s0 <- points_to_raster(
+  x = b_preds_mort_coords_s0[,1],
+  y = b_preds_mort_coords_s0[,2],
+  z = b_preds_mort_s0$pred*100,
   mask1 = niger_adm2,
   crop1 = niger_adm2
 )
 
-b_preds_mort_raster2 <- raster_to_tibble(b_preds_mort_raster)
+b_preds_mort_raster_s1 <- points_to_raster(
+  x = b_preds_mort_coords_s1[,1],
+  y = b_preds_mort_coords_s1[,2],
+  z = b_preds_mort_s1$pred*100,
+  mask1 = niger_adm2,
+  crop1 = niger_adm2
+)
 
-```
+b_preds_mort_raster_s2 <- points_to_raster(
+  x = b_preds_mort_coords_s2[,1],
+  y = b_preds_mort_coords_s2[,2],
+  z = b_preds_mort_s2$pred*100,
+  mask1 = niger_adm2,
+  crop1 = niger_adm2
+)
 
+b_preds_mort_raster_s3 <- points_to_raster(
+  x = b_preds_mort_coords_s3[,1],
+  y = b_preds_mort_coords_s3[,2],
+  z = b_preds_mort_s3$pred*100,
+  mask1 = niger_adm2,
+  crop1 = niger_adm2
+)
 
-
-```{r map predictions}
-
-ggplot(data=b_preds_mort_raster2) + 
-  geom_sf(data=niger_adm2,fill=NA)
-
-map_mort <- ggplot(data=b_preds_mort_raster2) + 
-  geom_tile(aes(x=x,y=y,fill=value), na.rm=TRUE) +
-  geom_sf(data=niger_adm2,fill=NA) +
-  coord_sf(crs = 4326) +
-  scale_fill_viridis(option = "D", direction = 1,
-                     # limits = c(0,10),
-                        na.value = NA,
-                        # breaks = seq(0,10,by=2),
-                        guide=guide_colorbar(title="Deaths per 1000", 
-                                           title.position = "top",
-                                           title.hjust = 0.5,
-                                           direction="horizontal",
-                                           label.position = "bottom",
-                                           label.hjust = 0.5,
-                                           barheight=unit(10,"pt"),
-                                           barwidth=unit(200,"pt"),
-                                           ticks.colour = "white",
-                                           ticks.linewidth = 1,
-                                           frame.colour = "white"
-                        )
-                        ) +
-  # geom_point(data=dbgps_block, aes(x=lon,y=lat),pch=21,size=2,color="black",fill=NA) +
-  # geom_point(data=dbgps_cn,aes(x=lon,y=lat),pch=16,color="gray40",size=0.8) +
-  labs(x="Latitude",y="Longitude",tag="a") +
-  # annotation_scale(location = "br", width_hint = 0.2) +
-  theme_minimal() +
-  theme(
-    legend.position = "bottom",
-    plot.tag = element_text(face="bold",size=16)
-  )
-
-map_mort
-
-ggsave(filename=paste0(figure_path,"avenir-mortality-rate-smoothed-layer-map.png"),
-       plot=map_mort,
-       device="png",
-       width=3.3,
-       height=3.5)
+b_preds_mort_raster2_s0 <- raster_to_tibble(b_preds_mort_raster_s0)
+b_preds_mort_raster2_s1 <- raster_to_tibble(b_preds_mort_raster_s1)
+b_preds_mort_raster2_s2 <- raster_to_tibble(b_preds_mort_raster_s2)
+b_preds_mort_raster2_s3 <- raster_to_tibble(b_preds_mort_raster_s3)
 
 ```

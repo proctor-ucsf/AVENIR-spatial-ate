@@ -1,5 +1,50 @@
 ## 0-functions-analysis.R
 
+
+
+create_fitme <- function (df  = df_all,
+                          age = "1to59") {
+  
+  if (age == "1to59") {
+    
+    b_fitmort_temp <- spaMM::fitme(n_deaths_1to59 ~ 
+                                     1 + lat + lon + 
+                                     Matern(1|lat + lon) +
+                                     (1|site_code),
+                                   resid.model = 
+                                     list(formula=~0+offset(log(pt_year_1to59))),
+                                   data = df,
+                                   family = poisson(link = "log"))
+  } else if (age == "1to11") {
+    
+    b_fitmort_temp <- spaMM::fitme(n_deaths_1to11 ~ 
+                                     1 + lat + lon + 
+                                     Matern(1|lat + lon) +
+                                     (1|site_code),
+                                   resid.model = 
+                                     list(formula=~0+offset(log(pt_year_1to11))),
+                                   data = df,
+                                   family = poisson(link = "log"))
+    
+  } else if (age == "12to59") {
+    
+    b_fitmort_temp <- spaMM::fitme(n_deaths_12to59 ~ 
+                                     1 + lat + lon + 
+                                     Matern(1|lat + lon) +
+                                     (1|site_code),
+                                   resid.model = 
+                                     list(formula=~0+offset(log(pt_year_12to59))),
+                                   data = df,
+                                   family = poisson(link = "log"))
+    
+  }
+  
+  
+  return(b_fitmort_temp)
+  
+}
+
+
 #--------------------------------------
 # get_grid_preds()
 #
@@ -18,15 +63,15 @@ get_grid_preds <- function(input_grid, spamm_model_fit){
     st_centroid() %>% 
     st_as_sf(crs = 4326) %>% 
     mutate(lon = sf::st_coordinates(.)[,1],
-           lat = sf::st_coordinates(.)[,2]) %>%
+           lat = sf::st_coordinates(.)[,2],
+           site_code = 0) %>% #dummy
     st_drop_geometry()
-  
+
   # get predictions (response)
   
   temp_preds <- predict(object = spamm_model_fit,
                         type = "response",
-                        newdata = newd,
-                        re.form= ~ 1 +  Matern(1|longitude+latitude))
+                        newdata = newd)
   
   # get estimated variance at each location
   temp_predVar <- spaMM::get_predVar(object = spamm_model_fit, 
@@ -59,7 +104,8 @@ get_grid_preds <- function(input_grid, spamm_model_fit){
 # the model fit must have variables 
 # "lon" and "lat" as the x,y coordinates
 #--------------------------------------
-plot_matern_corr <- function(spamm_model_fit) {
+plot_matern_corr <- function(spamm_model_fit, 
+                             filenameval="avenir-materncorr") {
   
   # create a distance matrix between all points
   # compute great circle distances in meters
@@ -111,6 +157,12 @@ plot_matern_corr <- function(spamm_model_fit) {
       axis.text = element_text(size=16),
       axis.title = element_text(size=18)
     )
+  
+  ggsave(filename=paste0(figure_path,filenameval,".png"),
+         plot=plot_materncor,
+         device="png",
+         width=3.3,
+         height=3.5)
   
   return(plot_materncor)
   
@@ -185,4 +237,45 @@ raster_to_tibble <- function(x, maxpixels = 50000)  {
                             by = c("value" = "ID"))
   }
   return(dat)
+}
+
+
+
+
+create_mort_map <- function (raster2     = b_preds_mort_raster2_s0,
+                             agetxt      = "(1 to 59)",
+                             tagtxt      = "Overall") {
+  
+  map_mort_temp <- ggplot(data=raster2) + 
+    geom_tile(aes(x=x,y=y,fill=value), na.rm=TRUE) +
+    geom_sf(data=niger_adm2,fill=NA) +
+    coord_sf(crs = 4326) +
+    scale_fill_viridis(option = "D", direction = 1,
+                       # limits = c(0,10),
+                       na.value = NA,
+                       # breaks = seq(0,10,by=2),
+                       guide=guide_colorbar(title=paste0("Deaths per 1000 ",agetxt), 
+                                            title.position = "top",
+                                            title.hjust = 0.5,
+                                            direction="horizontal",
+                                            label.position = "bottom",
+                                            label.hjust = 0.5,
+                                            barheight=unit(10,"pt"),
+                                            barwidth=unit(200,"pt"),
+                                            ticks.colour = "white",
+                                            ticks.linewidth = 1,
+                                            frame.colour = "white")
+    ) +
+    labs(x="Latitude",y="Longitude",tag=tagtxt) +
+    theme_minimal() +
+    theme(legend.position = "bottom",
+          plot.tag = element_text(face="bold",size=16) )
+  
+  ggsave(filename=paste0(figure_path,"avenir-mortality-rate-map-",tagtxt,".png"),
+         plot=map_mort_temp,
+         device="png",
+         width=3.3,
+         height=3.5)
+  
+  return(map_mort_temp)
 }

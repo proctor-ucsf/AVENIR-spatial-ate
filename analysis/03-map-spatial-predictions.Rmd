@@ -1,0 +1,51 @@
+---
+title: "03-map-spatial-predictions"
+author: "Mia Navarro"
+date: "2024-10-09"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+### Configure environment. Load data.
+```{r warning=F}
+
+source(here::here("0-config.R"))
+
+#---------------------------
+# requires the following data:
+# b_preds_mort_raster2_s0,1,2,3
+#---------------------------
+
+```
+
+
+```{r map predictions}
+
+#--------------------------------------
+# create and save mortality rate maps
+# for all treatment arms
+# (see function in washb-geopair-Functions.R)
+#--------------------------------------
+
+
+map_mort_s0 <- create_mort_map(raster2 = b_preds_mort_raster2_s0,
+                               agetxt  = "(1 to 59)",
+                               tagtxt  = "Overall")
+
+map_mort_s1 <- create_mort_map(raster2 = b_preds_mort_raster2_s1,
+                               agetxt  = "(1 to 59)",
+                               tagtxt  = "Child Azithro")
+
+map_mort_s2 <- create_mort_map(raster2 = b_preds_mort_raster2_s2,
+                               agetxt  = "(1 to 59)",
+                               tagtxt  = "Infant Azithro")
+
+map_mort_s3 <- create_mort_map(raster2 = b_preds_mort_raster2_s3,
+                               agetxt  = "(1 to 59)",
+                               tagtxt  = "Placebo")
+
+```
