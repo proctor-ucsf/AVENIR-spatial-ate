@@ -45,6 +45,119 @@ create_fitme <- function (df  = df_all,
 }
 
 
+create_fitme_v1 <- function (df  = df_all,
+                          age = "1to59") {
+  
+  if (age == "1to59") {
+    
+    b_fitmort_temp <- spaMM::fitme(n_deaths_1to59 ~ 
+                                     1 + lat + lon + 
+                                     Matern(1|lat + lon) +
+                                     isTreated_child +
+                                     (1|site_code),
+                                   resid.model = 
+                                     list(formula=~0+offset(log(pt_year_1to59))),
+                                   data = df,
+                                   family = poisson(link = "log"))
+  } else if (age == "1to11") {
+    
+    b_fitmort_temp <- spaMM::fitme(n_deaths_1to11 ~ 
+                                     1 + lat + lon + 
+                                     Matern(1|lat + lon) +
+                                     isTreated_child +
+                                     (1|site_code),
+                                   resid.model = 
+                                     list(formula=~0+offset(log(pt_year_1to11))),
+                                   data = df,
+                                   family = poisson(link = "log"))
+    
+  } else if (age == "12to59") {
+    
+    b_fitmort_temp <- spaMM::fitme(n_deaths_12to59 ~ 
+                                     1 + lat + lon + 
+                                     Matern(1|lat + lon) +
+                                     isTreated_child +
+                                     (1|site_code),
+                                   resid.model = 
+                                     list(formula=~0+offset(log(pt_year_12to59))),
+                                   data = df,
+                                   family = poisson(link = "log"))
+    
+  }
+  
+  
+  return(b_fitmort_temp)
+  
+}
+
+
+create_fitme_v2 <- function (df  = df_all,
+                             age = "1to59") {
+  
+  if (age == "1to59") {
+    
+    b_fitmort_temp <- spaMM::fitme(n_deaths_1to59 ~ 
+                                     1 + lat + lon + 
+                                     Matern(1|lat + lon) +
+                                     isTreated_alltx +
+                                     (1|site_code),
+                                   resid.model = 
+                                     list(formula=~0+offset(log(pt_year_1to59))),
+                                   data = df,
+                                   family = poisson(link = "log"))
+  } else if (age == "1to11") {
+    
+    b_fitmort_temp <- spaMM::fitme(n_deaths_1to11 ~ 
+                                     1 + lat + lon + 
+                                     Matern(1|lat + lon) +
+                                     isTreated_alltx +
+                                     (1|site_code),
+                                   resid.model = 
+                                     list(formula=~0+offset(log(pt_year_1to11))),
+                                   data = df,
+                                   family = poisson(link = "log"))
+    
+  } else if (age == "12to59") {
+    
+    b_fitmort_temp <- spaMM::fitme(n_deaths_12to59 ~ 
+                                     1 + lat + lon + 
+                                     Matern(1|lat + lon) +
+                                     isTreated_alltx +
+                                     (1|site_code),
+                                   resid.model = 
+                                     list(formula=~0+offset(log(pt_year_12to59))),
+                                   data = df,
+                                   family = poisson(link = "log"))
+    
+  }
+  
+  
+  return(b_fitmort_temp)
+  
+}
+
+
+create_fitme_v4 <- function (df  = df_all,
+                             age = "1to59") {
+  
+  if (age == "1to59") {
+    
+    b_fitmort_temp <- spaMM::fitme(n_deaths_1to59 ~ 
+                                     1 + lat*isTreated_child + lon*isTreated_child + 
+                                     Matern(1|lat + lon)*isTreated_child +
+                                     isTreated_child +
+                                     (1|site_code),
+                                   resid.model = 
+                                     list(formula=~0+offset(log(pt_year_1to59))),
+                                   data = df,
+                                   family = poisson(link = "log"))
+  }
+  
+  
+  return(b_fitmort_temp)
+  
+}
+
 #--------------------------------------
 # get_grid_preds()
 #
@@ -67,6 +180,82 @@ get_grid_preds <- function(input_grid, spamm_model_fit){
            site_code = 0) %>% #dummy
     st_drop_geometry()
 
+  # get predictions (response)
+  
+  temp_preds <- predict(object = spamm_model_fit,
+                        type = "response",
+                        newdata = newd)
+  
+  # get estimated variance at each location
+  temp_predVar <- spaMM::get_predVar(object = spamm_model_fit, 
+                                     newdata = newd, 
+                                     which = "predVar")
+  
+  # create a dataframe 
+  # for predictions using 
+  # centroid coordinates from the grid
+  # add predictions and variance to the grid
+  ret <- input_grid %>% 
+    as.data.frame() %>% 
+    st_as_sf(crs = 4326) %>% 
+    mutate(pred = as.numeric(temp_preds),
+           pred_var = as.numeric(temp_predVar))
+  
+  return(ret)
+  
+}
+
+get_grid_preds_v1 <- function(input_grid, spamm_model_fit, tx_group=0){
+  
+  # convert grid into a data.frame with lon/lat variables
+  newd <- input_grid %>%
+    st_centroid() %>% 
+    st_as_sf(crs = 4326) %>% 
+    mutate(lon = sf::st_coordinates(.)[,1],
+           lat = sf::st_coordinates(.)[,2],
+           isTreated_child = tx_group,
+           site_code = 0, #dummy
+           pt_year_1to59 = 1000 #set to default value
+           ) %>% 
+    st_drop_geometry()
+  
+  # get predictions (response)
+  
+  temp_preds <- predict(object = spamm_model_fit,
+                        type = "response",
+                        newdata = newd)
+  
+  # get estimated variance at each location
+  temp_predVar <- spaMM::get_predVar(object = spamm_model_fit, 
+                                     newdata = newd, 
+                                     which = "predVar")
+  
+  # create a dataframe 
+  # for predictions using 
+  # centroid coordinates from the grid
+  # add predictions and variance to the grid
+  ret <- input_grid %>% 
+    as.data.frame() %>% 
+    st_as_sf(crs = 4326) %>% 
+    mutate(pred = as.numeric(temp_preds),
+           pred_var = as.numeric(temp_predVar))
+  
+  return(ret)
+  
+}
+
+get_grid_preds_v2 <- function(input_grid, spamm_model_fit, tx_group=0){
+  
+  # convert grid into a data.frame with lon/lat variables
+  newd <- input_grid %>%
+    st_centroid() %>% 
+    st_as_sf(crs = 4326) %>% 
+    mutate(lon = sf::st_coordinates(.)[,1],
+           lat = sf::st_coordinates(.)[,2],
+           isTreated_alltx = tx_group,
+           site_code = 0) %>% #dummy
+    st_drop_geometry()
+  
   # get predictions (response)
   
   temp_preds <- predict(object = spamm_model_fit,

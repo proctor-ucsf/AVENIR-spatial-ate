@@ -1,5 +1,5 @@
 ---
-title: "01-data-processing"
+title: "01A-data-prep-mort"
 author: "Mia Navarro"
 date: "2024-09-29"
 output: html_document
@@ -8,7 +8,6 @@ output: html_document
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 ```
-
 
 ### Configure environment. Load data.
 ```{r warning=F}
@@ -82,14 +81,30 @@ nrow(grappe_mort_1) == nrow(grappe_mort)
 grappe_mort_2 <- grappe_mort_1 %>%
   mutate(
   tx = case_when(
-      tx == "1 - Azithro 1-59m" ~ "Child Azithro",
-      tx == "2 - Azithro 1-11m" ~ "Infant Azithro",
-      tx == "3 - Placebo 1-59m" ~ "Placebo"
-      ),
-  tx = factor(tx, levels = c(
-    "Child Azithro",
-    "Infant Azithro",
-    "Placebo"))
+    tx == "1 - Azithro 1-59m" ~ "Child Azithro",
+    tx == "2 - Azithro 1-11m" ~ "Infant Azithro",
+    tx == "3 - Placebo 1-59m" ~ "Placebo"),
+  
+  isTreated_child = case_when(
+    tx == "Child Azithro" ~ "Treatment",
+    .default = "Control"
+    ),
+  
+  isTreated_alltx = case_when(
+    tx == "Placebo" ~ "Control",
+    .default = "Treatment"
+    ),
+  
+  tx = factor(tx, 
+              levels = c("Child Azithro","Infant Azithro","Placebo")),
+  
+  isTreated_child = factor(isTreated_child, 
+                           levels = c("Control","Treatment")),
+  
+  isTreated_alltx = factor(isTreated_alltx, 
+                           levels = c("Control","Treatment"))
+  
+  
   ) %>%
   # shorten adaptive randomization labels
   mutate(adaptive_rand = factor(adaptive_rand, 
@@ -98,62 +113,30 @@ grappe_mort_2 <- grappe_mort_1 %>%
                                            "Random Allocation 3"),
                                 labels = c("Randomization 1", 
                                            "Randomization 2", 
-                                           "Randomization 3")))
+                                           "Randomization 3"))
+         )
 
-grappe_gps_mort <- 
-  grappe_mort_2 %>%
-  filter(district=="Dosso")
+# --------------------------------------------------
+# Check that the binary treatment variables were 
+# properly assigned
+# --------------------------------------------------
+df_all %>% group_by(tx,isTreated_child) %>% summarise(n=n())
+df_all %>% group_by(tx,isTreated_alltx) %>% summarise(n=n())
 
 # -------------------------
 # Don't store final dataset
 # locally--PHI
 # -------------------------
 
+grappe_gps_mort <- 
+  grappe_mort_2 %>%
+  filter(district=="Dosso")
+
 df_all <- grappe_gps_mort
 df_tx1 <- grappe_gps_mort %>% filter(as.integer(tx)==1)
 df_tx2 <- grappe_gps_mort %>% filter(as.integer(tx)==2)
 df_tx3 <- grappe_gps_mort %>% filter(as.integer(tx)==3)
 
-df_tx1; df_tx2; df_tx3
-
-```
-
-# Prep map elements
-
-```{r convert to spatial data}
-
-#-------------------------------
-# format grappe data as sf
-#-------------------------------
-d_sf <- st_as_sf(grappe_gps_mort, 
-                 coords = c("lon","lat"), 
-                 crs    = 4326) # set coordinate ref system to WGS1984
-
-#-------------------------------
-# load administrative boundaries
-# downloaded from 
-# humanitarian data exchange
-# https://data.humdata.org/dataset/cod-ab-ner?
-#-------------------------------
-niger_adm0 <- st_read(dsn = paste0(shp_data,"ner_adm00_feb2018/NER_adm00_feb2018.shp"))
-niger_adm1 <- st_read(dsn = paste0(shp_data,"ner_adm01_feb2018/NER_adm01_feb2018.shp"))
-niger_adm2 <- st_read(dsn = paste0(shp_data,"ner_adm02_feb2018/NER_adm02_feb2018.shp"))
-
-# filter admin level 2 subdistricts to just Dosso and Tahoua
-niger_adm2 <- niger_adm2 %>%
-  # filter(adm_01 %in% c("Dosso","Tahoua"))
-  filter(adm_02 %in% c("Dosso")) ## for initial analysis, just doing Dosso
-
-
-#---------------------------
-# identify the bounding box
-# around subdistricts that
-# contain the WASHB Bangladesh
-# clusters
-#---------------------------
-b_boxgrid <- st_make_grid(niger_adm2,
-                          n    = c(100,100),
-                          what = "centers"
-                          )
+df_all
 
 ```

@@ -22,14 +22,14 @@ source(here::here("0-config.R"))
 
 ```
 
-## Spatial predictions of diarrhea and ATE
+## Spatial predictions of mortality and ATE
 ```{r}
 
 #-------------------------------
 # data frames for
 # mortality spatial modeling
 #-------------------------------
-df_all; df_tx1; df_tx2; df_tx3
+df_all
 
 #-------------------------------
 # fit spatial models for
@@ -38,40 +38,48 @@ df_all; df_tx1; df_tx2; df_tx3
 # strata 2: treatment arm
 #-------------------------------
 
-for (agegroup in c("1to59","1to11","12to59")) {
-  
-  i=0
-  
-  for (txarm in list(df_all, df_tx1, df_tx2, df_tx3)) {
-    
-    assign(paste0("fitmort_",agegroup,"_",i),
-           create_fitme(df = txarm, age = agegroup))
-    i=i+1
-    
-  }
-  
-}
+fitmort_1to59_0 <- create_fitme(df = df_all, age = "1to59")
 
+# for (agegroup in c("1to59","1to11","12to59")) {
+#   
+#   i=0
+#   
+#   for (txarm in list(df_all, df_tx1, df_tx2, df_tx3)) {
+#     
+#     assign(paste0("fitmort_",agegroup,"_",i),
+#            create_fitme(df = txarm, age = agegroup))
+#     i=i+1
+#     
+#   }
+#   
+# }
 
-### for one quick simulation ###
-# agegroup2 <- "1to59"; df_use <- df_all; i = 0
-# assign(paste0("fitmort_",agegroup2,"_",i),
-#        create_fitme(df = df_use, age = agegroup2))
+#--------------------------------------------------------------
+# fit spatial models for mortality rate with new binary tx vars,
+# isTreated_child: 0=placebo+infant, 1=child
+# isTreated_alltx: 0=placebo, 1=infant+child
+#--------------------------------------------------------------
 
-# fitmort_1to59_0;  fitmort_1to59_1;  fitmort_1to59_2;  fitmort_1to59_3
-# fitmort_1to11_0;  fitmort_1to11_1;  fitmort_1to11_2;  fitmort_1to11_3
-# fitmort_12to59_0; fitmort_12to59_1; fitmort_12to59_2; fitmort_12to59_3
+fitmort_1to59_child <- create_fitme_v1(df = df_all)
+fitmort_1to59_alltx <- create_fitme_v2(df = df_all)
+
+confint(fitmort_1to59_child$models, "predictor")
+
+fitmort_1to59_child
+fitmort_1to59_alltx
 
 ```
-##   JUMP HERE (10/10/2024)
 ###  Q: WHICH AGE GROUP ARE WE USING FOR MORTALITY?
 #### Indicate this for plot_materncor and b_preds.
 ```{r}
 
 df_s0 <- fitmort_1to59_0
-df_s1 <- fitmort_1to59_1
-df_s2 <- fitmort_1to59_2
-df_s3 <- fitmort_1to59_3
+df_s0_child <- fitmort_1to59_child
+df_s0_alltx <- fitmort_1to59_alltx
+
+# df_s1 <- fitmort_1to59_1
+# df_s2 <- fitmort_1to59_2
+# df_s3 <- fitmort_1to59_3
 
 ```
 
@@ -82,28 +90,48 @@ df_s3 <- fitmort_1to59_3
 # matern correlation plots per strata
 #--------------------------------------
 materncorr_s0  <- plot_matern_corr(df_s0, "avenir-materncorr-s0")
-materncorr_s1  <- plot_matern_corr(df_s1, "avenir-materncorr-s1")
-materncorr_s2  <- plot_matern_corr(df_s2, "avenir-materncorr-s2")
-materncorr_s3  <- plot_matern_corr(df_s3, "avenir-materncorr-s3")
+materncorr_s0_child  <- plot_matern_corr(df_s0_child, "avenir-materncorr-s0-child")
+materncorr_s0_alltx  <- plot_matern_corr(df_s0_alltx, "avenir-materncorr-s0-alltx")
+
+# materncorr_s1  <- plot_matern_corr(df_s1, "avenir-materncorr-s1")
+# materncorr_s2  <- plot_matern_corr(df_s2, "avenir-materncorr-s2")
+# materncorr_s3  <- plot_matern_corr(df_s3, "avenir-materncorr-s3")
 
 ```
 
+### Create model predictions per each treatment arm for the two definitions of treatment, `isTreated_child` and `isTreated_alltx`.
 ```{r}
 #--------------------------------------
 # get model predictions on a grid
 # (see function in washb-geopair-Functions.R)
 #--------------------------------------
-b_preds_mort_s0 <- get_grid_preds(input_grid      = b_boxgrid,
-                                  spamm_model_fit = df_s0)
+b_preds_mort_s0       <- get_grid_preds   (input_grid = b_boxgrid,
+                                           spamm_model_fit = df_s0)
 
-b_preds_mort_s1 <- get_grid_preds(input_grid      = b_boxgrid,
-                                  spamm_model_fit = df_s1)
+b_preds_mort_tx0_child <- get_grid_preds_v1(input_grid = b_boxgrid,
+                                           spamm_model_fit = df_s0_child,
+                                           tx_group="Control")
 
-b_preds_mort_s2 <- get_grid_preds(input_grid      = b_boxgrid,
-                                  spamm_model_fit = df_s2)
+b_preds_mort_tx1_child <- get_grid_preds_v1(input_grid = b_boxgrid,
+                                           spamm_model_fit = df_s0_child,
+                                           tx_group="Treatment")
 
-b_preds_mort_s3 <- get_grid_preds(input_grid      = b_boxgrid,
-                                  spamm_model_fit = df_s3)
+b_preds_mort_tx0_alltx <- get_grid_preds_v2(input_grid = b_boxgrid,
+                                           spamm_model_fit = df_s0_alltx,
+                                           tx_group="Control")
+
+b_preds_mort_tx1_alltx <- get_grid_preds_v2(input_grid = b_boxgrid,
+                                           spamm_model_fit = df_s0_alltx,
+                                           tx_group="Treatment")
+
+# b_preds_mort_s1 <- get_grid_preds(input_grid      = b_boxgrid,
+#                                   spamm_model_fit = df_s1)
+# 
+# b_preds_mort_s2 <- get_grid_preds(input_grid      = b_boxgrid,
+#                                   spamm_model_fit = df_s2)
+# 
+# b_preds_mort_s3 <- get_grid_preds(input_grid      = b_boxgrid,
+#                                   spamm_model_fit = df_s3)
 
 #--------------------------------------
 # convert predicted surface of the mean
@@ -113,10 +141,15 @@ b_preds_mort_s3 <- get_grid_preds(input_grid      = b_boxgrid,
 # scale prevalence by 100
 # to be in units of percent (%)
 #--------------------------------------
-b_preds_mort_coords_s0 <- st_coordinates(b_preds_mort_s0)
-b_preds_mort_coords_s1 <- st_coordinates(b_preds_mort_s1)
-b_preds_mort_coords_s2 <- st_coordinates(b_preds_mort_s2)
-b_preds_mort_coords_s3 <- st_coordinates(b_preds_mort_s3)
+b_preds_mort_coords_s0        <- st_coordinates(b_preds_mort_s0)
+b_preds_mort_coords_tx0_child <- st_coordinates(b_preds_mort_tx0_child)
+b_preds_mort_coords_tx1_child <- st_coordinates(b_preds_mort_tx1_child)
+b_preds_mort_coords_tx0_alltx <- st_coordinates(b_preds_mort_tx0_alltx)
+b_preds_mort_coords_tx1_alltx <- st_coordinates(b_preds_mort_tx1_alltx)
+
+# b_preds_mort_coords_s1 <- st_coordinates(b_preds_mort_s1)
+# b_preds_mort_coords_s2 <- st_coordinates(b_preds_mort_s2)
+# b_preds_mort_coords_s3 <- st_coordinates(b_preds_mort_s3)
 
 b_preds_mort_raster_s0 <- points_to_raster(
   x = b_preds_mort_coords_s0[,1],
@@ -126,33 +159,98 @@ b_preds_mort_raster_s0 <- points_to_raster(
   crop1 = niger_adm2
 )
 
-b_preds_mort_raster_s1 <- points_to_raster(
-  x = b_preds_mort_coords_s1[,1],
-  y = b_preds_mort_coords_s1[,2],
-  z = b_preds_mort_s1$pred*100,
+b_preds_mort_raster_tx0_child <- points_to_raster(
+  x = b_preds_mort_coords_tx0_child[,1],
+  y = b_preds_mort_coords_tx0_child[,2],
+  z = b_preds_mort_tx0_child$pred*100,
   mask1 = niger_adm2,
   crop1 = niger_adm2
 )
 
-b_preds_mort_raster_s2 <- points_to_raster(
-  x = b_preds_mort_coords_s2[,1],
-  y = b_preds_mort_coords_s2[,2],
-  z = b_preds_mort_s2$pred*100,
+b_preds_mort_raster_tx1_child <- points_to_raster(
+  x = b_preds_mort_coords_tx1_child[,1],
+  y = b_preds_mort_coords_tx1_child[,2],
+  z = b_preds_mort_tx1_child$pred*100,
   mask1 = niger_adm2,
   crop1 = niger_adm2
 )
 
-b_preds_mort_raster_s3 <- points_to_raster(
-  x = b_preds_mort_coords_s3[,1],
-  y = b_preds_mort_coords_s3[,2],
-  z = b_preds_mort_s3$pred*100,
+b_preds_mort_raster_tx0_alltx <- points_to_raster(
+  x = b_preds_mort_coords_tx0_alltx[,1],
+  y = b_preds_mort_coords_tx0_alltx[,2],
+  z = b_preds_mort_tx0_alltx$pred*100,
   mask1 = niger_adm2,
   crop1 = niger_adm2
 )
 
-b_preds_mort_raster2_s0 <- raster_to_tibble(b_preds_mort_raster_s0)
-b_preds_mort_raster2_s1 <- raster_to_tibble(b_preds_mort_raster_s1)
-b_preds_mort_raster2_s2 <- raster_to_tibble(b_preds_mort_raster_s2)
-b_preds_mort_raster2_s3 <- raster_to_tibble(b_preds_mort_raster_s3)
+b_preds_mort_raster_tx1_alltx <- points_to_raster(
+  x = b_preds_mort_coords_tx1_alltx[,1],
+  y = b_preds_mort_coords_tx1_alltx[,2],
+  z = b_preds_mort_tx1_alltx$pred*100,
+  mask1 = niger_adm2,
+  crop1 = niger_adm2
+)
+
+# b_preds_mort_raster_s1 <- points_to_raster(
+#   x = b_preds_mort_coords_s1[,1],
+#   y = b_preds_mort_coords_s1[,2],
+#   z = b_preds_mort_s1$pred*100,
+#   mask1 = niger_adm2,
+#   crop1 = niger_adm2
+# )
+# 
+# b_preds_mort_raster_s2 <- points_to_raster(
+#   x = b_preds_mort_coords_s2[,1],
+#   y = b_preds_mort_coords_s2[,2],
+#   z = b_preds_mort_s2$pred*100,
+#   mask1 = niger_adm2,
+#   crop1 = niger_adm2
+# )
+# 
+# b_preds_mort_raster_s3 <- points_to_raster(
+#   x = b_preds_mort_coords_s3[,1],
+#   y = b_preds_mort_coords_s3[,2],
+#   z = b_preds_mort_s3$pred*100,
+#   mask1 = niger_adm2,
+#   crop1 = niger_adm2
+# )
+
+b_preds_mort_raster2_s0        <- raster_to_tibble(b_preds_mort_raster_s0)
+b_preds_mort_raster2_tx0_child <- raster_to_tibble(b_preds_mort_raster_tx0_child)
+b_preds_mort_raster2_tx1_child <- raster_to_tibble(b_preds_mort_raster_tx1_child)
+b_preds_mort_raster2_tx0_alltx <- raster_to_tibble(b_preds_mort_raster_tx0_alltx)
+b_preds_mort_raster2_tx1_alltx <- raster_to_tibble(b_preds_mort_raster_tx1_alltx)
+
+# b_preds_mort_raster2_s1 <- raster_to_tibble(b_preds_mort_raster_s1)
+# b_preds_mort_raster2_s2 <- raster_to_tibble(b_preds_mort_raster_s2)
+# b_preds_mort_raster2_s3 <- raster_to_tibble(b_preds_mort_raster_s3)
+
+```
+
+# 10/31 JUMP HERE
+### Calculate spatial ATE -- difference between tibbles (merge then mutate a `difference` var)
+```{r}
+
+b_preds_mort_raster2_diff_child <- 
+  b_preds_mort_raster2_tx0_child %>%
+  left_join(b_preds_mort_raster2_tx1_child, by=c("x"="x", "y"="y")) %>%
+  rename(mort_tx0 = value.x,
+         mort_tx1 = value.y) %>%
+  mutate(diff_mort = mort_tx1 - mort_tx0)
+
+#merge quality check
+nrow(b_preds_mort_raster2_diff_child) == nrow(b_preds_mort_raster2_tx0_child)
+nrow(b_preds_mort_raster2_diff_child) == nrow(b_preds_mort_raster2_tx1_child)
+
+b_preds_mort_raster2_diff_alltx <- 
+  b_preds_mort_raster2_tx0_alltx %>%
+  left_join(b_preds_mort_raster2_tx1_alltx, by=c("x"="x", "y"="y")) %>%
+  rename(mort_tx0 = value.x,
+         mort_tx1 = value.y) %>%
+  mutate(diff_mort = mort_tx1 - mort_tx0)
+
+#merge quality check
+nrow(b_preds_mort_raster2_diff_alltx) == nrow(b_preds_mort_raster2_tx0_alltx)
+nrow(b_preds_mort_raster2_diff_alltx) == nrow(b_preds_mort_raster2_tx1_alltx)
 
 ```

@@ -1,0 +1,65 @@
+---
+title: "01B-data-prep-maps"
+author: "Mia Navarro"
+date: "2024-10-29"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+### Configure environment. Load data.
+```{r warning=F}
+
+source(here::here("0-config.R"))
+
+d_gps <- 
+  read_csv(here(final_data,"AVENIR_grappe_gps_2023-07-31.csv")) %>%
+  rename(lat = median_latitude,
+         lon = median_longitude)
+
+grappe_phase_mort <- 
+  readRDS(paste0(final_data,"AVENIR_grappe_phase_2023-07-31.rds"))
+
+```
+
+### Prep map elements
+```{r convert to spatial data}
+
+#-------------------------------
+# format grappe data as sf
+#-------------------------------
+d_sf <- st_as_sf(grappe_gps_mort, 
+                 coords = c("lon","lat"), 
+                 crs    = 4326) # set coordinate ref system to WGS1984
+
+#-------------------------------
+# load administrative boundaries
+# downloaded from 
+# humanitarian data exchange
+# https://data.humdata.org/dataset/cod-ab-ner?
+#-------------------------------
+niger_adm0 <- st_read(dsn = paste0(shp_data,"ner_adm00_feb2018/NER_adm00_feb2018.shp"))
+niger_adm1 <- st_read(dsn = paste0(shp_data,"ner_adm01_feb2018/NER_adm01_feb2018.shp"))
+niger_adm2 <- st_read(dsn = paste0(shp_data,"ner_adm02_feb2018/NER_adm02_feb2018.shp"))
+
+# filter admin level 2 subdistricts to just Dosso and Tahoua
+niger_adm2 <- niger_adm2 %>%
+  # filter(adm_01 %in% c("Dosso","Tahoua"))
+  filter(adm_02 %in% c("Dosso")) ## for initial analysis, just doing Dosso
+
+
+#---------------------------
+# identify the bounding box
+# around subdistricts that
+# contain the WASHB Bangladesh
+# clusters
+#---------------------------
+b_boxgrid <- st_make_grid(niger_adm2,
+                          n    = c(100,100),
+                          what = "centers"
+                          )
+
+```
+
