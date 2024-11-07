@@ -59,30 +59,6 @@ create_fitme_v1 <- function (df  = df_all,
                                      list(formula=~0+offset(log(pt_year_1to59))),
                                    data = df,
                                    family = poisson(link = "log"))
-  } else if (age == "1to11") {
-    
-    b_fitmort_temp <- spaMM::fitme(n_deaths_1to11 ~ 
-                                     1 + lat + lon + 
-                                     Matern(1|lat + lon) +
-                                     isTreated_child +
-                                     (1|site_code),
-                                   resid.model = 
-                                     list(formula=~0+offset(log(pt_year_1to11))),
-                                   data = df,
-                                   family = poisson(link = "log"))
-    
-  } else if (age == "12to59") {
-    
-    b_fitmort_temp <- spaMM::fitme(n_deaths_12to59 ~ 
-                                     1 + lat + lon + 
-                                     Matern(1|lat + lon) +
-                                     isTreated_child +
-                                     (1|site_code),
-                                   resid.model = 
-                                     list(formula=~0+offset(log(pt_year_12to59))),
-                                   data = df,
-                                   family = poisson(link = "log"))
-    
   }
   
   

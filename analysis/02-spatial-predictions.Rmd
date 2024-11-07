@@ -242,15 +242,39 @@ b_preds_mort_raster2_diff_child <-
 nrow(b_preds_mort_raster2_diff_child) == nrow(b_preds_mort_raster2_tx0_child)
 nrow(b_preds_mort_raster2_diff_child) == nrow(b_preds_mort_raster2_tx1_child)
 
-b_preds_mort_raster2_diff_alltx <- 
-  b_preds_mort_raster2_tx0_alltx %>%
-  left_join(b_preds_mort_raster2_tx1_alltx, by=c("x"="x", "y"="y")) %>%
-  rename(mort_tx0 = value.x,
-         mort_tx1 = value.y) %>%
-  mutate(diff_mort = mort_tx1 - mort_tx0)
-
-#merge quality check
-nrow(b_preds_mort_raster2_diff_alltx) == nrow(b_preds_mort_raster2_tx0_alltx)
-nrow(b_preds_mort_raster2_diff_alltx) == nrow(b_preds_mort_raster2_tx1_alltx)
+# b_preds_mort_raster2_diff_alltx <- 
+#   b_preds_mort_raster2_tx0_alltx %>%
+#   left_join(b_preds_mort_raster2_tx1_alltx, by=c("x"="x", "y"="y")) %>%
+#   rename(mort_tx0 = value.x,
+#          mort_tx1 = value.y) %>%
+#   mutate(diff_mort = mort_tx1 - mort_tx0)
+# 
+# #merge quality check
+# nrow(b_preds_mort_raster2_diff_alltx) == nrow(b_preds_mort_raster2_tx0_alltx)
+# nrow(b_preds_mort_raster2_diff_alltx) == nrow(b_preds_mort_raster2_tx1_alltx)
 
 ```
+
+### 11/7 Smoothed splines
+```{r}
+
+gammort_1to59_child <-  gam(n_deaths_1to59 ~ 
+                              isTreated_child + 
+                              s(lat,       bs = "cr", by = isTreated_child) +
+                              s(lon,       bs = "cr", by = isTreated_child) +
+                              # Matern(1|lat + lon) +
+                              s(site_code, bs = "re", by = dummy) +
+                              offset(log(pt_year_1to59)), # re is on
+                            data   = df_all,
+                            family = poisson(link = "log"), 
+                            method = "REML")
+  
+  
+
+
+get_smooths_difference(gammort_1to59_child, 
+                       #lat,
+                       difference = isTreated_child
+                       )
+```
+

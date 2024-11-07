@@ -113,7 +113,9 @@ grappe_mort_2 <- grappe_mort_1 %>%
                                            "Random Allocation 3"),
                                 labels = c("Randomization 1", 
                                            "Randomization 2", 
-                                           "Randomization 3"))
+                                           "Randomization 3")),
+         #add dummy var
+         dummy         = 1 
          )
 
 # --------------------------------------------------

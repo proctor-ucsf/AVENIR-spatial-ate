@@ -25,6 +25,7 @@ library(ggplot2) # tidyverse data visualization package
 library(ggraph)
 library(ggmap)
 library(ggpubr)
+library(gratia)
 library(grid)
 library(gridExtra)
 library(gtsummary)
@@ -34,6 +35,7 @@ library(leaflet) # for interactive maps
 library(lme4)
 library(MASS)
 library(Matrix)
+library(mgcv)
 library(patchwork)
 library(psych)
 library(purrr)
@@ -51,6 +53,7 @@ library(spDataLarge)
 library(splines)
 library(tableone)
 library(terra)
+library(tidymv)
 library(tidyverse)
 library(tmap)    # for static and interactive maps
 
