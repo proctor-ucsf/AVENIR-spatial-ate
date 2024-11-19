@@ -1,0 +1,105 @@
+---
+title: "02x-spatial-pred-old-code"
+author: "Mia Navarro"
+date: "2024-11-19"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+### [spaMM] 
+#### (Unused) Difference between tibbles
+```{r eval=F}
+
+#----------------------------------------
+# merge then mutate a `difference` var
+#----------------------------------------
+
+# b_preds_mort_raster2_diff_child <- 
+#   b_preds_mort_raster2_tx0_child %>%
+#   left_join(b_preds_mort_raster2_tx1_child, by=c("x"="x", "y"="y")) %>%
+#   rename(mort_tx0 = value.x,
+#          mort_tx1 = value.y) %>%
+#   mutate(diff_mort = mort_tx1 - mort_tx0)
+# 
+# #merge quality check
+# nrow(b_preds_mort_raster2_diff_child) == nrow(b_preds_mort_raster2_tx0_child)
+# nrow(b_preds_mort_raster2_diff_child) == nrow(b_preds_mort_raster2_tx1_child)
+
+```
+
+
+### [GAMs]
+#### Create GAM models.
+#### Version 2. (DO NOT USE) Interactive term of lon, lat, treatment arm.
+```{r eval=F}
+
+df_all_2 <-
+  df_all %>%
+  mutate(isTreated_child =
+           ifelse(as.character(isTreated_child)=="Control",1,2))
+
+gammort_1to59_child2 <- gam(n_deaths_1to59 ~
+                             s(lon, lat, isTreated_child) +
+                             offset(log(pt_year_1to59)),
+                           data=df_all_2,
+                           family=poisson,
+                           method = "REML")
+
+gammort_1to59_child2 <- getViz(gammort_1to59_child2)
+
+#plots by treatment arm v1
+plot(sm(gammort_1to59_child2, 1),
+        fix       = c("isTreated_child" = 2))
+plot(sm(gammort_1to59_child2, 1),
+        fix       = c("isTreated_child" = 1))
+
+#v2
+plotSlice(x = sm(gammort_1to59_child2, 1),
+                fix = list("isTreated_child" = c(1,2))) +
+  l_fitRaster() +
+  l_fitContour()
+
+#ATE
+plotDiff(s1  = sm(gammort_1to59_child2, 1),
+         fix = c("isTreated_child" = 2),
+         s2  = sm(gammort_1to59_child2, 1),
+         fix = c("isTreated_child" = 1))
+
+#plots by treatment arm
+plot(sm(gammort_1to59_child2, 1)) #Control
+plot(sm(gammort_1to59_child2, 2)) #Treated
+
+#ATE
+plotDiff(s1 = sm(gammort_1to59_child2, 1),
+         fix = c("isTreated_child" = 2),
+         s2 = sm(gammort_1to59_child2, 1),
+         fix = c("isTreated_child" = 1))
+
+```
+
+#### Version 3. (DO NOT USE) 11/7/2024 scratch work
+```{r eval=F}
+
+gammort_1to59_child_v1 <-  gam(n_deaths_1to59 ~
+                              isTreated_child +
+                              # s(lat,lon) +
+                              s(lat,lon, by = isTreated_child) +
+                              # s(lon,       bs = "cr", by = isTreated_child) +
+                              # Matern(1|lat + lon) +
+                              # s(site_code, bs = "re", by = dummy) + #est. surface well but people don't trust the SE calculation
+                              offset(log(pt_year_1to59)), # re is on
+                            data   = df_all,
+                            family = poisson(link = "log"),
+                            method = "REML")
+
+
+summary(gammort_1to59_child_v1)
+
+get_smooths_difference(model=gammort_1to59_child_v1,
+                       #lat,
+                       difference = list(isTreated_child = c("Control", "Treatment"))
+                       )
+```
