@@ -7,8 +7,6 @@
 create_fitme <- function (df  = df_all,
                           age = "1to59") {
   
-  if (age == "1to59") {
-    
     b_fitmort_temp <- spaMM::fitme(n_deaths_1to59 ~ 
                                      1 + lat + lon + 
                                      Matern(1|lat + lon) +
@@ -17,8 +15,23 @@ create_fitme <- function (df  = df_all,
                                      offset(log(pt_year_1to59)),
                                    data = df,
                                    family = poisson(link = "log"))
-  } 
   
+  return(b_fitmort_temp)
+  
+}
+
+create_fitme_int <- function (df  = df_all,
+                          age = "1to59") {
+  
+  b_fitmort_temp <- spaMM::fitme(n_deaths_1to59 ~ 
+                                   1 + lat + lon + 
+                                   Matern(1|lat + lon) +
+                                   isTreated_child +
+                                   isTreated_child*lat + isTreated_child*lon +
+                                   (1|site_code) +
+                                   offset(log(pt_year_1to59)),
+                                 data = df,
+                                 family = poisson(link = "log"))
   
   return(b_fitmort_temp)
   
@@ -36,7 +49,9 @@ create_fitme <- function (df  = df_all,
 # input_grid       : grid to get values over, class = sf (points)
 # spamm_model_fit  : spaMM geospatial model fit object, class = HLfit
 #--------------------------------------
-get_grid_preds <- function(input_grid, spamm_model_fit, tx_group=0){
+get_grid_preds <- function(input_grid, 
+                           spamm_model_fit, 
+                           tx_group="Treatment"){
   
   # convert grid into a data.frame with lon/lat variables
   newd <- input_grid %>%
@@ -48,6 +63,8 @@ get_grid_preds <- function(input_grid, spamm_model_fit, tx_group=0){
            site_code = 0, #dummy
            pt_year_1to59 = 1000) %>% #dummy
     st_drop_geometry()
+  
+  print(newd)
   
   # get predictions (response)
   
@@ -223,7 +240,50 @@ raster_to_tibble <- function(x, maxpixels = 50000)  {
 
 
 
-
+#--------------------------------------
+# get_grid_uncert()
+# 
+# get uncertainty from bootstrapping
+#--------------------------------------
+get_grid_uncert <- function(input_grid, 
+                            spamm_model_fit, 
+                            nsim_input=10,
+                            tx_group="Treatment"){
+  
+  # convert grid into a data.frame with lon/lat variables
+  newd <- input_grid %>%
+    st_centroid() %>% 
+    st_as_sf(crs = 4326) %>% 
+    mutate(lon = sf::st_coordinates(.)[,1],
+           lat = sf::st_coordinates(.)[,2],
+           isTreated_child = tx_group,
+           site_code = 0, #dummy
+           pt_year_1to59 = 1000) %>% #dummy
+    st_drop_geometry()
+  
+  # get bootstrap simulations
+  temp_sims <- simulate(object = spamm_model_fit,
+                        nsim = nsim_input,
+                        newdata = newd)
+  
+  # get estimated variance at each location
+  temp_predVar <- spaMM::get_predVar(object = spamm_model_fit, 
+                                     newdata = newd, 
+                                     which = "predVar")
+  
+  # create a dataframe 
+  # for predictions using 
+  # centroid coordinates from the grid
+  # add predictions and variance to the grid
+  ret <- input_grid %>% 
+    as.data.frame() %>% 
+    st_as_sf(crs = 4326) %>% 
+    mutate(pred = as.numeric(temp_preds),
+           pred_var = as.numeric(temp_predVar))
+  
+  return(ret)
+  
+}
 
 
 
@@ -234,32 +294,82 @@ raster_to_tibble <- function(x, maxpixels = 50000)  {
 #------------------------------------
 create_mort_map <- function (raster2     = b_preds_mort_raster2_s0,
                              agetxt      = "(1 to 59)",
-                             tagtxt      = "Overall") {
+                             tagtxt      = "Overall",
+                             legtxt      = "Mortality rate (per 1000 person-years)",
+                             paletteopt  = 1,
+                             min = 0, max = 25) {
   
   map_mort_temp <- ggplot(data=raster2) + 
-    geom_tile(aes(x=x,y=y,fill=value), na.rm=TRUE) +
-    geom_sf(data=niger_adm2,fill=NA) +
+    geom_tile(aes(x=x,y=y,fill=value)) +    #gradient
+    geom_sf(data=d_sf, alpha=0.9, size=2, shape=1) + #grappes
+    geom_sf(data=niger_adm2,fill=NA) +      #boundaries
     coord_sf(crs = 4326) +
-    scale_fill_viridis(option = "D", direction = 1,
-                       # limits = c(0,10),
-                       na.value = NA,
-                       # breaks = seq(0,10,by=2),
-                       guide=guide_colorbar(title=paste0("Deaths per 1000 ",agetxt), 
-                                            title.position = "top",
-                                            title.hjust = 0.5,
-                                            direction="horizontal",
-                                            label.position = "bottom",
-                                            label.hjust = 0.5,
-                                            barheight=unit(10,"pt"),
-                                            barwidth=unit(200,"pt"),
-                                            ticks.colour = "white",
-                                            ticks.linewidth = 1,
-                                            frame.colour = "white")
-    ) +
-    labs(x="Latitude",y="Longitude",tag=tagtxt) +
+    labs(x="Latitude",y="Longitude",title=tagtxt) +
     theme_minimal() +
-    theme(legend.position = "bottom",
-          plot.tag = element_text(face="bold",size=16) )
+    theme(plot.tag = element_text(face="bold",size=16),
+          legend.position = "bottom")
+  
+  if(paletteopt==1){ 
+    map_mort_temp <- 
+      map_mort_temp + 
+      scale_fill_viridis(option = "D", direction = 1,
+                         limits = c(min,max),
+                         na.value = NA,
+                         # breaks = seq(0,10,by=2),
+                         guide=guide_colorbar(title=legtxt, 
+                                              title.position = "top",
+                                              title.hjust = 0.5,
+                                              direction="horizontal",
+                                              label.position = "bottom",
+                                              label.hjust = 0.5,
+                                              barheight=unit(10,"pt"),
+                                              barwidth=unit(200,"pt"),
+                                              ticks.colour = "white",
+                                              ticks.linewidth = 1,
+                                              frame.colour = "white") )
+  } else if (paletteopt==2) {
+    map_mort_temp <- 
+      map_mort_temp + 
+      scale_fill_gradient2(name=legtxt,
+                           midpoint=0,
+                           low = muted("dodgerblue"),
+                           mid = "white",
+                           high = muted("red"),
+                           na.value = NA,
+                           guide=guide_colorbar(title=legtxt, 
+                                                title.position = "top",
+                                                title.hjust = 0.5,
+                                                direction="horizontal",
+                                                label.position = "bottom",
+                                                label.hjust = 0.5,
+                                                barheight=unit(10,"pt"),
+                                                barwidth=unit(200,"pt"),
+                                                ticks.colour = "white",
+                                                ticks.linewidth = 1,
+                                                frame.colour = "white"))
+    
+  } else if (paletteopt==3) {
+    map_mort_temp <- 
+      map_mort_temp + 
+      scale_fill_viridis(option = "E", direction = 1,
+                         limits = c(min,max),
+                         na.value = NA,
+                         begin = min,
+                         # breaks = seq(0,10,by=2),
+                         guide=guide_colorbar(title=legtxt, 
+                                              title.position = "top",
+                                              title.hjust = 0.5,
+                                              direction="horizontal",
+                                              label.position = "bottom",
+                                              label.hjust = 0.5,
+                                              barheight=unit(10,"pt"),
+                                              barwidth=unit(200,"pt"),
+                                              ticks.colour = "white",
+                                              ticks.linewidth = 1,
+                                              frame.colour = "white") )
+    
+    
+    }
   
   ggsave(filename=paste0(figure_path,"avenir-mortality-rate-map-",tagtxt,".png"),
          plot=map_mort_temp,

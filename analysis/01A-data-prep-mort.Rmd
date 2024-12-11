@@ -118,13 +118,6 @@ grappe_mort_2 <- grappe_mort_1 %>%
          dummy         = 1 
          )
 
-# --------------------------------------------------
-# Check that the binary treatment variables were 
-# properly assigned
-# --------------------------------------------------
-df_all %>% group_by(tx,isTreated_child) %>% summarise(n=n())
-df_all %>% group_by(tx,isTreated_alltx) %>% summarise(n=n())
-
 # -------------------------
 # Don't store final dataset
 # locally--PHI
@@ -134,11 +127,20 @@ grappe_gps_mort <-
   grappe_mort_2 %>%
   filter(district=="Dosso")
 
+relevel(grappe_gps_mort$isTreated_child, ref = "Control")
+
 df_all <- grappe_gps_mort
 df_tx1 <- grappe_gps_mort %>% filter(as.integer(tx)==1)
 df_tx2 <- grappe_gps_mort %>% filter(as.integer(tx)==2)
 df_tx3 <- grappe_gps_mort %>% filter(as.integer(tx)==3)
 
 df_all
+
+# --------------------------------------------------
+# Check that the binary treatment variables were 
+# properly assigned
+# --------------------------------------------------
+df_all %>% group_by(tx,isTreated_child) %>% summarise(n=n())
+df_all %>% group_by(tx,isTreated_alltx) %>% summarise(n=n())
 
 ```

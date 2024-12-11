@@ -1,0 +1,241 @@
+---
+title: "02A-spatial-predictions [spaMM]"
+author: "Mia Navarro"
+date: "2024-10-09"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Configure environment. Load data.
+```{r, warning=F, message=F}
+
+source(here::here("0-config.R"))
+
+#-------------------------------
+# data frame for
+# mortality spatial modeling
+#-------------------------------
+df_all
+
+```
+
+## Spatial predictions of mortality and ATE [spaMM] 
+#### Create spaMM models.
+```{r}
+#--------------------------------------------------------------
+# fit spatial models for mortality rate with new binary tx vars,
+# isTreated_child: 0=placebo+infant, 1=child
+# isTreated_alltx: 0=placebo, 1=infant+child
+#--------------------------------------------------------------
+fitmort_1to59_child <- create_fitme(df = df_all)
+fitmort_1to59_child_int <- create_fitme_int(df = df_all)
+summary(fitmort_1to59_child)
+summary(fitmort_1to59_child_int) 
+# Note: Treatment est. is much larger because the scale of the lat/lon is large. 
+
+save.image(paste0("~/Documents/GitHub/AVENIR-spatial-ate/data-",Sys.Date(),".RData"))
+
+```
+
+#### Generate and store matern correlation plot.
+```{r}
+
+materncorr_s0_child    <- plot_matern_corr(fitmort_1to59_child, 
+                                           "avenir-materncorr-s0-child")
+
+materncorr_s0_child
+
+```
+
+#### Create model predictions per treatment arm.
+```{r}
+#--------------------------------------
+# get model predictions on a grid
+# (see function in washb-geopair-Functions.R)
+#--------------------------------------
+b_preds_mort_tx0_child <- get_grid_preds(input_grid = b_boxgrid,
+                                         spamm_model_fit = fitmort_1to59_child,
+                                         tx_group=unique(df_all$isTreated_child)[2])
+
+b_preds_mort_tx1_child <- get_grid_preds(input_grid = b_boxgrid,
+                                         spamm_model_fit = fitmort_1to59_child,
+                                         tx_group=unique(df_all$isTreated_child)[1])
+
+(b_preds_mort_tx0_child)
+(b_preds_mort_tx1_child)
+
+```
+
+#### Convert predictions into mapping elements.
+```{r}
+#--------------------------------------------------------------
+# convert predicted surface of the mean to a raster to make it 
+# a regular set of tiles (rather than points), then to tibble 
+# for ggplot2.
+# scale prevalence by 100 to be in units of percent (%)
+#--------------------------------------------------------------
+b_preds_mort_coords_tx0_child <- st_coordinates(b_preds_mort_tx0_child)
+b_preds_mort_coords_tx1_child <- st_coordinates(b_preds_mort_tx1_child)
+
+b_preds_mort_raster_tx0_child <- points_to_raster(
+  x = b_preds_mort_coords_tx0_child[,1],
+  y = b_preds_mort_coords_tx0_child[,2],
+  z = b_preds_mort_tx0_child$pred,
+  mask1 = niger_adm2,
+  crop1 = niger_adm2
+)
+
+b_preds_mort_raster_tx1_child <- points_to_raster(
+  x = b_preds_mort_coords_tx1_child[,1],
+  y = b_preds_mort_coords_tx1_child[,2],
+  z = b_preds_mort_tx1_child$pred,
+  mask1 = niger_adm2,
+  crop1 = niger_adm2
+)
+
+b_preds_mort_raster2_tx0_child <- 
+  raster_to_tibble(b_preds_mort_raster_tx0_child)
+
+b_preds_mort_raster2_tx1_child <- 
+  raster_to_tibble(b_preds_mort_raster_tx1_child)
+
+#--------------------------------------------------------------
+# create predicted surface of the ATE by calculating
+# the difference of raster values at each coord
+#--------------------------------------------------------------
+b_preds_mort_raster2_diff_child <-
+  b_preds_mort_raster2_tx0_child %>%
+  left_join(b_preds_mort_raster2_tx1_child, by = join_by(x,y)) %>%
+  mutate(value = value.y - value.x) %>%
+  rename(variable = variable.y) %>%
+  dplyr::select(x,y,value,variable)
+
+b_preds_mort_raster2_diff_child
+
+```
+
+
+
+##### WIP 11/19
+
+
+
+#### Calculate uncertainty from simulations (`simulate()`).
+
+```{r}
+# Simulate new response data based on the fitted model
+
+# Steps:
+#   Simulate for placebo + tx arm (foreach::doParallel)
+#   Subtract from each other for ATE
+#   Use sims_diar() 
+
+relevel(df_all$isTreated_child, ref = "Control")
+
+
+newd2 <- b_boxgrid %>%
+  st_centroid() %>% 
+  st_as_sf(crs = 4326) %>% 
+  mutate(lon = sf::st_coordinates(.)[,1],
+         lat = sf::st_coordinates(.)[,2],
+         isTreated_child = "Treatment",
+         site_code = 0, #dummy
+         pt_year_1to59 = 1000) %>% #dummy
+  st_drop_geometry() 
+#%>% mutate(isTreated_child = as.factor(isTreated_child)) 
+
+newd3 <-
+  newd2 %>%
+  mutate(isTreated_child = "Control")
+
+```
+
+```{r}
+nsim_input <- 1000
+
+# library(doParallel)
+# registerDoParallel(cores=2)
+# foreach(i=c(newd3,newd2)) %dopar% sqrt(i)
+
+simulated_responses_tx0 <- simulate(fitmort_1to59_child,
+                                    type = "predVar",
+                                    variances = list(linPred=TRUE, disp=TRUE),
+                                    nsim = nsim_input,
+                                    newdata = newd3,
+                                    seed = 12345
+                                    )
+
+save.image(paste0("~/Documents/GitHub/AVENIR-spatial-ate/data-",Sys.Date(),".RData"))
+
+simulated_responses_tx1 <- simulate(fitmort_1to59_child,
+                                    type = "predVar",
+                                    variances = list(linPred=TRUE, disp=TRUE),
+                                    nsim = nsim_input,
+                                    newdata = newd2,
+                                    seed = 12345
+                                    )
+
+save.image(paste0("~/Documents/GitHub/AVENIR-spatial-ate/data-",Sys.Date(),".RData"))
+
+simulated_responses_ate <- simulated_responses_tx1 - simulated_responses_tx0
+# Confirm units, since they're whole numbers.
+
+median(simulated_responses_ate)
+
+```
+
+```{r}
+# Compute predicted means, standard errors, and 95% CIs.
+predicted <- predict(fitmort_1to59_child) # Predicted values from the model
+
+#--------------------------------------
+# mean and 
+# 95% CI of the parametric
+# bootstrap
+#--------------------------------------
+sim_means <- rowMeans(simulated_responses_ate) # Mean of simulations
+sim_sds <- apply(simulated_responses_ate, 1, sd) # Standard deviation of simulations
+sim_lower <- apply(simulated_responses_ate, 1, quantile, probs = 0.025)
+sim_upper <- apply(simulated_responses_ate, 1, quantile, probs = 0.975)
+
+# Combine results in a data frame for easier inspection
+results <- data.frame(
+  lon = newd2$lon,
+  lat = newd2$lat,
+  Simulated_Mean = sim_means,
+  SE = sim_sds,
+  CI_Lower = sim_lower,
+  CI_Upper = sim_upper
+)
+
+# Inspect results
+head(results)
+
+#--------------------------------------
+# posterior probability that the 
+# difference in Mortality (ATE) <0
+#--------------------------------------
+sims_mort_probeff <- apply(simulated_responses_ate, 1, 
+                           FUN = function(x) mean(ifelse(x<0,1,0),na.rm=T))
+
+
+#--------------------------------------
+# convert simulation surfaces to a raster 
+# to make it a regular set of tiles 
+# (rather than points), 
+# then to tibble for ggplot2
+#--------------------------------------
+sims_mort_probeff_raster <- points_to_raster(
+  x = b_preds_mort_coords_tx1_child[,1],
+  y = b_preds_mort_coords_tx1_child[,2],
+  z = sims_mort_probeff,
+  mask1 = niger_adm2,
+  crop1 = niger_adm2
+)
+
+sims_mort_probeff_raster2 <- raster_to_tibble(sims_mort_probeff_raster)
+
+```

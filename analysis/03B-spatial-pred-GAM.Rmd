@@ -1,0 +1,99 @@
+---
+title: "02B-spatial-predictions [GAM]"
+author: "Mia Navarro"
+date: "2024-12-09"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Configure environment. Load data.
+```{r, warning=F message=F}
+
+source(here::here("0-config.R"))
+
+#-------------------------------
+# data frames for
+# mortality spatial modeling
+#-------------------------------
+df_all
+
+```
+
+## Spatial predictions of mortality and ATE [GAMs]
+#### Create GAM models.
+•	Interaction between smoothed (`lon`, `lat`) and factor (`isTreated_child`) variables.
+•	ATE: -18.5\% (1-exp(-0.20429))
+
+```{r}
+
+# for help:
+# 1. "An introduction to mgcViz: visual tools for GAMs":
+#   https://cran.r-project.org/web/packages/mgcViz/vignettes/mgcviz.html
+# 2. "Plotting differences between two 2D smooth effects":
+#   https://mfasiolo.github.io/mgcViz/reference/plotDiff.mgcv.smooth.2D.html
+
+# output is log-transformed IRRs
+gammort_1to59_child <- gam(n_deaths_1to59 ~
+                             isTreated_child +
+                             s(lon,lat, by = isTreated_child) + #confirm bs
+                             offset(log(pt_year_1to59)),
+                           data=df_all,
+                           family = poisson,
+                           method = "REML")
+
+
+gammort_1to59_child_test <- gam(n_deaths_1to59 ~
+                                  lon + lat + isTreated_child +
+                                  lon*isTreated_child +
+                               lat*isTreated_child +
+                             s(lon,lat) + #confirm bs
+                             offset(log(pt_year_1to59)),
+                           data=df_all,
+                           family = poisson,
+                           method = "REML")
+
+gammort_1to59_child_test2 <- gam(n_deaths_1to59 ~ #no spatial interaction
+                             isTreated_child +
+                             s(lon,lat) + #confirm bs
+                             offset(log(pt_year_1to59)),
+                           data=df_all,
+                           family = poisson,
+                           method = "REML")
+
+summary(gammort_1to59_child)
+# coef(gammort_1to59_child)
+```
+
+#### Convert predictions into mapping elements.
+```{r}
+gammort_1to59_child <- getViz(gammort_1to59_child_test)
+
+#plots by treatment arm
+plot(sm(gammort_1to59_child_test, 1)) #Control
+plot(sm(gammort_1to59_child_test, 2)) #Treated
+
+#ATE
+pl <- plotDiff(s1 = sm(gammort_1to59_child, 2), 
+               s2 = sm(gammort_1to59_child, 1)
+               )
+pl
+
+# Plot p-values for ATE
+pl + l_pvRaster() + l_pvContour()
+
+```
+
+### Compare models (AIC)
+•	GAM fits the data better than spaMM model. 
+
+```{r}
+AIC(gammort_1to59_child) #1386.613
+AIC(fitmort_1to59_child) #1476.8333-1590.4433
+```
+
+
+
+
