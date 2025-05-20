@@ -125,7 +125,7 @@ grappe_mort_2 <- grappe_mort_1 %>%
 
 grappe_gps_mort <- 
   grappe_mort_2 %>%
-  filter(district=="Dosso")
+  filter(adaptive_rand=="Randomization 1")
 
 relevel(grappe_gps_mort$isTreated_child, ref = "Control")
 

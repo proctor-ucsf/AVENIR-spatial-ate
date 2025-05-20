@@ -25,6 +25,7 @@ library(ggplot2) # tidyverse data visualization package
 library(ggraph)
 library(ggmap)
 library(ggpubr)
+library(ggspatial)
 library(gratia)
 library(grid)
 library(gridExtra)

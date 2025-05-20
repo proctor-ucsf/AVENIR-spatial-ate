@@ -55,6 +55,7 @@ materncorr_s0_child
 #--------------------------------------
 # get model predictions on a grid
 # (see function in washb-geopair-Functions.R)
+# tx0 = Treatment, tx1 = Control
 #--------------------------------------
 b_preds_mort_tx0_child <- get_grid_preds(input_grid = b_boxgrid,
                                          spamm_model_fit = fitmort_1to59_child,
@@ -84,16 +85,16 @@ b_preds_mort_raster_tx0_child <- points_to_raster(
   x = b_preds_mort_coords_tx0_child[,1],
   y = b_preds_mort_coords_tx0_child[,2],
   z = b_preds_mort_tx0_child$pred,
-  mask1 = niger_adm2,
-  crop1 = niger_adm2
+  mask1 = niger_adm1,
+  crop1 = niger_adm1
 )
 
 b_preds_mort_raster_tx1_child <- points_to_raster(
   x = b_preds_mort_coords_tx1_child[,1],
   y = b_preds_mort_coords_tx1_child[,2],
   z = b_preds_mort_tx1_child$pred,
-  mask1 = niger_adm2,
-  crop1 = niger_adm2
+  mask1 = niger_adm1,
+  crop1 = niger_adm1
 )
 
 b_preds_mort_raster2_tx0_child <- 
@@ -109,7 +110,7 @@ b_preds_mort_raster2_tx1_child <-
 b_preds_mort_raster2_diff_child <-
   b_preds_mort_raster2_tx0_child %>%
   left_join(b_preds_mort_raster2_tx1_child, by = join_by(x,y)) %>%
-  mutate(value = value.y - value.x) %>%
+  mutate(value = value.x - value.y) %>%
   rename(variable = variable.y) %>%
   dplyr::select(x,y,value,variable)
 
@@ -189,7 +190,7 @@ median(simulated_responses_ate)
 
 ```{r}
 # Compute predicted means, standard errors, and 95% CIs.
-predicted <- predict(fitmort_1to59_child) # Predicted values from the model
+# predicted <- predict(fitmort_1to59_child) # Predicted values from the model
 
 #--------------------------------------
 # mean and 
@@ -232,8 +233,8 @@ sims_mort_probeff_raster <- points_to_raster(
   x = b_preds_mort_coords_tx1_child[,1],
   y = b_preds_mort_coords_tx1_child[,2],
   z = sims_mort_probeff,
-  mask1 = niger_adm2,
-  crop1 = niger_adm2
+  mask1 = niger_adm1,
+  crop1 = niger_adm1
 )
 
 sims_mort_probeff_raster2 <- raster_to_tibble(sims_mort_probeff_raster)

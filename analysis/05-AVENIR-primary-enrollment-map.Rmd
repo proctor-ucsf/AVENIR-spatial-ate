@@ -1,0 +1,201 @@
+---
+title: "AVENIR Trial"
+subtitle: "Cumulative enrollment and map"
+author: "Ben Arnold F.I. Proctor Foundation (ben.arnold@ucsf.edu)"
+date: "latest run: `r Sys.time()`"
+output: 
+  html_document:
+    theme: default
+    highlight: pygments
+    code_folding: hide
+    toc: true
+    toc_depth: 3
+    toc_float:
+      collapsed: true
+      smooth_scroll: true
+---
+
+
+
+# Summary
+
+Map grappes and plot cumulative enrollment over time, colored by the three randomizations.
+
+NOTE FOR PUBLIC REPLICATION: THIS SCRIPT REQUIRES GPS LOCATIONS OF STUDY COMMUNITIES, WHICH ARE CONSIDERED IDENTIFIABLE. THESE DATA ARE NOT AVAILABLE IN THE PUBLIC DATASETS
+
+We have included this script and its output for documentation but it will only run on internal datasets.
+
+### Configure environment. Load data.
+```{r warning=F}
+
+source(here::here("0-config.R"))
+
+```
+
+# Load data
+
+Load the AVENIR trial analysis dataset and GPS coordinates
+
+```{r load data}
+#-------------------------------
+# load the grappe enrollment data
+#-------------------------------
+grappe_mort_3 <- 
+  grappe_mort_2 %>%
+  mutate(included = case_when(adaptive_rand=="Randomization 1" ~ "Included",
+                              adaptive_rand=="Randomization 2" ~ "Excluded",
+                              adaptive_rand=="Randomization 3" ~ "Excluded"
+                              )) %>%
+  mutate(included = factor(included,
+                           levels = c("Excluded", "Included"))
+         )
+
+grappe_mort_3
+
+```
+
+# Map grappes (communities)
+
+```{r convert to spatial data}
+#-------------------------------
+# format grappe data as sf
+#-------------------------------
+d_sf <- st_as_sf(grappe_mort_3, 
+                 coords = c("lon","lat"), 
+                 crs    = 4326) # set coordinate ref system to WGS1984
+
+```
+
+```{r download admin shapes}
+
+#-------------------------------
+# load administrative boundaries
+# downloaded from 
+# humanitarian data exchange
+# https://data.humdata.org/dataset/cod-ab-ner?
+#-------------------------------
+
+niger_adm0 <- st_read(dsn = paste0(shp_data,"ner_adm00_feb2018/NER_adm00_feb2018.shp"))
+niger_adm1 <- st_read(dsn = paste0(shp_data,"ner_adm01_feb2018/NER_adm01_feb2018.shp"))
+niger_adm2 <- st_read(dsn = paste0(shp_data,"ner_adm02_feb2018/NER_adm02_feb2018.shp"))
+
+# filter admin level 2 subdistricts to just Dosso and Tahoua
+niger_adm2 <- niger_adm2 %>%
+    filter(adm_01 %in% c("Dosso","Tahoua"))
+
+#-------------------------------
+# create a zoom window, and
+# a cropped version of the admin
+# polygons
+#-------------------------------
+sf_use_s2(FALSE)
+niger_dists_cr <- st_crop(niger_adm1, xmin = 0, xmax = 7,
+                                    ymin = 11, ymax = 19)
+
+```
+
+```{r map grappes}
+# zoomed out overview of Niger
+plot_niger_admin <- ggplot() +
+    geom_sf(data=niger_adm1, color="black",lwd=0.5) +
+    # geom_sf(data=niger_gadm0_sf, color="black",lwd=0.5) +
+    coord_sf(crs = 4326) +
+    geom_rect(aes(xmin = 0, xmax = 7, ymin = 11, ymax = 19), color = "black", fill = NA, lty = "dashed", inherit.aes = FALSE) +
+    # add country labels
+    annotate("text",x=4,y=22, label = "Niger", fontface="bold",size=8) +
+    labs(x="",y="") +
+    theme_minimal() +
+    theme(
+        panel.grid.major = element_blank(),
+        panel.grid = element_blank(),
+        axis.ticks = element_blank(),
+        axis.text = element_blank(),
+        plot.margin = margin(0,0,0,0, "pt")
+        
+          )
+    
+plot_niger_admin
+
+# annotation line
+dosso_lab_line <- data.frame(x1=4.45,x2=4.1,y1=12.5,y2=12.7)
+tahoua_lab_line <-  data.frame(x1=5.9,x2=5.5,y1=17.9,y2=17.5)
+    
+    
+# detailed zoom view, including grappes
+plot_grappe_map <- ggplot() +
+    # admin labels
+    annotate("text",x=6,y=18.2, label = "Tahoua", fontface = "bold", color = "gray80", size=8) + # x=5.2,y=16.2,
+    annotate("text",x=5.4,y=12.5, label = "Dosso", fontface = "bold", color = "gray80", size=8) +
+    geom_segment(data=dosso_lab_line, aes(x=x1, xend=x2, y=y1, yend=y2), color = "gray60", lwd=0.8, arrow=arrow(angle=30,length=unit(2,"mm"),ends="last",type="open")) +
+    geom_segment(data=tahoua_lab_line, aes(x=x1, xend=x2, y=y1, yend=y2), color = "gray60", lwd=0.8, arrow=arrow(angle=30,length=unit(2,"mm"),ends="last",type="open")) +
+    # admin boundaries
+    geom_sf(data=niger_adm2, fill=NA, color="black",lwd=0.3) +
+    geom_sf(data=niger_adm1, fill=NA, color="black",lwd=1) + 
+    # cluster points
+    geom_sf(data=d_sf, aes(color=included),size=0.1, alpha=0.9, pch=19) +
+    coord_sf(crs = 4326,
+             xlim = c(0, 7), ylim = c(11, 19),
+             expand = FALSE) +
+    # scale_shape_manual(values=c(15,16,17)) +
+    # scale_color_brewer(type="seq") +
+    scale_color_manual(values=pcols[c(2,4)]) +
+    annotation_scale(location = "br", width_hint = 0.3, pad_y=unit(0.1,"cm")) +
+    annotation_north_arrow(location = "br", which_north = "true", 
+        pad_x = unit(0.05, "in"), pad_y = unit(0.2, "in"),
+        height=unit(0.75,"cm"), width=unit(0.75,"cm"),
+        style = north_arrow_fancy_orienteering
+        ) +
+    labs(x="Longitude",y="Latitude") +
+    guides(color=guide_legend(reverse = FALSE, title="", override.aes = list(size=4)))  +
+    theme_minimal() +
+    theme(
+        legend.position = "bottom"
+    )
+
+plot_grappe_map
+
+plot_map_with_inset <- plot_grappe_map + 
+    inset_element(plot_niger_admin,
+                  left = unit(0.12, "npc"), top = unit(1.35, "npc"),
+                  bottom = unit(0.2, "npc"), right = unit(0.52, "npc"),
+                  ignore_tag = TRUE
+    )
+
+# see patch for existing bug in patchwork for geom_sf
+# https://stackoverflow.com/questions/18252827/increasing-area-around-plot-area-in-ggplot2
+plot_map_with_inset$patches$layout$widths  <- 1
+plot_map_with_inset$patches$layout$heights <- 1
+
+plot_map_with_inset
+```
+
+# Composite figure
+
+```{r make overall composite, fig.width=10, fig.height=10}
+
+ggsave(filename = paste0(figure_path,"/enrollment-map/avenir-enrollment-map_",Sys.Date(),".pdf"), 
+       plot_map_with_inset,
+       device = "pdf", 
+       width = 170,
+       height = 170,
+       units = "mm")
+
+ggsave(filename = paste0(figure_path,"/enrollment-map/avenir-enrollment-map_",Sys.Date(),".png"), 
+       plot_map_with_inset,
+       device = "png", 
+       width = 170,
+       height = 170,
+       units = "mm")
+
+```
+
+# Session Info
+```{r session info}
+sessionInfo()
+
+save.image(paste0("~/Documents/GitHub/AVENIR-spatial-ate/data-",Sys.Date(),".RData"))
+
+
+```
+
+

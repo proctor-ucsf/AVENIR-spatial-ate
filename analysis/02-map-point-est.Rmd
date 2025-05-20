@@ -63,7 +63,7 @@ plot_niger_admin
 # detailed zoom view, including grappes
 plot_map_mortrate_1to59 <- ggplot() +
   # admin boundaries
-  geom_sf(data=niger_adm2, fill=NA, color="black",lwd=0.3) +
+  geom_sf(data=niger_adm1, fill=NA, color="black",lwd=0.3) +
   # cluster points
   geom_sf(data=d_sf, aes(color=deaths_per_1000_1to59, shape=tx), alpha=0.9) +
   coord_sf(crs = 4326) +
@@ -79,7 +79,7 @@ plot_map_mortrate_1to59
 ```{r map-by-tx-arm}
 plot_map_mortrate_1to59_Child <- ggplot() +
   # admin boundaries
-  geom_sf(data=niger_adm2, fill=NA, color="black",lwd=0.3) +
+  geom_sf(data=niger_adm1, fill=NA, color="black",lwd=0.3) +
   # cluster points
   geom_sf(data=d_sf %>% dplyr::filter(tx=="Child Azithro"), 
           aes(color=deaths_per_1000_1to59), alpha=0.9, size=3) +
@@ -91,7 +91,7 @@ plot_map_mortrate_1to59_Child <- ggplot() +
 
 plot_map_mortrate_1to59_Infant <- ggplot() +
   # admin boundaries
-  geom_sf(data=niger_adm2, fill=NA, color="black",lwd=0.3) +
+  geom_sf(data=niger_adm1, fill=NA, color="black",lwd=0.3) +
   # cluster points
   geom_sf(data=d_sf %>% dplyr::filter(tx=="Infant Azithro"), 
           aes(color=deaths_per_1000_1to59), alpha=0.9, size=3) +
@@ -103,7 +103,7 @@ plot_map_mortrate_1to59_Infant <- ggplot() +
 
 plot_map_mortrate_1to59_Placebo <- ggplot() +
   # admin boundaries
-  geom_sf(data=niger_adm2, fill=NA, color="black",lwd=0.3) +
+  geom_sf(data=niger_adm1, fill=NA, color="black",lwd=0.3) +
   # cluster points
   geom_sf(data=d_sf %>% dplyr::filter(tx=="Placebo"), 
           aes(color=deaths_per_1000_1to59), alpha=0.9, size=3) +
@@ -124,7 +124,7 @@ fig_1_point_est <-
             plot_map_mortrate_1to59_Child,
             nrow = 1, ncol = 3, common.legend = T, legend = "right")
 
-ggsave(filename = paste0(figure_path,"avenir-mortality-rate-point-est-map_",Sys.Date(),".pdf"), 
+ggsave(filename = paste0(figure_path,"/point-est/avenir-mortality-rate-point-est-map_",Sys.Date(),".pdf"), 
        fig_1_point_est,
        device = "pdf", 
        width = 250,
@@ -139,7 +139,7 @@ fig_1_point_est
 ```{r map-by-tx-arm 2}
 plot_map_mortrate_1to59_tx <- ggplot() +
   # admin boundaries
-  geom_sf(data=niger_adm2, 
+  geom_sf(data=niger_adm1, 
           fill=NA, 
           color="black",
           lwd=0.3) +
@@ -161,7 +161,7 @@ plot_map_mortrate_1to59_tx <- ggplot() +
 
 plot_map_mortrate_1to59_pl <- ggplot() +
   # admin boundaries
-  geom_sf(data=niger_adm2, 
+  geom_sf(data=niger_adm1, 
           fill=NA, 
           color="black",
           lwd=0.3) +
@@ -193,7 +193,7 @@ fig_1_point_est_isTreated <-
             plot_map_mortrate_1to59_pl,
             nrow = 1, ncol = 2, common.legend = T, legend = "right")
 
-ggsave(filename = paste0(figure_path,"avenir-mortality-rate-point-est-map_isTreatedchild_",Sys.Date(),".pdf"), 
+ggsave(filename = paste0(figure_path,"/point-est/avenir-mortality-rate-point-est-map_isTreatedchild_",Sys.Date(),".pdf"), 
        fig_1_point_est_isTreated,
        device = "pdf", 
        width = 250,
