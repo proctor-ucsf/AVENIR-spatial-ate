@@ -115,7 +115,7 @@ grappe_mort_2 <- grappe_mort_1 %>%
                                            "Randomization 2", 
                                            "Randomization 3")),
          #add dummy var
-         dummy         = 1 
+         dummy = 1 
          )
 
 # -------------------------
@@ -125,7 +125,7 @@ grappe_mort_2 <- grappe_mort_1 %>%
 
 grappe_gps_mort <- 
   grappe_mort_2 %>%
-  filter(adaptive_rand=="Randomization 1")
+  filter(adaptive_rand %in% c("Randomization 1", "Randomization 2"))
 
 relevel(grappe_gps_mort$isTreated_child, ref = "Control")
 
@@ -143,4 +143,21 @@ df_all
 df_all %>% group_by(tx,isTreated_child) %>% summarise(n=n())
 df_all %>% group_by(tx,isTreated_alltx) %>% summarise(n=n())
 
+# --------------------------------------------------
+# See frequencies across districts
+# --------------------------------------------------
+df_all %>% group_by(district,isTreated_child) %>% summarise(n=n())
+df_all %>% group_by(district,isTreated_child) %>% summarise(n=n())
+
 ```
+
+```{r}
+
+# --------------------------------------------------
+# Rename districts to match shapefile district names
+# --------------------------------------------------
+df_all$district[df_all$district=="Tibiri (Doutchi)"] <- "Tibiri"
+df_all$district[df_all$district=="Illela"] <- "Illéla"
+
+```
+

@@ -2,16 +2,20 @@
 # Spatial analysis of mortality rates in Dosso
 # Secondary data analysis of AVENIR study data
 
-# Configure data paths and load required packages
+# Configure data paths & load required packages
 
 # by Mia Navarro (mia.navarro@ucsf.edu)
 ##############################################
 
-# set wd
+##############################################
+# Set wd
+##############################################
 wd_path = here::here()
 # setwd(wd_path)
 
-# load required packages
+##############################################
+# Load required packages
+##############################################
 library(assertthat)
 library(cowplot)
 library(dplyr)
@@ -38,6 +42,8 @@ library(MASS)
 library(Matrix)
 library(mgcv)
 library(mgcViz)
+library(parallel) # use mc.cores=7
+library(parallelly)
 library(patchwork)
 library(psych)
 library(purrr)
@@ -60,7 +66,9 @@ library(tidymv)
 library(tidyverse)
 library(tmap)    # for static and interactive maps
 
-# define data paths
+##############################################
+# Define data paths
+##############################################
 # raw_data_path = paste0(here::here(), "/data/untouched-raw/")
 final_data <- "~/Library/CloudStorage/Box-Box/AVENIR/Data/Mortality/rounds_1to5/final/"
 shp_data <- "~/Library/CloudStorage/Box-Box/AVENIR/Publications/Primary Mortality/avenir-primary/data/ner_adm_shapefiles/"
@@ -73,6 +81,8 @@ my_final_data_path = paste0(here::here(), "/data/final/")
 source(paste0(here::here(),"/analysis/0-functions-processing.R"))
 source(paste0(here::here(),"/analysis/0-functions-analysis.R"))
 
-# define figure and table paths
+##############################################
+# Define figure and table paths
+##############################################
 figure_path = paste0(here::here(), "/results/figs/")
 table_path = paste0(here::here(), "/results/tables/")

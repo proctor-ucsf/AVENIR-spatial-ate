@@ -1,0 +1,115 @@
+---
+title: "04-map-spatial-predictions per district"
+author: "Mia Navarro"
+date: "2025-05-20"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+### Configure environment. Load data.
+```{r warning=F}
+
+source(here::here("0-config.R"))
+
+```
+
+
+```{r map predictions}
+
+#------------------------------------------------------
+# create and save mortality rate maps
+# for all treatment arms
+# (see function in washb-geopair-Functions.R)
+
+# NOW, we loop through each district and make maps
+#------------------------------------------------------
+
+map_mort_tx0_districts <- list()
+map_mort_tx1_districts <- list()
+map_mort_diff_districts <- list()
+map_mort_probeff_districts <- list()
+
+for (i in 1:length(districts)) {
+  
+  print(paste(districts[i],Sys.time()))
+  
+  map_mort_tx0_districts[[i]] <- create_mort_map(raster2 = b_preds_mort_raster2_tx1_districts[[i]],
+                               agetxt  = "(1 to 59)",
+                               tagtxt  = "A. Control (Placebo + Infant Azithro)")
+  
+  map_mort_tx1_districts[[i]] <- create_mort_map(raster2 = b_preds_mort_raster2_tx0_districts[[i]],
+                               agetxt  = "(1 to 59)",
+                               tagtxt  = "B. Treatment (Child Azithro)")
+  
+  map_mort_diff_districts[[i]] <- create_mort_map(raster2 = b_preds_mort_raster2_diff_districts[[i]],
+                               agetxt  = "(1 to 59)",
+                               tagtxt  = "C. ATE",
+                               min = -5, max = -1,
+                               paletteopt = 2,
+                               legtxt = "ATE: difference in mortality per 1000 person-years")
+  
+  # map_mort_probeff_districts[[i]] <- create_mort_map(raster2 = sims_mort_probeff_raster2,
+  #                              agetxt  = "(1 to 59)",
+  #                              tagtxt  = "D. Bayesian Results",
+  #                              min = 0.5, max = 0.75,
+  #                              paletteopt = 3,
+  #                              legtxt = "Posterior Pr(mortality ATE < 0)")
+  
+}
+
+results_spaMM_districts$map_mort_tx0 <- map_mort_tx0_districts
+results_spaMM_districts$map_mort_tx1 <- map_mort_tx1_districts
+results_spaMM_districts$map_mort_diff <- map_mort_diff_districts
+# results_spaMM_districts$map_mort_probeff<- map_mort_probeff_districts
+
+
+```
+
+### Preview maps
+```{r}
+
+map_mort_child <- 
+  ggarrange(map_mort_tx0_child, 
+            map_mort_tx1_child,
+            map_mort_diff_child,
+            map_mort_probeff_child,
+            nrow = 2, ncol = 2)
+
+ggsave(filename = paste0(figure_path,"/spatial-map-panels/avenir-spatial-ATE-map-",Sys.Date(),".pdf"),
+       map_mort_child,
+       device = "pdf", 
+       width = 250,
+       height = 320,
+       units = "mm")
+
+ggsave(filename = paste0(figure_path,"/spatial-map-panels/avenir-spatial-ATE-map-",Sys.Date(),".png"),
+       map_mort_child,
+       device = "png", 
+       width = 250,
+       height = 320,
+       units = "mm")
+
+save.image(paste0("~/Documents/GitHub/AVENIR-spatial-ate/data-",Sys.Date(),".RData"))
+# Note to self: data-2024-12-10.RData has the simulate() results.
+
+```
+
+```{r old, eval=F}
+
+# map_mort_s1 <- create_mort_map(raster2 = b_preds_mort_raster2_s1,
+#                                agetxt  = "(1 to 59)",
+#                                tagtxt  = "Child Azithro")
+# 
+# map_mort_s2 <- create_mort_map(raster2 = b_preds_mort_raster2_s2,
+#                                agetxt  = "(1 to 59)",
+#                                tagtxt  = "Infant Azithro")
+# 
+# map_mort_s3 <- create_mort_map(raster2 = b_preds_mort_raster2_s3,
+#                                agetxt  = "(1 to 59)",
+#                                tagtxt  = "Placebo")
+
+```

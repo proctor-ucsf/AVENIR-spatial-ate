@@ -302,7 +302,7 @@ create_mort_map <- function (raster2     = b_preds_mort_raster2_s0,
   map_mort_temp <- ggplot(data=raster2) + 
     geom_tile(aes(x=x,y=y,fill=value)) +    #gradient
     geom_sf(data=d_sf, alpha=0.9, size=0.5, shape=1) + #grappes
-    geom_sf(data=niger_adm1,fill=NA) +      #boundaries
+    geom_sf(data=niger_adm2,fill=NA) +      #boundaries
     coord_sf(crs = 4326) +
     labs(x="Longitude",y="Latitude",title=tagtxt) +
     theme_minimal() +
@@ -397,6 +397,123 @@ create_mort_map <- function (raster2     = b_preds_mort_raster2_s0,
                                               frame.colour = "white") )
     
     
+  }
+  
+  ggsave(filename=paste0(figure_path,"/spatial-map-panels/avenir-spatial-ATE-map-",substr(tagtxt,1,1),".png"),
+         plot=map_mort_temp,
+         device="png",
+         width=3.3,
+         height=3.5)
+  
+  return(map_mort_temp)
+}
+
+create_mort_map_districts <- function (raster2,
+                                       agetxt      = "(1 to 59)",
+                                       tagtxt      = "Overall",
+                                       legtxt      = "Mortality rate (per 1000 person-years)",
+                                       distr       = districts[1],
+                                       paletteopt  = 1,
+                                       min = 0, max = 35, interval = 1) {
+  
+  map_mort_temp <- ggplot(data=raster2) + 
+    geom_tile(aes(x=x,y=y,fill=value)) +    #gradient
+    geom_sf(data=d_sf %>% filter(district==distr), alpha=0.9, size=0.5, shape=1) + #grappes
+    geom_sf(data=niger_adm2 %>% filter(adm_02==distr),fill=NA) +      #boundaries
+    coord_sf(crs = 4326) +
+    labs(x="Longitude",y="Latitude",title=tagtxt) +
+    theme_minimal() +
+    theme(plot.tag = element_text(face="bold",size=16),
+          legend.position = "bottom")
+  
+  if(paletteopt==1){
+    map_mort_temp <-
+      map_mort_temp +
+      scale_fill_viridis(option = "D", direction = 1,
+                         limits = c(min,max),
+                         na.value = NA,
+                         breaks = seq(min,max,interval),
+                         guide=guide_colorbar(title=legtxt,
+                                              title.position = "top",
+                                              title.hjust = 0.5,
+                                              direction="horizontal",
+                                              label.position = "bottom",
+                                              label.hjust = 0.5,
+                                              barheight=unit(10,"pt"),
+                                              barwidth=unit(200,"pt"),
+                                              ticks.colour = "white",
+                                              ticks.linewidth = 1,
+                                              frame.colour = "white") )
+  } else if (paletteopt==2) {
+    map_mort_temp <-
+      map_mort_temp +
+      scale_fill_gradient2(name=legtxt,
+                           midpoint=0,
+                           low = muted("dodgerblue"),
+                           mid = "white",
+                           high = muted("red"),
+                           limits = c(min,max),
+                           breaks = seq(min,max,interval),
+                           labels = as.character(seq(min,max,interval)),
+                           na.value = NA,
+                           guide=guide_colorbar(title=legtxt,
+                                                title.position = "top",
+                                                title.hjust = 0.5,
+                                                direction="horizontal",
+                                                label.position = "bottom",
+                                                label.hjust = 0.5,
+                                                barheight=unit(10,"pt"),
+                                                barwidth=unit(200,"pt"),
+                                                ticks.colour = "white",
+                                                ticks.linewidth = 1,
+                                                frame.colour = "white",
+                                                draw.llim = T,
+                                                draw.ulim = T))
+
+  } else if (paletteopt==2.1) {
+    map_mort_temp <-
+      map_mort_temp +
+      scale_fill_viridis(option = "E", direction = 1,
+                         limits = c(min,max),
+                         na.value = NA,
+                         end = max,
+                         labels = as.character(seq(min,max,interval)),
+                         guide=guide_colorbar(title=legtxt,
+                                              title.position = "top",
+                                              title.hjust = 0.5,
+                                              direction="horizontal",
+                                              label.position = "bottom",
+                                              label.hjust = 0.5,
+                                              barheight=unit(10,"pt"),
+                                              barwidth=unit(200,"pt"),
+                                              ticks.colour = "white",
+                                              ticks.linewidth = 1,
+                                              frame.colour = "white",
+                                              draw.llim = T,
+                                              draw.ulim = T) )
+
+
+  } else if (paletteopt==3) {
+    map_mort_temp <-
+      map_mort_temp +
+      scale_fill_viridis(option = "E", direction = 1,
+                         limits = c(min,max),
+                         na.value = NA,
+                         begin = min,
+                         breaks = seq(min,max,by=interval),
+                         guide=guide_colorbar(title=legtxt,
+                                              title.position = "top",
+                                              title.hjust = 0.5,
+                                              direction="horizontal",
+                                              label.position = "bottom",
+                                              label.hjust = 0.5,
+                                              barheight=unit(10,"pt"),
+                                              barwidth=unit(200,"pt"),
+                                              ticks.colour = "white",
+                                              ticks.linewidth = 1,
+                                              frame.colour = "white") )
+
+
   }
   
   ggsave(filename=paste0(figure_path,"/spatial-map-panels/avenir-spatial-ATE-map-",substr(tagtxt,1,1),".png"),

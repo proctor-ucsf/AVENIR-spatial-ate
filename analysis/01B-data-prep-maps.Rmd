@@ -22,6 +22,8 @@ d_gps <-
 grappe_phase_mort <- 
   readRDS(paste0(final_data,"AVENIR_grappe_phase_2023-07-31.rds"))
 
+results_spaMM_districts <- list()
+
 ```
 
 ### Prep map elements
@@ -44,10 +46,14 @@ niger_adm0 <- st_read(dsn = paste0(shp_data,"ner_adm00_feb2018/NER_adm00_feb2018
 niger_adm1 <- st_read(dsn = paste0(shp_data,"ner_adm01_feb2018/NER_adm01_feb2018.shp"))
 niger_adm2 <- st_read(dsn = paste0(shp_data,"ner_adm02_feb2018/NER_adm02_feb2018.shp"))
 
-# filter admin level 2 subdistricts to just Dosso and Tahoua
+# filter admin level 1 region to just Dosso
 niger_adm1 <- niger_adm1 %>%
   # filter(adm_01 %in% c("Dosso","Tahoua"))
   filter(adm_01 %in% c("Dosso")) ## for initial analysis, just doing Dosso
+
+niger_adm2 <- niger_adm2 %>%
+  filter(adm_01 %in% c("Dosso","Tahoua"))
+  # filter(adm_01 %in% c("Dosso")) ## for initial analysis, just doing Dosso
 
 #---------------------------
 # identify the bounding box
@@ -56,6 +62,11 @@ niger_adm1 <- niger_adm1 %>%
 # clusters
 #---------------------------
 b_boxgrid <- st_make_grid(niger_adm1,
+                          n    = c(100,100),
+                          what = "centers"
+                          )
+
+b_boxgrid2 <- st_make_grid(niger_adm2,
                           n    = c(100,100),
                           what = "centers"
                           )

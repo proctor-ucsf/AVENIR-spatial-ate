@@ -1,5 +1,5 @@
 ---
-title: "02A-spatial-predictions [spaMM]"
+title: "03A-spatial-predictions [spaMM]"
 author: "Mia Navarro"
 date: "2024-10-09"
 output: html_document

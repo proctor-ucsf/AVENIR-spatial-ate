@@ -1,0 +1,395 @@
+---
+title: "03C-spatial-predictions by district [spaMM]"
+author: "Mia Navarro"
+date: "2025-05-20"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Configure environment. Load data.
+```{r, warning=F, message=F}
+
+source(here::here("0-config.R"))
+
+#-------------------------------
+# data frame for
+# mortality spatial modeling
+#-------------------------------
+df_all
+
+df_all$district[df_all$district=="Tibiri (Doutchi)"] <- "Tibiri"
+df_all$district[df_all$district=="Illela"] <- "Illéla"
+districts <- unique(df_all$district)
+
+b_boxgrid_districts <- list()
+
+for (i in 1:15) {
+  
+  b_boxgrid_temp <- st_make_grid(
+    niger_adm2 %>% filter(adm_02 == districts[i]),
+    n = c(100, 100),
+    what = "centers"
+  )
+  
+  b_boxgrid_districts[[i]] <- b_boxgrid_temp
+  
+}
+
+results_spaMM_districts$b_boxgrid <- b_boxgrid_districts
+
+```
+
+## Spatial predictions of mortality and ATE [spaMM] 
+#### Create spaMM models.
+```{r}
+#--------------------------------------------------------------
+# fit spatial models for mortality rate with new binary tx vars,
+# isTreated_child: 0=placebo+infant, 1=child
+# isTreated_alltx: 0=placebo, 1=infant+child
+
+# NOW, we loop through each district and create_fitme
+#--------------------------------------------------------------
+results_spaMM_districts$district <- districts
+
+fitmort_districts <- list()
+fitmort_int_districts <- list()
+
+for (i in 1:length(districts)) {
+  
+  print(paste(districts[i],Sys.time()))
+  
+  fitmort_districts[[i]] <- create_fitme(df = df_all %>% 
+                                           dplyr::filter(district==districts[i]) )
+  
+  fitmort_int_districts[[i]] <- create_fitme_int(df = df_all %>% 
+                                                   dplyr::filter(district==districts[i]) )
+  
+  # summary(fitmort_districts[[i]])
+  # summary(fitmort_int_districts[[i]])
+  
+  # save.image(paste0("~/Documents/GitHub/AVENIR-spatial-ate/data-",Sys.Date(),".RData"))
+  
+}
+
+# Note: Treatment est. is much larger because the scale of the lat/lon is large. 
+
+results_spaMM_districts$fitmort <- fitmort_districts
+results_spaMM_districts$fitmort_int <- fitmort_int_districts
+
+
+# save.image(paste0("~/Documents/GitHub/AVENIR-spatial-ate/data-",Sys.Date(),".RData"))
+
+```
+
+#### Generate and store matern correlation plot.
+```{r}
+
+materncorr_districts <- list()
+
+for (i in 1:length(districts)) {
+  
+  print(paste(districts[i],Sys.time()))
+  
+  materncorr_districts[[i]] <- plot_matern_corr(fitmort_districts[[i]], 
+                                                paste0("avenir-materncorr-",districts[i])
+                                                )
+  
+  # save.image(paste0("~/Documents/GitHub/AVENIR-spatial-ate/data-",Sys.Date(),".RData"))
+  
+}
+
+results_spaMM_districts$materncorr <- materncorr_districts
+
+# save.image(paste0("~/Documents/GitHub/AVENIR-spatial-ate/data-",Sys.Date(),".RData"))
+
+```
+
+#### Create model predictions per treatment arm.
+```{r}
+#--------------------------------------
+# get model predictions on a grid
+# (see function in washb-geopair-Functions.R)
+# tx0 = Treatment, tx1 = Control
+#--------------------------------------
+
+b_preds_mort_tx0_districts <- list()
+b_preds_mort_tx1_districts <- list()
+
+for (i in 1:length(districts)) {
+  
+  print(paste(districts[i],Sys.time()))
+  
+  b_preds_mort_tx0_districts[[i]] <- get_grid_preds(input_grid = b_boxgrid_districts[[i]],
+                                                  spamm_model_fit = fitmort_districts[[i]],
+                                                  tx_group=unique(df_all$isTreated_child)[2])
+  
+  b_preds_mort_tx1_districts[[i]] <- get_grid_preds(input_grid = b_boxgrid_districts[[i]],
+                                                  spamm_model_fit = fitmort_districts[[i]],
+                                                  tx_group=unique(df_all$isTreated_child)[1])
+  
+  # save.image(paste0("~/Documents/GitHub/AVENIR-spatial-ate/data-",Sys.Date(),".RData"))
+  
+}
+
+results_spaMM_districts$b_preds_mort_tx0 <- b_preds_mort_tx0_districts
+results_spaMM_districts$b_preds_mort_tx1 <- b_preds_mort_tx1_districts
+
+# save.image(paste0("~/Documents/GitHub/AVENIR-spatial-ate/data-",Sys.Date(),".RData"))
+
+```
+
+#### Convert predictions into mapping elements.
+```{r}
+#--------------------------------------------------------------
+# convert predicted surface of the mean to a raster to make it 
+# a regular set of tiles (rather than points), then to tibble 
+# for ggplot2.
+# scale prevalence by 100 to be in units of percent (%)
+#--------------------------------------------------------------
+
+b_preds_mort_coords_tx0_districts <- list()
+b_preds_mort_coords_tx1_districts <- list()
+
+b_preds_mort_raster_tx0_districts <- list()
+b_preds_mort_raster_tx1_districts <- list()
+
+for (i in 1:length(districts)) {
+  
+  print(paste(districts[i],Sys.time()))
+  
+  b_preds_mort_coords_tx0_districts[[i]] <- st_coordinates(b_preds_mort_tx0_districts[[i]])
+  b_preds_mort_coords_tx1_districts[[i]] <- st_coordinates(b_preds_mort_tx1_districts[[i]])
+
+  temp_coords_tx0 <- b_preds_mort_coords_tx0_districts[[i]]
+  temp_coords_tx1 <- b_preds_mort_coords_tx1_districts[[i]]
+  temp_mort_tx0 <- b_preds_mort_tx0_districts[[i]]
+  temp_mort_tx1 <- b_preds_mort_tx1_districts[[i]]
+  
+  b_preds_mort_raster_tx0_districts[[i]] <- points_to_raster(
+    x = temp_coords_tx0[,1],
+    y = temp_coords_tx0[,2],
+    z = temp_mort_tx0$pred,
+    mask1 = niger_adm2,
+    crop1 = niger_adm2 )
+  
+  print("Points to raster done (tx0)")
+  
+  b_preds_mort_raster_tx1_districts[[i]] <- points_to_raster(
+    x = temp_coords_tx1[,1],
+    y = temp_coords_tx1[,2],
+    z = temp_mort_tx1$pred,
+    mask1 = niger_adm2,
+    crop1 = niger_adm2 )
+  
+   print("Points to raster done (tx1)")
+  
+}
+
+
+b_preds_mort_raster2_tx0_districts <- list()
+b_preds_mort_raster2_tx1_districts <- list()
+
+
+for (i in 1:length(districts)) {
+  
+  print(paste(districts[i],Sys.time()))
+   
+  b_preds_mort_raster2_tx0_districts[[i]] <- raster_to_tibble(b_preds_mort_raster_tx0_districts[[i]])
+  # print("Raster to tibble done (tx0)")
+  
+  b_preds_mort_raster2_tx1_districts[[i]] <- raster_to_tibble(b_preds_mort_raster_tx1_districts[[i]])
+  # print("Raster to tibble done (tx1)")
+  
+}
+
+results_spaMM_districts$b_preds_mort_coords_tx0 <- b_preds_mort_coords_tx0_districts
+results_spaMM_districts$b_preds_mort_coords_tx1 <- b_preds_mort_coords_tx1_districts
+
+results_spaMM_districts$b_preds_mort_raster_tx0 <- b_preds_mort_raster_tx0_districts
+results_spaMM_districts$b_preds_mort_raster_tx1 <- b_preds_mort_raster_tx1_districts
+
+results_spaMM_districts$b_preds_mort_raster2_tx0 <- b_preds_mort_raster2_tx0_districts
+results_spaMM_districts$b_preds_mort_raster2_tx1 <- b_preds_mort_raster2_tx1_districts
+
+save.image(paste0("~/Documents/GitHub/AVENIR-spatial-ate/data-",Sys.Date(),".RData"))
+
+```
+
+
+```{r}
+#--------------------------------------------------------------
+# create predicted surface of the ATE by calculating
+# the difference of raster values at each coord
+#--------------------------------------------------------------
+
+b_preds_mort_raster2_diff_districts <- list()
+
+for (i in 1:length(districts)) {
+  
+  print(paste(districts[i],Sys.time()))
+  
+  b_preds_mort_raster2_diff_districts[[i]] <-
+    b_preds_mort_raster2_tx0_districts[[i]] %>%
+    left_join(b_preds_mort_raster2_tx1_districts[[i]], by = join_by(x,y)) %>%
+    mutate(value = value.x - value.y) %>%
+    rename(variable = variable.y) %>%
+    dplyr::select(x,y,value,variable)
+  
+  
+}
+
+results_spaMM_districts$b_preds_mort_raster2_diff <- b_preds_mort_raster2_diff_districts
+
+
+# save.image(paste0("~/Documents/GitHub/AVENIR-spatial-ate/data-",Sys.Date(),".RData"))
+
+```
+
+
+
+#### Calculate uncertainty from simulations (`simulate()`).
+
+```{r}
+# Simulate new response data based on the fitted model
+
+# Steps:
+#   Simulate for placebo + tx arm (foreach::doParallel)
+#   Subtract from each other for ATE
+#   Use sims_diar() 
+
+relevel(df_all$isTreated_child, ref = "Control")
+
+newd2_districts <- list()
+newd3_districts <- list()
+
+for (i in 1:length(districts)) {
+  
+  print(paste(districts[i],Sys.time()))
+  
+  newd2_districts[[i]] <- b_boxgrid_districts[[i]] %>%
+  st_centroid() %>% 
+  st_as_sf(crs = 4326) %>% 
+  mutate(lon = sf::st_coordinates(.)[,1],
+         lat = sf::st_coordinates(.)[,2],
+         isTreated_child = "Treatment",
+         site_code = 0, #dummy
+         pt_year_1to59 = 1000) %>% #dummy
+  st_drop_geometry() 
+  
+  newd3_districts[[i]] <- newd2_districts[[i]] %>% 
+    mutate(isTreated_child = "Control")
+  
+}
+
+results_spaMM_districts$newd2 <- newd2_districts
+results_spaMM_districts$newd3 <- newd3_districts
+
+```
+
+
+```{r}
+nsim_input <- 1000
+
+# library(doParallel)
+# registerDoParallel(cores=2)
+# foreach(i=c(newd3,newd2)) %dopar% sqrt(i)
+
+simulated_responses_tx0_districts <- list()
+simulated_responses_tx1_districts <- list()
+simulated_responses_ate_districts <- list()
+
+
+for (i in 1:length(districts)) {
+  
+  print(paste(districts[i],Sys.time()))
+  
+  simulated_responses_tx0_districts[[i]] <- simulate(results_spaMM_districts$fitmort[[i]],
+                                    type = "predVar",
+                                    variances = list(linPred=TRUE, disp=TRUE),
+                                    nsim = nsim_input,
+                                    newdata = results_spaMM_districts$newd3[[i]],
+                                    seed = 12345
+                                    )
+  
+  simulated_responses_tx1_districts[[i]] <- simulate(results_spaMM_districts$fitmort[[i]],
+                                    type = "predVar",
+                                    variances = list(linPred=TRUE, disp=TRUE),
+                                    nsim = nsim_input,
+                                    newdata = results_spaMM_districts$newd2[[i]],
+                                    seed = 12345
+                                    )
+  
+  simulated_responses_ate_districts[[i]] <- 
+    simulated_responses_tx1_districts[[i]] - 
+    simulated_responses_tx0_districts[[i]]
+  
+}
+
+results_spaMM_districts$simulated_responses_tx0 <- simulated_responses_tx0_districts
+results_spaMM_districts$simulated_responses_tx1 <- simulated_responses_tx1_districts
+results_spaMM_districts$simulated_responses_ate <- simulated_responses_ate_districts
+
+save.image(paste0("~/Documents/GitHub/AVENIR-spatial-ate/data-",Sys.Date(),".RData"))
+
+# Confirm units, since they're whole numbers.
+for (i in 1:length(districts)) { 
+  print(median(simulated_responses_ate_districts[[i]]))
+}
+
+```
+
+
+```{r}
+# Compute predicted means, standard errors, and 95% CIs.
+# predicted <- predict(fitmort_1to59_child) # Predicted values from the model
+
+#--------------------------------------
+# mean and 95% CI of the
+# parametric bootstrap
+#--------------------------------------
+sim_means <- rowMeans(simulated_responses_ate) # Mean of simulations
+sim_sds <- apply(simulated_responses_ate, 1, sd) # Standard deviation of simulations
+sim_lower <- apply(simulated_responses_ate, 1, quantile, probs = 0.025)
+sim_upper <- apply(simulated_responses_ate, 1, quantile, probs = 0.975)
+
+# Combine results in a data frame for easier inspection
+results <- data.frame(
+  lon = newd2$lon,
+  lat = newd2$lat,
+  Simulated_Mean = sim_means,
+  SE = sim_sds,
+  CI_Lower = sim_lower,
+  CI_Upper = sim_upper
+)
+
+# Inspect results
+head(results)
+
+#--------------------------------------
+# posterior probability that the 
+# difference in Mortality (ATE) <0
+#--------------------------------------
+sims_mort_probeff <- apply(simulated_responses_ate, 1, 
+                           FUN = function(x) mean(ifelse(x<0,1,0),na.rm=T))
+
+
+#--------------------------------------
+# convert simulation surfaces to a raster 
+# to make it a regular set of tiles 
+# (rather than points), 
+# then to tibble for ggplot2
+#--------------------------------------
+sims_mort_probeff_raster <- points_to_raster(
+  x = b_preds_mort_coords_tx1_child[,1],
+  y = b_preds_mort_coords_tx1_child[,2],
+  z = sims_mort_probeff,
+  mask1 = niger_adm1,
+  crop1 = niger_adm1
+)
+
+sims_mort_probeff_raster2 <- raster_to_tibble(sims_mort_probeff_raster)
+
+```
