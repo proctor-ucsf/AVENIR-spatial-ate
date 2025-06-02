@@ -47,3 +47,8 @@ po/*~
 
 # RStudio Connect folder
 rsconnect/
+*.RData
+*.RDataTmp
+*.RDataTmp1
+*.RDataTmp2
+data-2025-05-23-console
