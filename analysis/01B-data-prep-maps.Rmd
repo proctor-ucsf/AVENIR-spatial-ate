@@ -42,6 +42,9 @@ d_sf <- st_as_sf(grappe_gps_mort,
 # humanitarian data exchange
 # https://data.humdata.org/dataset/cod-ab-ner?
 #-------------------------------
+
+# 6/1 boundaries might have changed since 2018, hence why some grappes are falling outside of district boundary
+
 niger_adm0 <- st_read(dsn = paste0(shp_data,"ner_adm00_feb2018/NER_adm00_feb2018.shp"))
 niger_adm1 <- st_read(dsn = paste0(shp_data,"ner_adm01_feb2018/NER_adm01_feb2018.shp"))
 niger_adm2 <- st_read(dsn = paste0(shp_data,"ner_adm02_feb2018/NER_adm02_feb2018.shp"))

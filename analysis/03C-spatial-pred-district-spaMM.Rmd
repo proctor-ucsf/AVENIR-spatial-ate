@@ -150,6 +150,8 @@ results_spaMM_districts$b_preds_mort_tx1 <- b_preds_mort_tx1_districts
 # scale prevalence by 100 to be in units of percent (%)
 #--------------------------------------------------------------
 
+# edited this 6/1 -- mask and crop changed to district
+
 b_preds_mort_coords_tx0_districts <- list()
 b_preds_mort_coords_tx1_districts <- list()
 
@@ -172,8 +174,9 @@ for (i in 1:length(districts)) {
     x = temp_coords_tx0[,1],
     y = temp_coords_tx0[,2],
     z = temp_mort_tx0$pred,
-    mask1 = niger_adm2,
-    crop1 = niger_adm2 )
+    mask1 = niger_adm2 %>% filter(adm_02==districts[i]),
+    crop1 = niger_adm2 %>% filter(adm_02==districts[i])
+    )
   
   print("Points to raster done (tx0)")
   
@@ -214,7 +217,7 @@ results_spaMM_districts$b_preds_mort_raster_tx1 <- b_preds_mort_raster_tx1_distr
 results_spaMM_districts$b_preds_mort_raster2_tx0 <- b_preds_mort_raster2_tx0_districts
 results_spaMM_districts$b_preds_mort_raster2_tx1 <- b_preds_mort_raster2_tx1_districts
 
-save.image(paste0("~/Documents/GitHub/AVENIR-spatial-ate/data-",Sys.Date(),".RData"))
+# save.image(paste0("~/Documents/GitHub/AVENIR-spatial-ate/data-",Sys.Date(),".RData"))
 
 ```
 
@@ -382,12 +385,15 @@ sims_mort_probeff <- apply(simulated_responses_ate, 1,
 # (rather than points), 
 # then to tibble for ggplot2
 #--------------------------------------
+
+# edited this 6/1 -- mask and crop changed to district
+
 sims_mort_probeff_raster <- points_to_raster(
   x = b_preds_mort_coords_tx1_child[,1],
   y = b_preds_mort_coords_tx1_child[,2],
   z = sims_mort_probeff,
-  mask1 = niger_adm1,
-  crop1 = niger_adm1
+  mask1 = niger_adm2 %>% filter(adm_02==districts[i]),
+  crop1 = niger_adm2 %>% filter(adm_02==districts[i])
 )
 
 sims_mort_probeff_raster2 <- raster_to_tibble(sims_mort_probeff_raster)

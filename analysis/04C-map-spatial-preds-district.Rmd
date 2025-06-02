@@ -41,16 +41,16 @@ for (i in 1:length(districts)) {
                                agetxt  = "(1 to 59)",
                                tagtxt  = "A. Control (Placebo + Infant Azithro)")
   
-  map_mort_tx1_districts[[i]] <- create_mort_map(raster2 = b_preds_mort_raster2_tx0_districts[[i]],
-                               agetxt  = "(1 to 59)",
-                               tagtxt  = "B. Treatment (Child Azithro)")
+  # map_mort_tx1_districts[[i]] <- create_mort_map(raster2 = b_preds_mort_raster2_tx0_districts[[i]],
+  #                              agetxt  = "(1 to 59)",
+  #                              tagtxt  = "B. Treatment (Child Azithro)")
   
-  map_mort_diff_districts[[i]] <- create_mort_map(raster2 = b_preds_mort_raster2_diff_districts[[i]],
-                               agetxt  = "(1 to 59)",
-                               tagtxt  = "C. ATE",
-                               min = -5, max = -1,
-                               paletteopt = 2,
-                               legtxt = "ATE: difference in mortality per 1000 person-years")
+  # map_mort_diff_districts[[i]] <- create_mort_map(raster2 = b_preds_mort_raster2_diff_districts[[i]],
+  #                              agetxt  = "(1 to 59)",
+  #                              tagtxt  = "C. ATE",
+  #                              min = -5, max = -1,
+  #                              paletteopt = 2,
+  #                              legtxt = "ATE: difference in mortality per 1000 person-years")
   
   # map_mort_probeff_districts[[i]] <- create_mort_map(raster2 = sims_mort_probeff_raster2,
   #                              agetxt  = "(1 to 59)",
