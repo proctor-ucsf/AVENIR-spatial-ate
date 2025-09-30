@@ -1,0 +1,145 @@
+---
+title: "05B_map-spatial-preds-district-aggregate"
+author: "Mia Navarro"
+date: "2025-09-30"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+### Configure environment. Load data.
+```{r warning=F}
+
+source(here::here("0-config.R"))
+
+```
+
+
+### Map aggregate means.
+```{r}
+
+# # Fix invalid geometries
+# mean_per_district_tx0 <- st_make_valid(mean_per_district_tx0)
+# districts_sf <- st_make_valid(districts_sf)
+# mean_per_district_tx0 <- mean_per_district_tx0[!st_is_empty(mean_per_district_tx0), ]
+# districts_sf <- districts_sf[!st_is_empty(districts_sf), ]
+
+
+map_mort_tx0_child_aggregate <- ggplot(districts_sf_aggregate) +
+  geom_sf(aes(fill = mean_tx0), color = NA) +   # district polygons
+  geom_sf(data = districts_sf %>% filter(adm_01=="Dosso"),
+          fill = NA, color = "black", size = 0.7) +   # boundaries
+  coord_sf(crs = 4326) +
+  theme_minimal() +
+  theme(legend.position = "bottom") +
+  labs(x="Longitude",y="Latitude",
+       title = "A. Control (Placebo + Infant Azithro)", fill = "Mean mortality rate (per 1000 person-years)") + 
+  scale_fill_viridis(option = "D", direction = 1,
+                     limits = c(0,12),
+                     na.value = NA,
+                     breaks = seq(0,12,2),
+                     guide=guide_colorbar(title="Mean mortality rate (per 1000 person-years)", 
+                                          title.position = "top",
+                                          title.hjust = 0.5,
+                                          direction="horizontal",
+                                          label.position = "bottom",
+                                          label.hjust = 0.5,
+                                          barheight=unit(10,"pt"),
+                                          barwidth=unit(200,"pt"),
+                                          ticks.colour = "white",
+                                          ticks.linewidth = 1,
+                                          frame.colour = "white") )
+
+
+map_mort_tx1_child_aggregate <- ggplot(districts_sf_aggregate) +
+  geom_sf(aes(fill = mean_tx1), color = NA) +   # district polygons
+  geom_sf(data = districts_sf %>% filter(adm_01=="Dosso"),
+          fill = NA, color = "black", size = 0.7) +   # boundaries
+  coord_sf(crs = 4326) +
+  theme_minimal() +
+  theme(legend.position = "bottom") +
+  labs(x="Longitude",y="Latitude",
+       title = "B. Treatment (Child Azithro)", fill = "Mean mortality rate (per 1000 person-years)") + 
+  scale_fill_viridis(option = "D", direction = 1,
+                     limits = c(0,12),
+                     na.value = NA,
+                     breaks = seq(0,12,2),
+                     guide=guide_colorbar(title="Mean mortality rate (per 1000 person-years)", 
+                                          title.position = "top",
+                                          title.hjust = 0.5,
+                                          direction="horizontal",
+                                          label.position = "bottom",
+                                          label.hjust = 0.5,
+                                          barheight=unit(10,"pt"),
+                                          barwidth=unit(200,"pt"),
+                                          ticks.colour = "white",
+                                          ticks.linewidth = 1,
+                                          frame.colour = "white") )
+
+
+map_mort_diff_child_aggregate <- ggplot(districts_sf_aggregate) +
+  geom_sf(aes(fill = mean_ATE), color = NA) +   # district polygons
+  geom_sf(data = districts_sf %>% filter(adm_01=="Dosso"),
+          fill = NA, color = "black", size = 0.7) +   # boundaries
+  coord_sf(crs = 4326) +
+  theme_minimal() +
+  theme(legend.position = "bottom") +
+  labs(x="Longitude",y="Latitude",
+       title = "C. ATE", fill = "Mean ATE: difference in mortality per 1000 person-years") + 
+  scale_fill_gradient2(midpoint=0,
+                       low = muted("dodgerblue"),
+                       mid = "white",
+                       high = muted("red"),
+                       limits = c(-1.5,0),
+                       breaks = seq(-1.5,0,0.25),
+                       labels = as.character(seq(-1.5,0,0.25)),
+                       na.value = NA,
+                       guide=guide_colorbar(title="Mean ATE: difference in mortality per 1000 person-years", 
+                                            title.position = "top",
+                                            title.hjust = 0.5,
+                                            direction="horizontal",
+                                            label.position = "bottom",
+                                            label.hjust = 0.5,
+                                            barheight=unit(10,"pt"),
+                                            barwidth=unit(200,"pt"),
+                                            ticks.colour = "white",
+                                            ticks.linewidth = 1,
+                                            frame.colour = "white",
+                                            draw.llim = T,
+                                            draw.ulim = T))
+  
+
+
+```
+
+
+```{r}
+
+map_mort_tx0_child_aggregate; map_mort_tx1_child_aggregate; map_mort_diff_child_aggregate
+
+map_mort_child_aggregate <- 
+  ggarrange(map_mort_tx0_child_aggregate,
+            map_mort_tx1_child_aggregate,
+            map_mort_diff_child_aggregate,
+            nrow = 2, ncol = 2)
+
+ggsave(filename = paste0(figure_path,"/spatial-map-panels-district/avenir-spatial-ATE-map-aggregate-",Sys.Date(),".pdf"),
+       map_mort_child_aggregate,
+       device = "pdf", 
+       width = 250,
+       height = 320,
+       units = "mm")
+
+ggsave(filename = paste0(figure_path,"/spatial-map-panels-district/avenir-spatial-ATE-map-aggregate-",Sys.Date(),".png"),
+       map_mort_child_aggregate,
+       device = "png", 
+       width = 250,
+       height = 320,
+       units = "mm")
+
+save.image(paste0("~/Documents/GitHub/AVENIR-spatial-ate/data-",Sys.Date(),".RData"))
+# Note to self: data-2024-12-10.RData has the simulate() results.
+
+```

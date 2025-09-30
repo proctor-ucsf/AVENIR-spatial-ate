@@ -37,7 +37,7 @@ simulated_responses_tx0_districts[[1]]
 
 
 
-i=1
+i=2
 
 #1 and 14 have ATE > 0; this tracks based on the spaMM estimates
 
@@ -45,21 +45,16 @@ d_sf2 <- st_transform(d_sf,
                       crs    = 32631) #UTM ZONE 31N (specific to that region, includes southern Niger -- for sure Dosso, checking Tahoua)
 
 colnames(d_sf2)
-# floor(min(results_spaMM_districts$b_preds_mort_raster2_tx0[[i]]$value, na.rm=T))
-# ceiling(max(results_spaMM_districts$b_preds_mort_raster2_tx0[[i]]$value, na.rm=T))
-# 
-create_mort_map_districts(raster2 = results_spaMM_districts$b_preds_mort_raster2_diff[[i]],
-                agetxt  = "(1 to 59)",
-                tagtxt  = "C. ATE",
-                min = floor(min(results_spaMM_districts$b_preds_mort_raster2_diff[[i]]$value, na.rm=T)),
-                max = ceiling(max(results_spaMM_districts$b_preds_mort_raster2_diff[[i]]$value, na.rm=T)),
-                interval = 2,
-                paletteopt = 2,
-                distr = districts[i],
-                legtxt = "ATE: difference in mortality per 1000 person-years")
+# data.frame(n=1:15,distr=districts) %>% arrange(distr)
 
 
-results_spaMM_districts$b_preds_mort_tx0[[2]]
+reordered_plots_tx1[1]
+
+
+
+
+
+results_spaMM_districts$b_preds_mort_tx0[[c(1,2)]]
 
 ggplot(data=results_spaMM_districts$b_preds_mort_raster2_tx0[[2]]) + 
   geom_tile(aes(x=x,y=y,fill=value)) +    #gradient

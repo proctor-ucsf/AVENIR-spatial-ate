@@ -1,0 +1,86 @@
+---
+title: "05A_spatial-preds-district-aggregate"
+author: "Mia Navarro"
+date: "2025-09-30"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+### Configure environment. Load data.
+```{r warning=F}
+
+source(here::here("0-config.R"))
+
+```
+
+
+### Create aggregate means by district.
+```{r map predictions v3}
+
+# Load districts as sf
+niger_adm2 <- st_read(dsn = paste0(shp_data,"ner_adm02_feb2018/NER_adm02_feb2018.shp")) %>%
+  filter(adm_01 %in% c("Dosso","Tahoua")) #to remove Tahoua later
+
+districts_sf <- niger_adm2
+districts_sf <- st_make_valid(districts_sf)
+
+#List of Dosso districts
+Dosso_districts <- districts_sf$adm_02[districts_sf$adm_01=="Dosso"]
+
+# Tibble of points
+points_tibble_tx0 <- b_preds_mort_raster2_tx0_child
+points_tibble_tx1 <- b_preds_mort_raster2_tx1_child
+points_tibble_diff <- b_preds_mort_raster2_diff_child
+points_tibble_probeff <- sims_mort_probeff_raster2
+
+#Shape files
+points_sf_tx0 <- st_as_sf(points_tibble_tx0, coords = c("x","y"), crs = st_crs(districts_sf))
+points_sf_tx1 <- st_as_sf(points_tibble_tx1, coords = c("x","y"), crs = st_crs(districts_sf))
+points_sf_diff <- st_as_sf(points_tibble_diff, coords = c("x","y"), crs = st_crs(districts_sf))
+points_sf_probeff <- st_as_sf(points_tibble_probeff, coords = c("x","y"), crs = st_crs(districts_sf))
+
+# Spatial join: assign each point to a district
+points_joined_tx0 <- st_join(points_sf_tx0, districts_sf, join = st_within)
+points_joined_tx1 <- st_join(points_sf_tx1, districts_sf, join = st_within)
+points_joined_diff <- st_join(points_sf_diff, districts_sf, join = st_within)
+points_joined_probeff <- st_join(points_sf_probeff, districts_sf, join = st_within)
+
+# Aggregate mean per district
+mean_per_district_tx0 <- as.data.frame(points_joined_tx0) %>%
+  dplyr::select(-geometry) %>%
+  group_by(adm_02) %>%   # replace with your district ID field
+  summarise(mean_tx0 = mean(value, na.rm = TRUE)) %>%
+  dplyr::filter(adm_02 %in% Dosso_districts)
+
+mean_per_district_tx1 <- as.data.frame(points_joined_tx1) %>%
+  dplyr::select(-geometry) %>%
+  group_by(adm_02) %>%   # replace with your district ID field
+  summarise(mean_tx1 = mean(value, na.rm = TRUE)) %>%
+  dplyr::filter(adm_02 %in% Dosso_districts)
+
+mean_per_district_diff <- as.data.frame(st_join(points_joined_tx1, 
+                                                points_joined_tx0, 
+                                                join = st_within)) %>%
+  dplyr::select(-geometry) %>%
+  rename(adm_02 = adm_02.x) %>%
+  group_by(adm_02) %>%
+  summarise(mean_ATE = mean(value.x, na.rm = TRUE) - 
+              mean(value.y, na.rm = TRUE)) %>%
+  dplyr::filter(adm_02 %in% Dosso_districts)
+
+#Quick preview
+mean_per_district_tx0; mean_per_district_tx1; mean_per_district_diff
+plot(mean_per_district_tx0); plot(mean_per_district_tx1); plot(mean_per_district_diff)
+
+#Join with aggregate means
+districts_sf_aggregate <- districts_sf %>%
+  dplyr::filter(adm_01=="Dosso") %>%
+  left_join(mean_per_district_tx0, by=join_by('adm_02'=='adm_02')) %>%
+  left_join(mean_per_district_tx1, by=join_by('adm_02'=='adm_02')) %>%
+  left_join(mean_per_district_diff, by=join_by('adm_02'=='adm_02'))
+
+```
+

@@ -36,6 +36,9 @@ d_sf <- st_as_sf(grappe_gps_mort,
                  coords = c("lon","lat"), 
                  crs    = 4326) # set coordinate ref system to WGS1984
 
+d_sf$district[d_sf$district=="Tibiri (Doutchi)"] <- "Tibiri"
+d_sf$district[d_sf$district=="Illela"] <- "Illéla"
+
 #-------------------------------
 # load administrative boundaries
 # downloaded from 
@@ -55,8 +58,8 @@ niger_adm1 <- niger_adm1 %>%
   filter(adm_01 %in% c("Dosso")) ## for initial analysis, just doing Dosso
 
 niger_adm2 <- niger_adm2 %>%
-  filter(adm_01 %in% c("Dosso","Tahoua"))
-  # filter(adm_01 %in% c("Dosso")) ## for initial analysis, just doing Dosso
+  # filter(adm_01 %in% c("Dosso","Tahoua"))
+  filter(adm_01 %in% c("Dosso")) ## for initial analysis, just doing Dosso
 
 #---------------------------
 # identify the bounding box

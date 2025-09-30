@@ -1,0 +1,325 @@
+---
+title: "04-map-spatial-predictions per district"
+author: "Mia Navarro"
+date: "2025-06-04"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+### Configure environment. Load data.
+```{r warning=F}
+
+source(here::here("0-config.R"))
+
+results_spaMM_districts$region <- c(rep("Dosso",8),rep("Tahoua",7))
+
+order_of_distr <- c(9,10,1,11,2:6,12,13,7,14,15,8) #alphabetical order of districts
+
+d_sf %>% group_by(region, district) %>% summarise()
+
+```
+
+
+```{r map predictions - tx0}
+#------------------------------------------------------
+# create and save mortality rate maps
+# for control arm (tx=0)
+# (see function in 0-functions-analysis.R)
+
+# NOW, we loop through each district and make maps
+#------------------------------------------------------
+
+for (i in 1:15) {
+  
+  #NOTE: raster2 names are flipped -- need to debug before publishing code
+  tempmap <- create_mort_map_districts(raster2 = results_spaMM_districts$b_preds_mort_raster2_tx1[[i]], 
+                agetxt  = "(1 to 59)",
+                tagtxt  = districts[i],
+                min = 0,
+                max = 48,
+                interval = 12,
+                paletteopt = 1,
+                distr = districts[i],
+                legtxt = "Mortality per 1000 person-years",
+                include_axes_labs = T,
+                include_legend = T)
+  
+  results_spaMM_districts$map_pred_tx0[[i]] <- tempmap
+}
+
+# Sort them in new list for mapping
+plots_tx0_sorted <- vector("list", length(order_of_distr))
+plots_tx0_sorted <- list(results_spaMM_districts$map_pred_tx0[[9]],
+                         results_spaMM_districts$map_pred_tx0[[10]],
+                         results_spaMM_districts$map_pred_tx0[[1]],
+                         results_spaMM_districts$map_pred_tx0[[11]],
+                         results_spaMM_districts$map_pred_tx0[[2]],
+                         results_spaMM_districts$map_pred_tx0[[3]],
+                         results_spaMM_districts$map_pred_tx0[[4]],
+                         results_spaMM_districts$map_pred_tx0[[5]],
+                         results_spaMM_districts$map_pred_tx0[[6]],
+                         results_spaMM_districts$map_pred_tx0[[12]],
+                         results_spaMM_districts$map_pred_tx0[[13]],
+                         results_spaMM_districts$map_pred_tx0[[7]],
+                         results_spaMM_districts$map_pred_tx0[[14]],
+                         results_spaMM_districts$map_pred_tx0[[15]],
+                         results_spaMM_districts$map_pred_tx0[[8]])
+
+# Plot using patchwork function.
+map_tx0_sorted_all   <- wrap_plots(plots_tx0_sorted,
+                                   ncol = 4,
+                                   widths = 0.8)
+
+map_tx0_unsorted_all <- wrap_plots(results_spaMM_districts$map_pred_tx0, 
+                                   ncol = 4, 
+                                   widths = 0.8)
+
+map_tx0_Dosso <- wrap_plots(results_spaMM_districts$map_pred_tx0[results_spaMM_districts$region=="Dosso"], 
+                                   ncol = 4, 
+                                   widths = 0.8)
+
+map_tx0_Tahoua <- wrap_plots(results_spaMM_districts$map_pred_tx0[results_spaMM_districts$region=="Tahoua"], 
+                                   ncol = 4, 
+                                   widths = 0.8)
+
+ggsave(filename = paste0(figure_path,"/spatial-map-panels-district/map_pred_tx0_Dosso-",Sys.Date(),".pdf"),
+       map_tx0_Dosso,
+       device = "pdf",
+       width = 12,
+       height = 8,
+       units = "in")
+
+ggsave(filename = paste0(figure_path,"/spatial-map-panels-district/map_pred_tx0_Tahoua-",Sys.Date(),".pdf"),
+       map_tx0_Tahoua,
+       device = "pdf",
+       width = 12,
+       height = 8,
+       units = "in")
+
+```
+
+```{r map predictions - tx1}
+#------------------------------------------------------
+# create and save mortality rate maps
+# for treatment arm (tx=1)
+# (see function in 0-functions-analysis.R)
+
+# NOW, we loop through each district and make maps
+#------------------------------------------------------
+
+for (i in 1:15) {
+  
+  #NOTE: raster2 names are flipped -- need to debug before publishing code
+  tempmap <- create_mort_map_districts(raster2 = results_spaMM_districts$b_preds_mort_raster2_tx0[[i]],
+               agetxt  = "(1 to 59)",
+               tagtxt  = districts[i],
+               min = 0,
+               max = 48,
+               interval = 12,
+               paletteopt = 1,
+               distr = districts[i],
+               legtxt = "Mortality per 1000 person-years",
+               include_axes_labs = T,
+               include_legend = T)
+  
+  results_spaMM_districts$map_pred_tx1[[i]] <- tempmap
+}
+
+# Sort them in new list for mapping
+plots_tx1_sorted <- vector("list", length(order_of_distr))
+plots_tx1_sorted <- list(results_spaMM_districts$map_pred_tx1[[9]],
+                         results_spaMM_districts$map_pred_tx1[[10]],
+                         results_spaMM_districts$map_pred_tx1[[1]],
+                         results_spaMM_districts$map_pred_tx1[[11]],
+                         results_spaMM_districts$map_pred_tx1[[2]],
+                         results_spaMM_districts$map_pred_tx1[[3]],
+                         results_spaMM_districts$map_pred_tx1[[4]],
+                         results_spaMM_districts$map_pred_tx1[[5]],
+                         results_spaMM_districts$map_pred_tx1[[6]],
+                         results_spaMM_districts$map_pred_tx1[[12]],
+                         results_spaMM_districts$map_pred_tx1[[13]],
+                         results_spaMM_districts$map_pred_tx1[[7]],
+                         results_spaMM_districts$map_pred_tx1[[14]],
+                         results_spaMM_districts$map_pred_tx1[[15]],
+                         results_spaMM_districts$map_pred_tx1[[8]])
+
+# Plot using patchwork function.
+map_tx1_sorted_all   <- wrap_plots(plots_tx1_sorted,
+                                   ncol = 4,
+                                   widths = 0.8)
+
+map_tx1_unsorted_all <- wrap_plots(results_spaMM_districts$map_pred_tx1, 
+                                   ncol = 4, 
+                                   widths = 0.8)
+
+map_tx1_Dosso <- wrap_plots(results_spaMM_districts$map_pred_tx1[results_spaMM_districts$region=="Dosso"], 
+                                   ncol = 4, 
+                                   widths = 0.8)
+
+map_tx1_Tahoua <- wrap_plots(results_spaMM_districts$map_pred_tx1[results_spaMM_districts$region=="Tahoua"], 
+                                   ncol = 4, 
+                                   widths = 0.8)
+
+ggsave(filename = paste0(figure_path,"/spatial-map-panels-district/map_pred_tx1_Dosso-",Sys.Date(),".pdf"),
+       map_tx1_Dosso,
+       device = "pdf",
+       width = 12,
+       height = 8,
+       units = "in")
+
+ggsave(filename = paste0(figure_path,"/spatial-map-panels-district/map_pred_tx1_Tahoua-",Sys.Date(),".pdf"),
+       map_tx1_Tahoua,
+       device = "pdf",
+       width = 12,
+       height = 8,
+       units = "in")
+
+```
+
+
+```{r map predictions - diff}
+#------------------------------------------------------
+# create and save mortality rate maps
+# for ATE (tx1 - tx0)
+# (see function in 0-functions-analysis.R)
+
+# NOW, we loop through each district and make maps
+#------------------------------------------------------
+
+for (i in 1:15) {
+  
+  min_diff_dist <- min(as.data.frame(results_spaMM_districts$b_preds_mort_raster2_diff[results_spaMM_districts$district==districts[i]])$value, na.rm=T)
+  max_diff_dist <- max(as.data.frame(results_spaMM_districts$b_preds_mort_raster2_diff[results_spaMM_districts$district==districts[i]])$value, na.rm=T)
+  
+  print(min_diff_dist)
+  print(max_diff_dist)
+  print("/")
+    
+  tempmap_diff <- create_mort_map_districts(
+     raster2 = results_spaMM_districts$b_preds_mort_raster2_diff[[i]],
+     agetxt  = "(1 to 59)",
+     tagtxt  = districts[i],
+     # min = -17, max = 5, ##option 1: same scale for all plots
+     min = floor(min_diff_dist), max=ceiling(max_diff_dist), ##option 2: distr have their own scale
+     
+     ## option 3: 0-5 for ATE>0, -17-0 for ATE<0
+     # min = ifelse(districts[i] %in% c("Boboye","Madaoua"), 0,
+     #              floor(min(unlist(results_spaMM_districts$b_preds_mort_raster2_diff),
+     #                         na.rm=T))
+     #              ),
+     # max = ifelse(districts[i] %in% c("Boboye","Madaoua"), 5, 0),
+     interval = 1,
+     paletteopt = 2,
+     distr = districts[i],
+     legtxt = "Mortality per 1000 person-years",
+     include_axes_labs = T,
+     include_legend = T)
+  
+  results_spaMM_districts$map_pred_diff[[i]] <- tempmap_diff
+}
+
+# Sort them in new list for mapping
+plots_diff_sorted <- vector("list", length(order_of_distr))
+plots_diff_sorted <- list(results_spaMM_districts$map_pred_diff[[9]],
+                         results_spaMM_districts$map_pred_diff[[10]],
+                         results_spaMM_districts$map_pred_diff[[1]],
+                         results_spaMM_districts$map_pred_diff[[11]],
+                         results_spaMM_districts$map_pred_diff[[2]],
+                         results_spaMM_districts$map_pred_diff[[3]],
+                         results_spaMM_districts$map_pred_diff[[4]],
+                         results_spaMM_districts$map_pred_diff[[5]],
+                         results_spaMM_districts$map_pred_diff[[6]],
+                         results_spaMM_districts$map_pred_diff[[12]],
+                         results_spaMM_districts$map_pred_diff[[13]],
+                         results_spaMM_districts$map_pred_diff[[7]],
+                         results_spaMM_districts$map_pred_diff[[14]],
+                         results_spaMM_districts$map_pred_diff[[15]],
+                         results_spaMM_districts$map_pred_diff[[8]])
+
+# Plot using patchwork function.
+map_diff_sorted_all   <- wrap_plots(plots_diff_sorted,
+                                   ncol = 4,
+                                   widths = 0.8)
+
+map_diff_unsorted_all <- wrap_plots(results_spaMM_districts$map_pred_diff, 
+                                   ncol = 4, 
+                                   widths = 0.8)
+
+map_diff_Dosso <- wrap_plots(results_spaMM_districts$map_pred_diff[results_spaMM_districts$region=="Dosso"], 
+                                   ncol = 4, 
+                                   widths = 0.8)
+
+map_diff_Tahoua <- wrap_plots(results_spaMM_districts$map_pred_diff[results_spaMM_districts$region=="Tahoua"], 
+                                   ncol = 4, 
+                                   widths = 0.8)
+
+ggsave(filename = paste0(figure_path,"/spatial-map-panels-district/map_pred_diff_Dosso-2-",Sys.Date(),".pdf"),
+       map_diff_Dosso,
+       device = "pdf",
+       width = 12,
+       height = 8,
+       units = "in")
+
+ggsave(filename = paste0(figure_path,"/spatial-map-panels-district/map_pred_diff_Tahoua-2-",Sys.Date(),".pdf"),
+       map_diff_Tahoua,
+       device = "pdf",
+       width = 12,
+       height = 8,
+       units = "in")
+
+```
+
+```{r map predictions - probeff}
+#------------------------------------------------------
+# create and save mortality rate maps
+# for Posterior Pr(ATE < 0)
+# (see function in 0-functions-analysis.R)
+
+# NOW, we loop through each district and make maps
+#------------------------------------------------------
+
+for (i in 1:15) {
+  
+  tempmap_probeff <- create_mort_map_districts(raster2 = results_spaMM_districts$b_preds_mort_raster2_probeff[[i]],
+               agetxt  = "(1 to 59)",
+               tagtxt  = districts[i],
+               min = 0,
+               max = ceiling(max(unlist(results_spaMM_districts$b_preds_mort_raster2_probeff), na.rm=T))+2,
+               interval = 12,
+               paletteopt = 1,
+               distr = districts[i],
+               legtxt = "Mortality per 1000 person-years",
+               include_axes_labs = T,
+               include_legend = F)
+  
+  results_spaMM_districts$map_pred_probeff[[i]] <- tempmap_probeff
+}
+
+# Sort them in new list for mapping
+reordered_plots_probeff <- vector("list", length(order_of_distr))
+reordered_plots_probeff <- list(results_spaMM_districts$map_pred_probeff[[9]],
+                         results_spaMM_districts$map_pred_probeff[[10]],
+                         results_spaMM_districts$map_pred_probeff[[1]],
+                         results_spaMM_districts$map_pred_probeff[[11]],
+                         results_spaMM_districts$map_pred_probeff[[2]],
+                         results_spaMM_districts$map_pred_probeff[[3]],
+                         results_spaMM_districts$map_pred_probeff[[4]],
+                         results_spaMM_districts$map_pred_probeff[[5]],
+                         results_spaMM_districts$map_pred_probeff[[6]],
+                         results_spaMM_districts$map_pred_probeff[[12]],
+                         results_spaMM_districts$map_pred_probeff[[13]],
+                         results_spaMM_districts$map_pred_probeff[[7]],
+                         results_spaMM_districts$map_pred_probeff[[14]],
+                         results_spaMM_districts$map_pred_probeff[[15]],
+                         results_spaMM_districts$map_pred_probeff[[8]])
+
+# Plot using patchwork function.
+wrap_plots(reordered_plots_probeff, 
+           nrow = 4, widths = 0.8)
+
+```
+

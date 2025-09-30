@@ -43,7 +43,7 @@ Load the AVENIR trial analysis dataset and GPS coordinates
 grappe_mort_3 <- 
   grappe_mort_2 %>%
   mutate(included = case_when(adaptive_rand=="Randomization 1" ~ "Included",
-                              adaptive_rand=="Randomization 2" ~ "Excluded",
+                              adaptive_rand=="Randomization 2" ~ "Included",
                               adaptive_rand=="Randomization 3" ~ "Excluded"
                               )) %>%
   mutate(included = factor(included,
