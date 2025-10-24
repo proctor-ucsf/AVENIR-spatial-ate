@@ -302,7 +302,7 @@ create_mort_map <- function (raster2     = b_preds_mort_raster2_s0,
   map_mort_temp <- ggplot(data=raster2) + 
     geom_tile(aes(x=x,y=y,fill=value)) +    #gradient
     geom_sf(data=d_sf, alpha=0.9, size=0.5, shape=1) + #grappes
-    geom_sf(data=niger_adm1,fill=NA) +      #boundaries
+    geom_sf(data=niger_adm2 %>% filter(adm_01=="Dosso"),fill=NA) +      #boundaries
     coord_sf(crs = 4326) +
     labs(x="Longitude",y="Latitude",title=tagtxt) +
     theme_minimal() +

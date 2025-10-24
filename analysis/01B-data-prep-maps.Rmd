@@ -45,17 +45,17 @@ niger_adm1 <- st_read(dsn = paste0(shp_data,"ner_adm01_feb2018/NER_adm01_feb2018
 niger_adm2 <- st_read(dsn = paste0(shp_data,"ner_adm02_feb2018/NER_adm02_feb2018.shp"))
 
 # filter admin level 2 subdistricts to just Dosso and Tahoua
-niger_adm1 <- niger_adm1 %>%
+niger_adm2 <- niger_adm2 %>%
   # filter(adm_01 %in% c("Dosso","Tahoua"))
   filter(adm_01 %in% c("Dosso")) ## for initial analysis, just doing Dosso
 
 #---------------------------
 # identify the bounding box
 # around subdistricts that
-# contain the WASHB Bangladesh
+# contain Randomization 1
 # clusters
 #---------------------------
-b_boxgrid <- st_make_grid(niger_adm1,
+b_boxgrid <- st_make_grid(niger_adm2,
                           n    = c(100,100),
                           what = "centers"
                           )

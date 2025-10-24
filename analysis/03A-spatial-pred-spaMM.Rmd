@@ -36,7 +36,7 @@ summary(fitmort_1to59_child)
 summary(fitmort_1to59_child_int) 
 # Note: Treatment est. is much larger because the scale of the lat/lon is large. 
 
-save.image(paste0("~/Documents/GitHub/AVENIR-spatial-ate/data-",Sys.Date(),".RData"))
+# save.image(paste0("~/Documents/GitHub/AVENIR-spatial-ate/data-",Sys.Date(),".RData"))
 
 ```
 
@@ -85,16 +85,16 @@ b_preds_mort_raster_tx0_child <- points_to_raster(
   x = b_preds_mort_coords_tx0_child[,1],
   y = b_preds_mort_coords_tx0_child[,2],
   z = b_preds_mort_tx0_child$pred,
-  mask1 = niger_adm1,
-  crop1 = niger_adm1
+  mask1 = niger_adm1 %>% filter(adm_01=="Dosso"),
+  crop1 = niger_adm1 %>% filter(adm_01=="Dosso")
 )
 
 b_preds_mort_raster_tx1_child <- points_to_raster(
   x = b_preds_mort_coords_tx1_child[,1],
   y = b_preds_mort_coords_tx1_child[,2],
   z = b_preds_mort_tx1_child$pred,
-  mask1 = niger_adm1,
-  crop1 = niger_adm1
+  mask1 = niger_adm1 %>% filter(adm_01=="Dosso"),
+  crop1 = niger_adm1 %>% filter(adm_01=="Dosso")
 )
 
 b_preds_mort_raster2_tx0_child <- 
