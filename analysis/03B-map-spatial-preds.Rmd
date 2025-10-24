@@ -1,5 +1,5 @@
 ---
-title: "04-map-spatial-predictions"
+title: "03-map-spatial-predictions"
 author: "Mia Navarro"
 date: "2024-10-09"
 output: html_document
@@ -38,9 +38,8 @@ map_mort_tx1_child <- create_mort_map(raster2 = b_preds_mort_raster2_tx0_child,
 map_mort_diff_child <- create_mort_map(raster2 = b_preds_mort_raster2_diff_child,
                                agetxt  = "(1 to 59)",
                                tagtxt  = "C. ATE",
-                               min = -5, max = -1,
+                               min = -6.5, max = 0,
                                paletteopt = 2,
-                               grappes = F,
                                legtxt = "ATE: difference in mortality per 1000 person-years")
 
 map_mort_probeff_child <- create_mort_map(raster2 = sims_mort_probeff_raster2,
@@ -48,7 +47,6 @@ map_mort_probeff_child <- create_mort_map(raster2 = sims_mort_probeff_raster2,
                                tagtxt  = "D. Bayesian Results",
                                min = 0.5, max = 0.75,
                                paletteopt = 3,
-                               grappes = F,
                                legtxt = "Posterior Pr(mortality ATE < 0)")
 
 ```
