@@ -1,0 +1,22 @@
+---
+title: "05-final-maps"
+author: "Mia Navarro"
+date: "2025-10-23"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+### Configure environment. Load data.
+
+```{r, warning=F, message=F}
+
+source(here::here("0-config.R"))
+
+```
+
+
+
