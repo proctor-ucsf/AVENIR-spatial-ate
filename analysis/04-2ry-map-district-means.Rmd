@@ -124,7 +124,7 @@ map_district_means_ate <-
   ggplot(df_map_dist_means %>% filter(adm_01 == "Dosso")) +
   geom_sf(aes(fill = district_ATE)) +
   coord_sf(crs = 4326) +
-  labs(x="Longitude",y="Latitude",title="B. Treatment") +
+  labs(x="Longitude",y="Latitude",title="C. ATE") +
   theme_minimal() +
   theme(plot.tag = element_text(face="bold",size=16),
         legend.position = "bottom") + 
@@ -153,6 +153,31 @@ map_district_means_ate <-
                                                 draw.ulim = T))
 
 map_district_means_tx0 + map_district_means_tx1 + map_district_means_ate
+
+```
+
+### Save ggplots.
+```{r}
+
+ggsave(filename = paste0(figure_path,"/aggregate-district-panels/avenir-district-mean-ATE-",
+                         Sys.Date(),".pdf"),
+       map_district_means_tx0 + 
+         map_district_means_tx1 + 
+         map_district_means_ate,
+       device = "pdf", 
+       width = 400,
+       height = 260,
+       units = "mm")
+
+ggsave(filename = paste0(figure_path,"/aggregate-district-panels/avenir-district-mean-ATE-",
+                         Sys.Date(),".png"),
+       map_district_means_tx0 + 
+         map_district_means_tx1 + 
+         map_district_means_ate,
+       device = "png", 
+       width = 400,
+       height = 260,
+       units = "mm")
 
 ```
 
