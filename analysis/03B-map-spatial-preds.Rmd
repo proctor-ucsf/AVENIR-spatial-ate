@@ -38,7 +38,7 @@ map_mort_tx1_child <- create_mort_map(raster2 = b_preds_mort_raster2_tx0_child,
 map_mort_diff_child <- create_mort_map(raster2 = b_preds_mort_raster2_diff_child,
                                agetxt  = "(1 to 59)",
                                tagtxt  = "C. ATE",
-                               min = -6.5, max = 0,
+                               min = -7, max = 2,
                                paletteopt = 2,
                                legtxt = "ATE: difference in mortality per 1000 person-years")
 

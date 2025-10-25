@@ -29,6 +29,12 @@ df_all
 
 ```{r}
 
+district_means_all <- df_all %>%
+  dplyr::select(district, deaths_per_1000_1to59) %>%
+  mutate(district = ifelse(district=="Tibiri (Doutchi)","Tibiri",district)) %>%
+  group_by(district) %>%
+  summarise(mean_deaths_per_1000_all = mean(deaths_per_1000_1to59, na.rm=T))
+
 district_means_tx0 <- df_all %>%
   dplyr::filter(isTreated_child=="Control") %>%
   dplyr::select(district, deaths_per_1000_1to59) %>%
@@ -45,6 +51,7 @@ district_means_tx1 <- df_all %>%
 
 district_means <- district_means_tx0 %>%
   left_join(district_means_tx1, join_by(district)) %>%
+  left_join(district_means_all, join_by(district)) %>%
   mutate(mean_ATE = mean_deaths_per_1000_tx1 - mean_deaths_per_1000_tx0)
 
 district_means_tx0; district_means_tx1; district_means
@@ -68,15 +75,16 @@ df_map_dist_means %>% filter(adm_01=="Dosso")
 min_mort_d = 0
 max_mort_d = 35
 
-min_d_ATE = -5
-max_d_ATE = 1.5
+min_d_ATE = -7
+max_d_ATE = 2
 
 
-map_district_means_tx0 <- 
+map_district_means_all <- 
   ggplot(df_map_dist_means %>% filter(adm_01 == "Dosso")) +
-  geom_sf(aes(fill = mean_deaths_per_1000_tx0)) +
+  geom_sf(aes(fill = mean_deaths_per_1000_all)) +
+  geom_sf(data=niger_adm2 %>% filter(adm_01=="Dosso"),fill=NA,color="white") +      #boundaries
   coord_sf(crs = 4326) +
-  labs(x="Longitude",y="Latitude",title="A. Control") +
+  labs(x="Longitude",y="Latitude",title="A") +
   theme_minimal() +
   theme(plot.tag = element_text(face="bold",size=16),
         legend.position = "bottom") + 
@@ -84,7 +92,33 @@ map_district_means_tx0 <-
                      limits = c(min_mort_d,max_mort_d),
                      na.value = NA,
                      breaks = seq(min_mort_d,max_mort_d,5),
-                     guide=guide_colorbar(title="Mean mortality rate (per 1000 person-years)", 
+                     guide=guide_colorbar(title="Mortality rate (per 1000 person-years)", 
+                                          title.position = "top",
+                                          title.hjust = 0.5,
+                                          direction="horizontal",
+                                          label.position = "bottom",
+                                          label.hjust = 0.5,
+                                          barheight=unit(10,"pt"),
+                                          barwidth=unit(200,"pt"),
+                                          ticks.colour = "white",
+                                          ticks.linewidth = 1,
+                                          frame.colour = "white") )
+
+
+map_district_means_tx0 <- 
+  ggplot(df_map_dist_means %>% filter(adm_01 == "Dosso")) +
+  geom_sf(aes(fill = mean_deaths_per_1000_tx0)) +
+  geom_sf(data=niger_adm2 %>% filter(adm_01=="Dosso"),fill=NA,color="white") +      #boundaries
+  coord_sf(crs = 4326) +
+  labs(x="Longitude",y="Latitude",title="A") +
+  theme_minimal() +
+  theme(plot.tag = element_text(face="bold",size=16),
+        legend.position = "bottom") + 
+  scale_fill_viridis(option = "D", direction = 1,
+                     limits = c(min_mort_d,max_mort_d),
+                     na.value = NA,
+                     breaks = seq(min_mort_d,max_mort_d,5),
+                     guide=guide_colorbar(title="Mortality rate (per 1000 person-years)", 
                                           title.position = "top",
                                           title.hjust = 0.5,
                                           direction="horizontal",
@@ -99,8 +133,9 @@ map_district_means_tx0 <-
 map_district_means_tx1 <- 
   ggplot(df_map_dist_means %>% filter(adm_01 == "Dosso")) +
   geom_sf(aes(fill = mean_deaths_per_1000_tx1)) +
+  geom_sf(data=niger_adm2 %>% filter(adm_01=="Dosso"),fill=NA,color="white") + #boundaries
   coord_sf(crs = 4326) +
-  labs(x="Longitude",y="Latitude",title="B. Treatment") +
+  labs(x="Longitude",y="Latitude",title="B") +
   theme_minimal() +
   theme(plot.tag = element_text(face="bold",size=16),
         legend.position = "bottom") + 
@@ -108,7 +143,7 @@ map_district_means_tx1 <-
                      limits = c(min_mort_d,max_mort_d),
                      na.value = NA,
                      breaks = seq(min_mort_d,max_mort_d,5),
-                     guide=guide_colorbar(title="Mean mortality rate (per 1000 person-years)", 
+                     guide=guide_colorbar(title="Mortality rate (per 1000 person-years)", 
                                           title.position = "top",
                                           title.hjust = 0.5,
                                           direction="horizontal",
@@ -122,23 +157,24 @@ map_district_means_tx1 <-
 
 map_district_means_ate <- 
   ggplot(df_map_dist_means %>% filter(adm_01 == "Dosso")) +
-  geom_sf(aes(fill = district_ATE)) +
+  geom_sf(aes(fill = mean_ATE)) +
+  geom_sf(data=niger_adm2 %>% filter(adm_01=="Dosso"),fill=NA,color="white") + #boundaries
   coord_sf(crs = 4326) +
-  labs(x="Longitude",y="Latitude",title="C. ATE") +
+  labs(x="Longitude",y="Latitude",title="D") +
   theme_minimal() +
   theme(plot.tag = element_text(face="bold",size=16),
         legend.position = "bottom") + 
-      scale_fill_gradient2(name="Mean ATE: difference in mortality per 1000 person-years",
+      scale_fill_gradient2(name="ATE: difference in mortality per 1000 person-years",
                            midpoint=0,
                            low = muted("dodgerblue"),
                            mid = "white",
                            high = muted("red"),
                            limits = c(min_d_ATE,max_d_ATE),
-                           breaks = seq(min_d_ATE,max_d_ATE,0.5),
-                           labels = as.character(seq(min_d_ATE,max_d_ATE,0.5)),
+                           breaks = seq(min_d_ATE,max_d_ATE,1),
+                           labels = as.character(seq(min_d_ATE,max_d_ATE,1)),
                            na.value = NA,
                            guide=guide_colorbar(
-                             title="Mean ATE: difference in mortality per 1000 person-years", 
+                             title="ATE: difference in mortality per 1000 person-years", 
                                                 title.position = "top",
                                                 title.hjust = 0.5,
                                                 direction="horizontal",
@@ -152,7 +188,7 @@ map_district_means_ate <-
                                                 draw.llim = T,
                                                 draw.ulim = T))
 
-map_district_means_tx0 + map_district_means_tx1 + map_district_means_ate
+map_district_means_all; map_district_means_tx0; map_district_means_tx1; map_district_means_ate
 
 ```
 

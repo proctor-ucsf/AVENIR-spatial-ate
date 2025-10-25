@@ -233,8 +233,8 @@ sims_mort_probeff_raster <- points_to_raster(
   x = b_preds_mort_coords_tx1_child[,1],
   y = b_preds_mort_coords_tx1_child[,2],
   z = sims_mort_probeff,
-  mask1 = niger_adm1,
-  crop1 = niger_adm1
+  mask1 = niger_adm1 %>% filter(adm_01=="Dosso"),
+  crop1 = niger_adm1 %>% filter(adm_01=="Dosso")
 )
 
 sims_mort_probeff_raster2 <- raster_to_tibble(sims_mort_probeff_raster)
