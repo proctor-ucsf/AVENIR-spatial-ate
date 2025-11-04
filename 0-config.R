@@ -58,11 +58,11 @@ library(sf)
 library(sjPlot)
 library(spaMM)
 library(spData)
-library(spDataLarge)
+# library(spDataLarge)
 library(splines)
 library(tableone)
 library(terra)
-library(tidymv)
+# library(tidymv)
 library(tidyverse)
 library(tmap)    # for static and interactive maps
 

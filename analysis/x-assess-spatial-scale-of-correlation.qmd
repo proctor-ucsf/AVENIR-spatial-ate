@@ -1,0 +1,650 @@
+---
+title: "AVENIR-spatial-ate assess spatial scale of correlation"
+author: "Ben Arnold (ben.arnold@ucsf.edu)"
+format:
+  html:
+    
+    toc: true
+    embed-resources: true
+    code-fold: true
+    link-external-newwindow: true
+---
+
+## Summary
+
+Assess the spatial scale of correlation in mortality in AVENIR I in the Dosso region.
+
+## Preamble
+
+When you click the **Render** button a document will be generated that includes both content and the output of embedded code. You can embed code like this:
+
+```{r}
+#---------------------------
+# source configuration file
+# and functions
+#---------------------------
+library(here)
+here()
+source(here("0-config.R"))
+source(here("analysis","0-functions-analysis.R"))
+source(here("analysis","0-functions-processing.R"))
+
+```
+
+## Load data
+
+```{r}
+#---------------------------
+# load the AVENIR mortality
+# data and GPS coordinates
+#---------------------------
+
+d_gps <- 
+  read_csv(here(final_data,"AVENIR_grappe_gps_2023-07-31.csv")) %>%
+  rename(lat = median_latitude,
+         lon = median_longitude)
+
+grappe_phase_mort <- 
+  readRDS(paste0(final_data,"AVENIR_grappe_phase_2023-07-31.rds"))
+
+
+```
+
+## Aggregate mortality to grappe and CSI levels
+
+Sum person-time and deaths over the entire follow-up period.
+
+Restrict to Dosso region grappes in randomization phase 1 because they have a full 24 months of follow-up. This ensures that we have sufficient information at each location. Grappes randomized at later times have far less information due to the shorter follow-up time of 6-12 months.
+
+Additional aggregate mortality rates to the level of CSI. There are 160 CSIs represented in the original randomization.
+
+```{r}
+#---------------------------
+# aggregate mortality to
+# grappe level
+#---------------------------
+grappe_mort <- 
+  grappe_phase_mort %>%
+  group_by(region, district,site_code, grappe,
+           adaptive_rand, tx) %>%
+  summarise(started_phase_1to59 = sum(started_phase_1to59, na.rm=T),
+            pt_year_1to59 = sum(pt_year_1to59, na.rm=T),
+            n_deaths_1to59 = sum(n_deaths_1to59, na.rm=T),
+            n_alive_1to59 = sum(n_alive_1to59, na.rm=T),
+            lost_1to59 = sum(lost_1to59, na.rm=T),
+            
+            started_phase_1to11 = sum(started_phase_1to11, na.rm=T),
+            pt_year_1to11 = sum(pt_year_1to11, na.rm=T),
+            n_deaths_1to11 = sum(n_deaths_1to11, na.rm=T),
+            n_alive_1to11 = sum(n_alive_1to11, na.rm=T),
+            lost_1to11 = sum(lost_1to11, na.rm=T),
+            
+            started_phase_12to59 = sum(started_phase_12to59, na.rm=T),
+            pt_year_12to59 = sum(pt_year_12to59, na.rm=T),
+            n_deaths_12to59 = sum(n_deaths_12to59, na.rm=T),
+            n_alive_12to59 = sum(n_alive_12to59, na.rm=T),
+            lost_12to59 = sum(lost_12to59, na.rm=T),
+            
+            deaths_per_1000_1to59 = n_deaths_1to59 * 1e3 / pt_year_1to59,
+            deaths_per_1000_1to11 = n_deaths_1to11 * 1e3 / pt_year_1to11,
+            deaths_per_1000_12to59 = n_deaths_12to59 * 1e3 / pt_year_12to59)
+
+length(unique(grappe_phase_mort$site_code))
+length(unique(d_gps$site_code))
+
+#---------------------------
+# join on GPS coordinates
+# and CSI information
+#---------------------------
+d_mort <- grappe_mort %>%
+  left_join(d_gps, join_by(region,district,grappe,site_code))
+
+table(d_mort$region, d_mort$adaptive_rand)
+
+# --------------------------------------------------
+# Rename districts to match shapefile district names
+# --------------------------------------------------
+d_mort$district[d_mort$district=="Tibiri (Doutchi)"] <- "Tibiri"
+d_mort$district[d_mort$district=="Illela"] <- "Illéla"
+
+
+#---------------------------
+# restrict grappe-level 
+# data to Dosso rand 1
+#---------------------------
+d_grappe <- d_mort %>%
+  filter(region == "Dosso" & adaptive_rand == "Random Allocation 1") %>%
+  # drop a single grappe with zero person-time at risk
+  filter(pt_year_1to59 > 0) %>%
+  # create factor variables for CSI and district for model fitting
+  mutate(csif = factor(csi),
+         districtf = factor(district)
+         )
+
+
+#---------------------------
+# aggregate the data to the
+# CSI level as well for
+# sensitivity analyses at
+# high level of spatial aggregation
+#
+# take median of lon/lat 
+# coordinates across grappes
+# as approximate locations of
+# CSIs
+#---------------------------
+d_csi <- d_grappe %>%
+  group_by(region, district, csi) %>% 
+  summarise(pt_year_1to59 = sum(pt_year_1to59, na.rm=T),
+            n_deaths_1to59 = sum(n_deaths_1to59, na.rm=T),
+            lon = median(lon, na.rm=TRUE),
+            lat = median(lat, na.rm = TRUE),
+            .groups = "drop") %>%
+  mutate(deaths_per_1000_1to59 = n_deaths_1to59 * 1e3 / pt_year_1to59)
+
+#---------------------------
+# save temporary csv files
+# for Tom
+#---------------------------
+write_csv(d_mort %>% ungroup() %>% dplyr::select(region,district,csi,site_code,adaptive_rand,tx,pt_year_1to59,n_deaths_1to59,deaths_per_1000_1to59,lat,lon), file = here("results","avenir-1-mortality-dosso-grappe-level.csv"))
+write_csv(d_csi, file = here("results","avenir-1-mortality-dosso-csi-level.csv"))
+```
+
+## Distributions of mortality
+
+Examine distributions of mortality in Dosso region at the level of grappes and aggregated to 160 CSIs within Dosso.
+
+```{r}
+#| label: examine distributions within region
+#| warning: FALSE
+#| message: FALSE
+#-------------------------
+# safe color blind palette
+# http://jfly.iam.u-tokyo.ac.jp/color/
+# http://www.cookbook-r.com/Graphs/Colors_(ggplot2)/
+# Reference: Bang Wong, Nature Methods 2011: https://www.nature.com/articles/nmeth.1618
+#-------------------------
+cbpal <- c("#999999", "#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7")
+
+
+#-------------------------
+# examine distribution of 
+# 1-59m mortality rates
+# at grappe and CSI level
+#-------------------------
+d_grappe_notx <- d_grappe %>%
+  filter(tx %in% c("2 - Azithro 1-11m","3 - Placebo 1-59m"))
+
+hist_grappe_mort <- ggplot(data=d_grappe, aes(x=deaths_per_1000_1to59)) + 
+  geom_histogram(alpha=0.7, fill=cbpal[6], color="gray20") +
+  # facet_wrap(tx~.,ncol=1) +
+  labs(x= "Mortality rate per 1000 person-years",y = "Number of Grappes", title="Distribution of 1-59m mortality rates in Dosso") + 
+  scale_x_continuous(breaks=seq(0,60,by=10)) +
+  coord_cartesian(xlim=c(0,60)) + 
+  theme_minimal() +
+  theme(
+    legend.position = "none"
+  )
+
+hist_grappe_mort
+
+
+hist_csi_mort <- ggplot(data=d_csi, aes(x=deaths_per_1000_1to59)) + 
+  geom_histogram(alpha=0.7, fill=cbpal[7], color="gray20") +
+  # facet_wrap(tx~.,ncol=1) +
+  labs(x= "Mortality rate per 1000 person-years",y = "Number of CSIs", title="Distribution of 1-59m mortality rates in Dosso") + 
+  scale_x_continuous(breaks=seq(0,60,by=10)) +
+  coord_cartesian(xlim=c(0,60)) + 
+  theme_minimal() +
+  theme(
+    legend.position = "none"
+  )
+
+hist_csi_mort
+
+```
+
+## Estimate semivariograms
+
+Estimates below suggest some spatial correlation in outcomes, but no strong sill and range of correlation. Later sections that include geostatistical model fits and partitioning of extra-Poisson variation in mortality at different spatial scales provide additional information about the relevant spatial scale of heterogeneity in the outcome (results suggest it is very fine spatial scale).
+
+### semi-variogram, grappe level
+
+```{r}
+#| label: estimate semivariogram grappe level
+#-------------------------------
+# format grappe data as sf
+#-------------------------------
+d_grappe_sf <- st_as_sf(d_grappe, coords=c("lon","lat"), 
+                 crs=4326) # set coordinate ref system to WGS1984
+
+
+library(gstat)
+grappe_variogram <- gstat::variogram(deaths_per_1000_1to59 ~ 1, data=d_grappe_sf)
+
+grappe_var_mat <- gstat::fit.variogram(grappe_variogram, vgm(psill=NA,model="Mat",nugget=NA,kappa=0.5))
+print(grappe_var_mat)
+
+
+grappe_var_sph <- gstat::fit.variogram(grappe_variogram, vgm(psill=NA,model="Sph",nugget=NA))
+print(grappe_var_sph)
+
+
+# bind model fits into a single data frame for plotting
+grappe_var_mat_preds <- variogramLine(grappe_var_mat, maxdist = 125)
+grappe_var_sph_preds <- variogramLine(grappe_var_sph, maxdist = 125)
+grappe_var_pred_data <- grappe_var_mat_preds %>%
+  mutate(model = "Matern") %>%
+  bind_rows(grappe_var_sph_preds) %>%
+  mutate(model = ifelse(is.na(model),"Spherical",model))
+
+
+plot_variogram_grappe <- ggplot(data = grappe_variogram, aes(x=dist,y=gamma)) + 
+  geom_point() +
+  geom_line(data=grappe_var_pred_data, aes(x=dist,y=gamma, color=model)) +
+  scale_color_manual(values = cbpal[c(3,6)]) +
+  scale_x_continuous(breaks=seq(0,140,by=20)) + 
+  # scale_y_continuous(breaks=seq(500,1000,by=100)) +
+  # coord_cartesian(ylim = c(0,130), xlim=c(0,125)) +
+  labs(x="Distance (km)",y="Semi-variance") + 
+  theme_minimal() +
+  theme(
+    legend.position = c(0.2,0.8)
+  )
+
+plot_variogram_grappe
+```
+
+### semi-variogram, CSI level
+
+```{r}
+#| label: estimate semivariogram CSI level
+#-------------------------------
+# format CSI data as sf
+#-------------------------------
+d_csi_sf <- st_as_sf(d_csi, coords=c("lon","lat"), 
+                 crs=4326) # set coordinate ref system to WGS1984
+
+
+csi_variogram <- gstat::variogram(deaths_per_1000_1to59 ~ 1, data=d_csi_sf)
+
+csi_var_mat <- gstat::fit.variogram(csi_variogram, vgm(psill=NA,model="Mat",nugget=NA,kappa=0.5))
+print(csi_var_mat)
+
+
+csi_var_sph <- gstat::fit.variogram(csi_variogram, vgm(psill=NA,model="Sph",nugget=NA))
+print(csi_var_sph)
+
+
+# bind model fits into a single data frame for plotting
+csi_var_mat_preds <- variogramLine(csi_var_mat, maxdist = 125)
+csi_var_sph_preds <- variogramLine(csi_var_sph, maxdist = 125)
+csi_var_pred_data <- csi_var_mat_preds %>%
+  mutate(model = "Matern") %>%
+  bind_rows(csi_var_sph_preds) %>%
+  mutate(model = ifelse(is.na(model),"Spherical",model))
+
+
+plot_variogram_csi <- ggplot(data = csi_variogram, aes(x=dist,y=gamma)) + 
+  geom_point() +
+  geom_line(data=csi_var_pred_data, aes(x=dist,y=gamma, color=model)) +
+  scale_color_manual(values = cbpal[c(3,6)]) +
+  scale_x_continuous(breaks=seq(0,140,by=20)) + 
+  # scale_y_continuous(breaks=seq(500,1000,by=100)) +
+  # coord_cartesian(ylim = c(0,130), xlim=c(0,125)) +
+  labs(x="Distance (km)",y="Semi-variance") + 
+  theme_minimal() +
+  theme(
+    legend.position = c(0.2,0.8)
+  )
+
+plot_variogram_csi
+```
+
+## Fit geostatistical models
+
+Below, we use geostatistical models to smooth outcomes and estimate the spatial scale of outcome correlation under a Matérn spatial covariance structure. Models fit to grappe level data and (aggregated) CSI-level data estimate a similar spatial scale of correlation, suggesting that there is a fundamental, fine-scale structure to the mortality rates in AVENIR-I that is not an artifact of data aggregation. We estimate high levels of correlation at spatial scales of less than about 20 km, and relatively low correlation at higher spatial scales.
+
+In the next section, we will partition the exta-Poisson variability into different spatial scales to assess how much of the extra-Poisson variation in mortality is explained by district, CSI within district, and finally the fine-scale spatial field modeled here.
+
+### krig, grappe-level data
+
+Fit a geostatistical model to the grappe-level mortality data, assuming a Matérn spatial covariance structure. From the model fit, summarize correlation in mortality as a function of distance between grappes.
+
+Below, will repeat for CSI-level aggregation.
+
+```{r fit geostatistical model grappe}
+#-------------------------
+# identify available cores for
+# parallel computing to speed up models
+#-------------------------
+avail_thr <- parallel::detectCores(logical=FALSE) - 1L 
+
+#-------------------------
+# generalized krig model
+# linear terms for lat, lon
+#-------------------------
+fit_grappe_gen <- spaMM::fitme(n_deaths_1to59 ~ 
+                                 1 + lat + lon + 
+                                     Matern(1|lat + lon) +
+                                     offset(log(pt_year_1to59)),
+                                   data = d_grappe,
+                                   family = poisson(link = "log"),
+                               control.HLfit=list(NbThreads=max(avail_thr, 1L))
+                               )
+
+
+#-------------------------
+# generalized krig model
+# linear terms for lat, lon
+# with addnl RE for cluster
+# (redundant w/ spatial corr? identifiable?)
+#-------------------------
+# fit_grappe_gen_re <- spaMM::fitme(n_deaths_1to59 ~ 
+#                                  1 + lat + lon + 
+#                                      Matern(1|lat + lon) +
+#                                      (1|site_code) +
+#                                      offset(log(pt_year_1to59)),
+#                                    data = d_grappe,
+#                                    family = poisson(link = "log"))
+
+#-------------------------
+# simple krig model
+# intercept model
+#-------------------------
+fit_grappe <- spaMM::fitme(n_deaths_1to59 ~ 
+                                 1 + Matern(1|lat + lon) +
+                                    # (1|site_code) +
+                                     offset(log(pt_year_1to59)),
+                                   data = d_grappe,
+                                   family = poisson(link = "log"),
+                               control.HLfit=list(NbThreads=max(avail_thr, 1L))
+                           )
+
+
+# likelihood ratio test
+# suggest generalized krig model better 
+LRT(fit_grappe_gen,fit_grappe)
+
+summary(fit_grappe_gen)
+
+```
+
+Plot correlation as a function of distance according to the model fit
+
+```{r}
+#| label: plot_matern_corr function
+
+#--------------------------------------
+# plot_matern_corr2()
+#
+# estimate the effect correlation by
+# distance relationship given fitted
+# Matern parameters in a geostatistical model
+# of class HLfit from spaMM
+#
+# the model fit must have variables 
+# "lon" and "lat" as the x,y coordinates
+#--------------------------------------
+plot_matern_corr2 <- function(spamm_model_fit, 
+                             maxdist=100) {
+  
+  # create a distance matrix between all points
+  # compute great circle distances in meters
+  dist_mat_m <- spamm_model_fit$data %>%
+    st_as_sf(coords = c("lon", "lat"), crs=4326) %>%
+    st_distance(which = "Great Circle") %>%
+    as.numeric()
+  
+  model_dist_mat <- as.matrix(dist(spamm_model_fit$data [,c("lon","lat")]))
+  
+  # get estimated parameters from the Matern function
+  est_nu <- spamm_model_fit$CorrEst_and_RanFix$corrPars$`1`$nu
+  est_rho <- spamm_model_fit$CorrEst_and_RanFix$corrPars$`1`$rho
+  # estimate the correlation between each location
+  matern_cor <- MaternCorr(d = model_dist_mat, nu=est_nu, rho=est_rho)
+  # store in a data frame for plotting
+  d_matern_cor <- data.frame(
+    distms = as.numeric(model_dist_mat),
+    distkm = as.numeric(dist_mat_m)/1000,
+    materncor = as.numeric(matern_cor)) %>%
+    arrange(distms) %>%
+    group_by(distkm) %>%
+    slice(1) %>%
+    ungroup()
+  
+  # there is a very, very slightly imperfect translation
+  # between units in lat/lon used in the geostatistical
+  # model and the actual great circle distances on earth
+  # regress the two to get a very accurate estimate for plotting
+  mskmfit <- lm(distkm~distms,data=d_matern_cor)
+  d_matern_cor$pdistkm <- predict(mskmfit)
+  
+  #--------------------------------------
+  # plot the correlation function
+  #--------------------------------------
+  plot_materncor <- ggplot(data = d_matern_cor %>% filter(pdistkm<=maxdist)) +
+    # geom_point(aes(x=distms,y=distkm)) +
+    geom_point(aes(x=pdistkm, y = materncor),color="black",alpha=1,size=0.1) + 
+    # geom_vline(xintercept= 3 ,color="gray60", lwd=0.1) +
+    scale_y_continuous(breaks=seq(0,1,by=0.2)) +
+    scale_x_continuous(breaks=seq(0,maxdist,by=20)) +
+    coord_cartesian(xlim=c(0,maxdist),ylim=c(0,1)) +
+    labs(x="distance (km)",y = "Matern correlation") +
+    annotate("text",x=15,y=0.9,label=paste("nu ==", deparse(sprintf("%1.1f",est_nu))),parse=TRUE, hjust =0, size=8)+
+    annotate("text",x=15,y=0.7,label=paste("rho ==", deparse(sprintf("%1.1f",est_rho))),parse=TRUE, hjust =0, size=8)+
+    theme_minimal() +
+    theme(
+      panel.grid.minor.x = element_blank(),
+    )
+  
+  
+  return(plot_materncor)
+  
+}
+```
+
+```{r}
+#| label: plot outcome correlation as a function of grappe distance
+#| 
+(plot_corr_grappe <- plot_matern_corr2(spamm_model_fit=fit_grappe_gen, maxdist=125))
+```
+
+### krig, CSI-level data
+
+```{r fit geostatistical model csi}
+#-------------------------
+# generalized krig model
+# linear terms for lat, lon
+#-------------------------
+fit_csi_gen <- spaMM::fitme(n_deaths_1to59 ~ 
+                                 1 + lat + lon + 
+                                     Matern(1|lat + lon) +
+                                     offset(log(pt_year_1to59)),
+                                   data = d_csi,
+                                   family = poisson(link = "log"),
+                               control.HLfit=list(NbThreads=max(avail_thr, 1L))
+                            )
+
+
+#-------------------------
+# simple krig model
+# intercept model
+#-------------------------
+fit_csi <- spaMM::fitme(n_deaths_1to59 ~ 
+                                 1 + Matern(1|lat + lon) +
+                                     offset(log(pt_year_1to59)),
+                                   data = d_csi,
+                                   family = poisson(link = "log"),
+                               control.HLfit=list(NbThreads=max(avail_thr, 1L))
+                        )
+
+
+# likelihood ratio test
+# suggest generalized krig model better 
+LRT(fit_csi_gen,fit_csi)
+
+summary(fit_csi_gen)
+
+```
+
+```{r}
+#| label: plot outcome correlation as a function of CSI distance
+#| 
+(plot_corr_csi <- plot_matern_corr2(spamm_model_fit=fit_csi_gen, maxdist=125))
+```
+
+## Assess over-dispersion in outcomes
+
+Below, we use a hierarchical mixed effects model to partition the variance in child mortality and assess contributions to extra-Poisson variation as a measure of overdispersion. In this section, I used GPT5o to embellish the annotation and explanation.
+
+**1. Overdispersion in Poisson data**
+
+**Overdispersion** means:
+
+> The variance of the observed counts exceeds what is expected under the assumed sampling model (e.g., Poisson variance = mean).
+
+**Random effects** in hierarchical models are *structured ways* to explain (and partition) that extra variance — i.e., to turn “unexplained overdispersion” into *explained* variation attributable to different spatial or grouping levels.
+
+So the connection is:
+
+> The proportion of total random-effect variance explained by each level ≈ the proportion of overdispersion attributable to clustering at that level.
+
+In a simple Poisson model:
+
+$Y_i \sim \text{Poisson}(\mu_i), \quad \text{Var}(Y_i) = \mu_i$
+
+If the empirical variance is much larger than the mean, there is *extra-Poisson* variation (overdispersion). This extra variance can arise because the Poisson assumption of conditionally independent events with constant rate is violated — for example:
+
+\- individuals or grappes have different underlying rates (heterogeneity),
+
+\- events are clustered in space,
+
+\- unobserved covariates vary by district, etc.
+
+**2. Random effects as sources of structured overdispersion**
+
+When we introduce random effects, we assume the rate parameter itself varies according to some distribution:
+
+$\log(\mu*{ijk}) = \beta_0 + b_{\text{district}_j} + b_{\text{catchment}_{k(j)}} + s(lon,lat)$
+
+where each random effect contributes a variance term on the latent (log) scale.
+
+Then, marginally (after integrating over random effects):
+
+$\text{Var}(Y_{ijk}) = E(Y_{ijk}) + \text{Var}_b[E(Y_{ijk}|b)]$.
+
+The first term is the *Poisson variance*, and the second term is *extra-Poisson variance* due to heterogeneity in the random effects.
+
+Hence, **random-effect variances are model-based measures of overdispersion** — they tell us how much extra variation is induced by each hierarchical level.
+
+**3. Relating random-effect variance to overdispersion**
+
+On the latent scale (log-link):
+
+-   Each random effect adds variance $\lambda_\ell$ (for level $\ell$).
+
+-   The total latent variance = sum of all random-effect variances (plus residual Poisson variance).
+
+On the **observation scale** (counts):
+
+-   These variances translate into multiplicative variability in rates.
+
+-   For small variances, you can approximate:
+
+$\text{Var}(Y) \approx \mu + \mu^2 \sum_\ell \lambda_\ell$
+
+(a Taylor expansion, assuming the link is log and random effects are normal with variance $\lambda$).
+
+So the “overdispersion factor”
+
+$\phi = \frac{\text{Var}(Y)}{E(Y)} - 1$
+
+is approximately $\mu \sum_\ell \lambda_\ell$, meaning each $\lambda$ term contributes additively to extra-Poisson variance.
+
+Therefore:
+
+> The relative size of $\lambda$ (district, CSI, sub-CSI spatial process) estimates the relative contribution to total overdispersion at each spatial scale.
+
+**4. From variance partitioning to “overdispersion partitioning”**
+
+From a hierarchical model estimate with variances of random effects $\lambda$ estimated on the log scale, we can express each level’s contribution to the extra-poisson variation (overdispersion) as: $\text{Proportion}_\ell = \frac{\lambda_\ell}{\sum \lambda_\ell}$​
+
+**5. Analogy to Negative Binomial model**
+
+A single-level random intercept Poisson model (with `(1|group)`) is mathematically equivalent to a Negative Binomial model where the random effect variance defines the NB overdispersion parameter $\theta$:
+
+$\lambda_{NB} \approx \frac{1}{\theta}$
+
+So we can think of each $\lambda_\ell$ in a hierarchical model as a component of that overdispersion. In other words, hierarchical Poisson + RE model = multi-level Negative Binomial, decomposing $\theta$ into structured sources.
+
+```{r}
+#| label: fit hierarchical spatial model to assess overdispersion
+#---------------------------
+# augment the Matern spatial
+# model to include CSI and
+# district level random effects
+# then, partition the variance
+# to see how much of the 
+# variance in mortality is 
+# explained by each level
+#
+# omit lon/lat fixed effects
+# from the generalized krig model above
+#---------------------------
+fit_nested <- spaMM::fitme(n_deaths_1to59 ~ 
+                             1 + 
+                             # lon + lat +
+                             Matern(1|lat + lon) +
+                             (1 | districtf:csif) +
+                             (1 | districtf) +
+                             offset(log(pt_year_1to59)),
+                           data = d_grappe,
+                           family = poisson(link = "log"),
+                           control.HLfit=list(NbThreads=max(avail_thr, 1L))
+                           )
+
+# extract the variance components from the model
+varcomps <- get_ranPars(fit_nested)
+varcomps$lambda
+# summarize the proportion of the variance in mortality
+# explained by each random effect
+# (fine-scale spatial correlation, CSI within district, district)
+prop_var <- varcomps$lambda / sum(varcomps$lambda)
+round(prop_var,3)
+```
+
+```{r}
+#| label: fit hierarchical model (no spatial) to assess overdispersion
+#---------------------------
+# repeat without the 
+# spatial component
+#---------------------------
+fit_nested_simple <- spaMM::fitme(n_deaths_1to59 ~ 
+                             1 + 
+                             # lon + lat +
+                             # Matern(1|lat + lon) +
+                             (1 | districtf:csif) +
+                             (1 | districtf) +
+                             offset(log(pt_year_1to59)),
+                           data = d_grappe,
+                           family = poisson(link = "log"),
+                           control.HLfit=list(NbThreads=max(avail_thr, 1L))
+                           )
+
+# extract the variance components from the model
+varcomps_simple <- get_ranPars(fit_nested_simple)
+varcomps_simple$lambda
+# summarize the proportion of the variance in mortality
+# explained by each random effect
+# (CSI within district, district)
+prop_var_simple <- varcomps_simple$lambda / sum(varcomps_simple$lambda)
+prop_var_simple
+```
+
+## Session info
+
+```{r}
+#| label: session info
+sessionInfo()
+```
