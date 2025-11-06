@@ -1,6 +1,7 @@
 ---
 title: "AVENIR-spatial-ate assess spatial scale of correlation"
 author: "Ben Arnold (ben.arnold@ucsf.edu)"
+date: "2025-11-05"
 format:
   html:
     
@@ -12,13 +13,24 @@ format:
 
 ## Summary
 
-Assess the spatial scale of correlation in mortality in AVENIR I in the Dosso region.
+Assess the spatial scale of correlation in mortality in AVENIR I in the Dosso region. The analysis is limited to Dosso randomization wave 1 to ensure sufficient person-time of observation (24 months) at each cluster location.
+
+There are three main sections of the analysis. In each section, we repeated the analysis using data aggregated to the grappe level (community cluster, n=1389 with person-time at risk) and to the CSI health catchment level (n=160). The reason for repeating the analysis with data at the CSI level is that future monitoring in AVENIR-II is at the CSI level, and we wanted to assess whether aggregation introduces any artifact in our estimates of spatial scale of correlation.  In short, it does not -- estimates are highly consistent in all analyses whether completed at the grappe or CSI level, in a setting with extremely high spatial density of data collection.
+
+First, we estimate semivariance in mortality rates by different distances between clusters. We find that the range of spatial auto-correlation is approximately 30 km. 
+
+Second, we use a generalized linear model with Poisson distribution and Matérn spatial covariance to fit a spatial model of mortality. We find that a generalized krig model, which includes fixed effects for longitude and latitude slightly outperforms a simple krig model (intercept only).  Under the MLE of the Matérn parameters, we find the spatial scale of correlation is below approximately 30-40 km, highly consistent with the semivariogram analysis.
+
+Third, we try to explain the over-dispersion in mortality rates at different spatial scales. Overdispersion is defined in this context as variability beyond what we would expect under a Poisson distribution.  To study this, we extend the Matérn spatial covariance model to include random effects for CSI (nested within district) and district. This allows us to partition the variance into fine-scale spatial process (Matérn covariance), CSI-level and district level.  We find that the fine scale spatial process explains 97.5% of the extra-Poisson variation. Ignoring the spatial covariance, we find that CSI explains 72% of the variance.  These results show that sources of extra-Poisson variability are at very fine spatial scales, below the CSI level. If the outcome were only measured at the CSI level, as in AVENIR-II, then CSI-level data would account for about 72% of the extra-Poisson variability. 
+
+The results imply that to identify highest mortality locations it would be necessary to measure mortality at very fine spatial scales, such as at the grappe- or CSI-level. 
 
 ## Preamble
 
-When you click the **Render** button a document will be generated that includes both content and the output of embedded code. You can embed code like this:
 
 ```{r}
+#| label: preamble
+#| message: FALSE
 #---------------------------
 # source configuration file
 # and functions
@@ -34,6 +46,7 @@ source(here("analysis","0-functions-processing.R"))
 ## Load data
 
 ```{r}
+#| label: load the data
 #---------------------------
 # load the AVENIR mortality
 # data and GPS coordinates
@@ -59,6 +72,7 @@ Restrict to Dosso region grappes in randomization phase 1 because they have a fu
 Additional aggregate mortality rates to the level of CSI. There are 160 CSIs represented in the original randomization.
 
 ```{r}
+#| label: aggregate the mortality data to grappe and csi levels
 #---------------------------
 # aggregate mortality to
 # grappe level
@@ -116,6 +130,10 @@ d_grappe <- d_mort %>%
   filter(region == "Dosso" & adaptive_rand == "Random Allocation 1") %>%
   # drop a single grappe with zero person-time at risk
   filter(pt_year_1to59 > 0) %>%
+  # create a log mortality rate variable
+  mutate(
+    log_deaths_per_1000_1to59 = ifelse(deaths_per_1000_1to59==0,log(0.1),log(deaths_per_1000_1to59))
+  ) %>%
   # create factor variables for CSI and district for model fitting
   mutate(csif = factor(csi),
          districtf = factor(district)
@@ -140,14 +158,16 @@ d_csi <- d_grappe %>%
             lon = median(lon, na.rm=TRUE),
             lat = median(lat, na.rm = TRUE),
             .groups = "drop") %>%
-  mutate(deaths_per_1000_1to59 = n_deaths_1to59 * 1e3 / pt_year_1to59)
+  mutate(deaths_per_1000_1to59 = n_deaths_1to59 * 1e3 / pt_year_1to59,
+         log_deaths_per_1000_1to59 = ifelse(deaths_per_1000_1to59==0,log(0.1),log(deaths_per_1000_1to59))
+         )
 
 #---------------------------
 # save temporary csv files
 # for Tom
 #---------------------------
-write_csv(d_mort %>% ungroup() %>% dplyr::select(region,district,csi,site_code,adaptive_rand,tx,pt_year_1to59,n_deaths_1to59,deaths_per_1000_1to59,lat,lon), file = here("results","avenir-1-mortality-dosso-grappe-level.csv"))
-write_csv(d_csi, file = here("results","avenir-1-mortality-dosso-csi-level.csv"))
+# write_csv(d_grappe %>% ungroup() %>% dplyr::select(region,district,csi,site_code,adaptive_rand,tx,pt_year_1to59,n_deaths_1to59,deaths_per_1000_1to59,lat,lon), file = here("results","avenir-1-mortality-dosso-grappe-level.csv"))
+# write_csv(d_csi, file = here("results","avenir-1-mortality-dosso-csi-level.csv"))
 ```
 
 ## Distributions of mortality
@@ -155,7 +175,7 @@ write_csv(d_csi, file = here("results","avenir-1-mortality-dosso-csi-level.csv")
 Examine distributions of mortality in Dosso region at the level of grappes and aggregated to 160 CSIs within Dosso.
 
 ```{r}
-#| label: examine distributions within region
+#| label: examine mortality distributions within region
 #| warning: FALSE
 #| message: FALSE
 #-------------------------
@@ -188,6 +208,20 @@ hist_grappe_mort <- ggplot(data=d_grappe, aes(x=deaths_per_1000_1to59)) +
 
 hist_grappe_mort
 
+# distribution of ln(mortality)
+hist_grappe_log_mort <- ggplot(data=d_grappe, aes(x=log_deaths_per_1000_1to59)) + 
+  geom_histogram(alpha=0.7, fill=cbpal[6], color="gray20") +
+  # facet_wrap(tx~.,ncol=1) +
+  labs(x= "Log Mortality rate per 1000 person-years",y = "Number of Grappes", title="Distribution of Log 1-59m mortality rates in Dosso") + 
+  # scale_x_continuous(breaks=seq(0,60,by=10)) +
+  # coord_cartesian(xlim=c(0,60)) + 
+  theme_minimal() +
+  theme(
+    legend.position = "none"
+  )
+
+hist_grappe_log_mort
+
 
 hist_csi_mort <- ggplot(data=d_csi, aes(x=deaths_per_1000_1to59)) + 
   geom_histogram(alpha=0.7, fill=cbpal[7], color="gray20") +
@@ -202,11 +236,28 @@ hist_csi_mort <- ggplot(data=d_csi, aes(x=deaths_per_1000_1to59)) +
 
 hist_csi_mort
 
+hist_csi_log_mort <- ggplot(data=d_csi, aes(x=log_deaths_per_1000_1to59)) + 
+  geom_histogram(alpha=0.7, fill=cbpal[7], color="gray20") +
+  # facet_wrap(tx~.,ncol=1) +
+  labs(x= "Log Mortality rate per 1000 person-years",y = "Number of CSIs", title="Distribution of Log 1-59m mortality rates in Dosso") + 
+  # scale_x_continuous(breaks=seq(0,60,by=10)) +
+  # coord_cartesian(xlim=c(0,60)) + 
+  theme_minimal() +
+  theme(
+    legend.position = "none"
+  )
+
+hist_csi_log_mort
+
 ```
 
 ## Estimate semivariograms
 
-Estimates below suggest some spatial correlation in outcomes, but no strong sill and range of correlation. Later sections that include geostatistical model fits and partitioning of extra-Poisson variation in mortality at different spatial scales provide additional information about the relevant spatial scale of heterogeneity in the outcome (results suggest it is very fine spatial scale).
+Semivariogram models assume the outcome is approximately normal. In the fits below, we use the log-transformed mortality rates at the grappe-level and CSI-level. Since a substantial number of grappes had zero events (close to 300), we exclude those grappes from the semivariogram model to ensure the outcome is close to normally distributed. We made no exclusions for the CSI-level model.
+
+Estimates below suggest outcome correlation at very fine spatial scales below about 30 km regardless of level of aggregation of the data (grappe, CSI). 
+
+Later sections that include geostatistical model fits and partitioning of extra-Poisson variation in mortality at different spatial scales provide additional information about the relevant spatial scale of heterogeneity in the outcome. All results are highly consistent with one-another, suggesting the spatial scale in child mortality is below about 30-40 km, which is below the level of the CSI health catchment areas.  
 
 ### semi-variogram, grappe level
 
@@ -219,10 +270,19 @@ d_grappe_sf <- st_as_sf(d_grappe, coords=c("lon","lat"),
                  crs=4326) # set coordinate ref system to WGS1984
 
 
-library(gstat)
-grappe_variogram <- gstat::variogram(deaths_per_1000_1to59 ~ 1, data=d_grappe_sf)
+#-------------------------------
+# estimate the semi-variogram
+# at the grappe level
+# for grappes with zero mortality
+# omit from the analysis
+#-------------------------------
+d_grappe_sf2 <- d_grappe_sf %>%
+  filter(deaths_per_1000_1to59>0)
 
-grappe_var_mat <- gstat::fit.variogram(grappe_variogram, vgm(psill=NA,model="Mat",nugget=NA,kappa=0.5))
+library(gstat)
+grappe_variogram <- gstat::variogram(log_deaths_per_1000_1to59 ~ 1, data=d_grappe_sf2)
+
+grappe_var_mat <- gstat::fit.variogram(grappe_variogram, vgm(psill=NA,model="Mat",nugget=NA,kappa=1))
 print(grappe_var_mat)
 
 
@@ -249,7 +309,7 @@ plot_variogram_grappe <- ggplot(data = grappe_variogram, aes(x=dist,y=gamma)) +
   labs(x="Distance (km)",y="Semi-variance") + 
   theme_minimal() +
   theme(
-    legend.position = c(0.2,0.8)
+    legend.position = c(0.8,0.2)
   )
 
 plot_variogram_grappe
@@ -266,9 +326,9 @@ d_csi_sf <- st_as_sf(d_csi, coords=c("lon","lat"),
                  crs=4326) # set coordinate ref system to WGS1984
 
 
-csi_variogram <- gstat::variogram(deaths_per_1000_1to59 ~ 1, data=d_csi_sf)
+csi_variogram <- gstat::variogram(log_deaths_per_1000_1to59 ~ 1, data=d_csi_sf)
 
-csi_var_mat <- gstat::fit.variogram(csi_variogram, vgm(psill=NA,model="Mat",nugget=NA,kappa=0.5))
+csi_var_mat <- gstat::fit.variogram(csi_variogram, vgm(psill=NA,model="Mat",nugget=NA,kappa=1))
 print(csi_var_mat)
 
 
@@ -295,7 +355,7 @@ plot_variogram_csi <- ggplot(data = csi_variogram, aes(x=dist,y=gamma)) +
   labs(x="Distance (km)",y="Semi-variance") + 
   theme_minimal() +
   theme(
-    legend.position = c(0.2,0.8)
+    legend.position = c(0.8,0.2)
   )
 
 plot_variogram_csi
@@ -332,21 +392,6 @@ fit_grappe_gen <- spaMM::fitme(n_deaths_1to59 ~
                                    family = poisson(link = "log"),
                                control.HLfit=list(NbThreads=max(avail_thr, 1L))
                                )
-
-
-#-------------------------
-# generalized krig model
-# linear terms for lat, lon
-# with addnl RE for cluster
-# (redundant w/ spatial corr? identifiable?)
-#-------------------------
-# fit_grappe_gen_re <- spaMM::fitme(n_deaths_1to59 ~ 
-#                                  1 + lat + lon + 
-#                                      Matern(1|lat + lon) +
-#                                      (1|site_code) +
-#                                      offset(log(pt_year_1to59)),
-#                                    data = d_grappe,
-#                                    family = poisson(link = "log"))
 
 #-------------------------
 # simple krig model
@@ -526,7 +571,7 @@ If the empirical variance is much larger than the mean, there is *extra-Poisson*
 
 When we introduce random effects, we assume the rate parameter itself varies according to some distribution:
 
-$\log(\mu*{ijk}) = \beta_0 + b_{\text{district}_j} + b_{\text{catchment}_{k(j)}} + s(lon,lat)$
+$\log(\mu*{ijk}) = \beta_0 + b_{\text{district}_j} + b_{\text{CSI}_{k(j)}} + s(lon,lat)$
 
 where each random effect contributes a variance term on the latent (log) scale.
 
@@ -613,6 +658,12 @@ varcomps$lambda
 prop_var <- varcomps$lambda / sum(varcomps$lambda)
 round(prop_var,3)
 ```
+
+These results suggestion that the Matérn spatial correlation accounts for approximately 97.5% of the extra-Poisson variability, and that CSIs (within district) account for the remaining 2.5% of the extra-Poisson variability.
+
+In the final model fit, below, we exclude the Matérn spatial covariance matrix from the random effects. If ignoring very fine-scale outcome correlation, CSI (within district) explains approximately 72% of the extra-Poisson variability and district explains the remaining 28%.  
+
+Together, these results show that much of the spatial correlation in mortality is very fine-scale, below the level of the CSI catchment areas. This is consistent with the geospatial model and the semivarigram results. 
 
 ```{r}
 #| label: fit hierarchical model (no spatial) to assess overdispersion
