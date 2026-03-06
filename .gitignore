@@ -1,3 +1,17 @@
+# Ignore folders
+results/
+data/
+data/*
+
+# Ignore everything starting with an underscore
+_*
+_*/**
+
+# Ignore everything ending with -int
+*-int
+*-int.*
+*-int/**
+
 # History files
 .Rhistory
 .Rapp.history
@@ -52,3 +66,6 @@ rsconnect/
 *.RDataTmp1
 *.RDataTmp2
 data-2025-05-23-console
+
+# Mac system files
+*.DS_Store
