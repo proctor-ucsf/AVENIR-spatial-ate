@@ -4,29 +4,31 @@ author: "Ben Arnold (ben.arnold@ucsf.edu)"
 date: "2025-11-05"
 format:
   html:
-    
     toc: true
     embed-resources: true
     code-fold: true
     link-external-newwindow: true
+execute:
+  cache: true
+editor_options: 
+  chunk_output_type: console
 ---
 
 ## Summary
 
 Assess the spatial scale of correlation in mortality in AVENIR I in the Dosso region. The analysis is limited to Dosso randomization wave 1 to ensure sufficient person-time of observation (24 months) at each cluster location.
 
-There are three main sections of the analysis. In each section, we repeated the analysis using data aggregated to the grappe level (community cluster, n=1389 with person-time at risk) and to the CSI health catchment level (n=160). The reason for repeating the analysis with data at the CSI level is that future monitoring in AVENIR-II is at the CSI level, and we wanted to assess whether aggregation introduces any artifact in our estimates of spatial scale of correlation.  In short, it does not -- estimates are highly consistent in all analyses whether completed at the grappe or CSI level, in a setting with extremely high spatial density of data collection.
+There are three main sections of the analysis. In each section, we repeated the analysis using data aggregated to the grappe level (community cluster, n=1389 with person-time at risk) and to the CSI health catchment level (n=160). The reason for repeating the analysis with data at the CSI level is that future monitoring in AVENIR-II is at the CSI level, and we wanted to assess whether aggregation introduces any artifact in our estimates of spatial scale of correlation. In short, it does not -- estimates are highly consistent in all analyses whether completed at the grappe or CSI level, in a setting with extremely high spatial density of data collection.
 
-First, we estimate semivariance in mortality rates by different distances between clusters. We find that the range of spatial auto-correlation is approximately 30 km. 
+First, we estimate semivariance in mortality rates by different distances between clusters. We find that the range of spatial auto-correlation is approximately 30 km.
 
-Second, we use a generalized linear model with Poisson distribution and Matérn spatial covariance to fit a spatial model of mortality. We find that a generalized krig model, which includes fixed effects for longitude and latitude slightly outperforms a simple krig model (intercept only).  Under the MLE of the Matérn parameters, we find the spatial scale of correlation is below approximately 30-40 km, highly consistent with the semivariogram analysis.
+Second, we use a generalized linear model with Poisson distribution and Matérn spatial covariance to fit a spatial model of mortality. We find that a generalized krig model, which includes fixed effects for longitude and latitude slightly outperforms a simple krig model (intercept only). Under the MLE of the Matérn parameters, we find the spatial scale of correlation is below approximately 30-40 km, highly consistent with the semivariogram analysis.
 
-Third, we try to explain the over-dispersion in mortality rates at different spatial scales. Overdispersion is defined in this context as variability beyond what we would expect under a Poisson distribution.  To study this, we extend the Matérn spatial covariance model to include random effects for CSI (nested within district) and district. This allows us to partition the variance into fine-scale spatial process (Matérn covariance), CSI-level and district level.  We find that the fine scale spatial process explains 97.5% of the extra-Poisson variation. Ignoring the spatial covariance, we find that CSI explains 72% of the variance.  These results show that sources of extra-Poisson variability are at very fine spatial scales, below the CSI level. If the outcome were only measured at the CSI level, as in AVENIR-II, then CSI-level data would account for about 72% of the extra-Poisson variability. 
+Third, we try to explain the over-dispersion in mortality rates at different spatial scales. Overdispersion is defined in this context as variability beyond what we would expect under a Poisson distribution. To study this, we extend the Matérn spatial covariance model to include random effects for CSI (nested within district) and district. This allows us to partition the variance into fine-scale spatial process (Matérn covariance), CSI-level and district level. We find that the fine scale spatial process explains 97.5% of the extra-Poisson variation. Ignoring the spatial covariance, we find that CSI explains 72% of the variance. These results show that sources of extra-Poisson variability are at very fine spatial scales, below the CSI level. If the outcome were only measured at the CSI level, as in AVENIR-II, then CSI-level data would account for about 72% of the extra-Poisson variability.
 
-The results imply that to identify highest mortality locations it would be necessary to measure mortality at very fine spatial scales, such as at the grappe- or CSI-level. 
+The results imply that to identify highest mortality locations it would be necessary to measure mortality at very fine spatial scales, such as at the grappe- or CSI-level.
 
 ## Preamble
-
 
 ```{r}
 #| label: preamble
@@ -255,9 +257,9 @@ hist_csi_log_mort
 
 Semivariogram models assume the outcome is approximately normal. In the fits below, we use the log-transformed mortality rates at the grappe-level and CSI-level. Since a substantial number of grappes had zero events (close to 300), we exclude those grappes from the semivariogram model to ensure the outcome is close to normally distributed. We made no exclusions for the CSI-level model.
 
-Estimates below suggest outcome correlation at very fine spatial scales below about 30 km regardless of level of aggregation of the data (grappe, CSI). 
+Estimates below suggest outcome correlation at very fine spatial scales below about 30 km regardless of level of aggregation of the data (grappe, CSI).
 
-Later sections that include geostatistical model fits and partitioning of extra-Poisson variation in mortality at different spatial scales provide additional information about the relevant spatial scale of heterogeneity in the outcome. All results are highly consistent with one-another, suggesting the spatial scale in child mortality is below about 30-40 km, which is below the level of the CSI health catchment areas.  
+Later sections that include geostatistical model fits and partitioning of extra-Poisson variation in mortality at different spatial scales provide additional information about the relevant spatial scale of heterogeneity in the outcome. All results are highly consistent with one-another, suggesting the spatial scale in child mortality is below about 30-40 km, which is below the level of the CSI health catchment areas.
 
 ### semi-variogram, grappe level
 
@@ -659,11 +661,11 @@ prop_var <- varcomps$lambda / sum(varcomps$lambda)
 round(prop_var,3)
 ```
 
-These results suggestion that the Matérn spatial correlation accounts for approximately 97.5% of the extra-Poisson variability, and that CSIs (within district) account for the remaining 2.5% of the extra-Poisson variability.
+These results suggest that the Matérn spatial correlation accounts for approximately 97.5% of the extra-Poisson variability, and that CSIs (within district) account for the remaining 2.5% of the extra-Poisson variability.
 
-In the final model fit, below, we exclude the Matérn spatial covariance matrix from the random effects. If ignoring very fine-scale outcome correlation, CSI (within district) explains approximately 72% of the extra-Poisson variability and district explains the remaining 28%.  
+In the final model fit, below, we exclude the Matérn spatial covariance matrix from the random effects. If ignoring very fine-scale outcome correlation, CSI (within district) explains approximately 72% of the extra-Poisson variability and district explains the remaining 28%.
 
-Together, these results show that much of the spatial correlation in mortality is very fine-scale, below the level of the CSI catchment areas. This is consistent with the geospatial model and the semivarigram results. 
+Together, these results show that much of the spatial correlation in mortality is very fine-scale, below the level of the CSI catchment areas. This is consistent with the geospatial model and the semivariogram results.
 
 ```{r}
 #| label: fit hierarchical model (no spatial) to assess overdispersion

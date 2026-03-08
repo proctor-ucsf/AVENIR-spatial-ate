@@ -20,7 +20,7 @@ source(here::here("0-config.R"))
 # data frame for
 # mortality spatial modeling
 #-------------------------------
-df_all
+df_all <- readRDS(here("data", "mortality_analysis_dataset.rds")) 
 
 ```
 

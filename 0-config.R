@@ -16,55 +16,57 @@ wd_path = here::here()
 ##############################################
 # Load required packages
 ##############################################
-library(assertthat)
-library(cowplot)
+# library(assertthat)
+# library(cowplot)
 library(dplyr)
-library(foreign)
-library(gee)
-library(geeM) #> Warning: package 'geeM' was built under R version 3.6.2
-library(geepack) #> Warning: package 'geepack' was built under R version 3.6.2
-library(geosphere)
-library(geodist)
-library(ggplot2) # tidyverse data visualization package
-library(ggraph)
-library(ggmap)
+# library(foreign)
+# library(gee)
+# library(geeM) #> Warning: package 'geeM' was built under R version 3.6.2
+# library(geepack) #> Warning: package 'geepack' was built under R version 3.6.2
+# library(geosphere)
+# library(geodist)
+# library(ggplot2) # tidyverse data visualization package
+# library(ggraph)
+# library(ggmap)
 library(ggpubr)
 library(ggspatial)
-library(gratia)
-library(grid)
-library(gridExtra)
-library(gtsummary)
+# library(gratia)
+# library(grid)
+# library(gridExtra)
+# library(gtsummary)
 library(here)
-library(igraph)
-library(leaflet) # for interactive maps
+# library(igraph)
+# library(leaflet) # for interactive maps
 library(lme4)
-library(MASS)
-library(Matrix)
-library(mgcv)
-library(mgcViz)
-library(parallel) # use mc.cores=7
-library(parallelly)
+# library(MASS)
+# library(Matrix)
+# library(mgcv)
+# library(mgcViz)
+library(paletteer)
+# library(parallel) # use mc.cores=7
+# library(parallelly)
 library(patchwork)
-library(psych)
+# library(psych)
 library(purrr)
 library(raster)
-library(readr)
-library(readxl)
-library(recipes)
+# library(readr)
+# library(readxl)
+# library(recipes)
 library(renv)
-library(rgl)
+# library(rgl)
 library(scales)
 library(sf)
-library(sjPlot)
+# library(sjPlot)
 library(spaMM)
-library(spData)
+# library(spData)
 # library(spDataLarge)
-library(splines)
-library(tableone)
-library(terra)
+# library(splines)
+# library(tableone)
+# library(terra)
 # library(tidymv)
 library(tidyverse)
-library(tmap)    # for static and interactive maps
+# library(tmap)    # for static and interactive maps
+library(tictoc)
 
 ##############################################
 # Define data paths
@@ -78,8 +80,8 @@ my_temp_data_path = paste0(here::here(), "/data/temp/")
 my_final_data_path = paste0(here::here(), "/data/final/")
 
 # load base functions
-source(paste0(here::here(),"/analysis/0-functions-processing.R"))
-source(paste0(here::here(),"/analysis/0-functions-analysis.R"))
+# source(paste0(here::here(),"/analysis/0-functions-processing.R"))
+# source(paste0(here::here(),"/analysis/0-functions-analysis.R"))
 
 ##############################################
 # Define figure and table paths
