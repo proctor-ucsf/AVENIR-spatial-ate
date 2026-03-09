@@ -1,5 +1,5 @@
 ---
-title: "Fit spatial models to examine spatial heterogeneity in the ATE in AVENIR"
+title: "Fit spatial models and get predictions to examine spatial heterogeneity in the ATE in AVENIR"
 # author: "Ariktha Srivathsan"
 date: "`r Sys.Date()`"
 output:
@@ -19,7 +19,7 @@ execute:
 <style type="text/css">
 
 body{ /* Normal  */
-      font-size: 12px;
+      font-size: 16px;
   }
 td {  /* Table  */
   font-size: 15px;
@@ -29,14 +29,15 @@ h1.title {
   color: Black;
 }
 h1 { /* Header 1 */
-  font-size: 24px;
+  font-size: 20px;
   color: Black;
 }
 h2 { /* Header 2 */
-    font-size: 20px;
+  font-size: 20px;
   color: Black;
 }
 h3 { /* Header 3 */
+  font-size: 18px;
   color: Black;
 }
 code.r{ /* Code block */
@@ -56,6 +57,8 @@ rm(list = ls())
 
 ```{r load data, warning=F, message=F}
 
+refit_models_flag <- FALSE
+
 source(here::here("0-config.R"))
 
 df_all <- readRDS(here("data","mortality_analysis_dataset.rds")) %>%
@@ -70,15 +73,15 @@ df_proj <- df_all %>%
   mutate(lon = sf::st_coordinates(.)[,1],
          lat = sf::st_coordinates(.)[,2])
 
+niger_adm1 <- st_read(dsn = paste0(shp_data,"ner_adm01_feb2018/NER_adm01_feb2018.shp"))
+
 ```
 
 ```{r functions}
 
-plot_matern_corr_proj <- function(spamm_model_fit, 
-                                  filenameval="avenir-materncorr") {
-  
+plot_matern_corr_proj <- function(spamm_model_fit, filenameval = "avenir-materncorr") {
   # create a distance matrix between all points
-  coords <- as.matrix(spamm_model_fit$data[, c("lon","lat")])
+  coords <- as.matrix(spamm_model_fit$data[, c("lon", "lat")])
   d_vec_m <- as.numeric(dist(coords))
   
   # get estimated parameters from the Matern function
@@ -86,17 +89,20 @@ plot_matern_corr_proj <- function(spamm_model_fit,
   est_rho <- spamm_model_fit$CorrEst_and_RanFix$corrPars$`1`$rho
   
   rho_sci <- format(est_rho, scientific = TRUE, digits = 3)
-  range_km <- 1/(1000*est_rho)
+  range_km <- 1 / (1000 * est_rho)
   
   # estimate the correlation between each location
   matern_vec <- spaMM::MaternCorr(d = d_vec_m, nu = est_nu, rho = est_rho)
   
   # store in a data frame for plotting
-  d_matern_cor <- tibble(
-    distm = d_vec_m,
-    distkm = distm/1000,
-    materncor = matern_vec) %>%
-    mutate(bin_km = cut(distkm, breaks = seq(0, max(distkm), by = 0.025), include.lowest = TRUE)) %>%
+  d_matern_cor <- tibble(distm = d_vec_m,
+                         distkm = distm / 1000,
+                         materncor = matern_vec) %>%
+    mutate(bin_km = cut(
+      distkm,
+      breaks = seq(0, max(distkm), by = 0.025),
+      include.lowest = TRUE
+    )) %>%
     group_by(bin_km) %>%
     summarise(
       distkm    = mean(distkm),
@@ -105,49 +111,113 @@ plot_matern_corr_proj <- function(spamm_model_fit,
     ) %>%
     arrange(distkm)
   
-  label_text <- sprintf("nu = %0.3f\rho = %0.3f\nrange = %0.2f km", est_nu, est_rho, range_km)
+  label_text <- sprintf("nu = %0.3f\rho = %0.3f\nrange = %0.2f km",
+                        est_nu,
+                        est_rho,
+                        range_km)
   
-  #--------------------------------------
   # plot the correlation function
-  #--------------------------------------
-  plot_materncor <- ggplot(data = d_matern_cor %>% filter(distkm<=50)) +
+  plot_materncor <- ggplot(data = d_matern_cor %>% filter(distkm <= 50)) +
     # geom_point(aes(x=distms,y=distkm)) +
-    geom_point(aes(x=distkm, y = materncor),color="black",alpha=1,size=0.1) + 
+    geom_point(
+      aes(x = distkm, y = materncor),
+      color = "black",
+      alpha = 1,
+      size = 0.1
+    ) +
     # geom_vline(xintercept= 3 ,color="gray60", lwd=0.1) +
-    scale_y_continuous(breaks=seq(0,1,by=0.2)) +
-    scale_x_continuous(breaks=c(0,seq(10,50,by=10))) +
-    coord_cartesian(xlim=c(0,50),ylim=c(0,1)) +
-    labs(x="distance (km)",y = "Matern correlation") +
-    annotate("text",
-             x = 15, y = 0.90,
-             label = as.expression(bquote(nu == .(format(est_nu, digits = 3)))),
-             hjust = 0, size = 6) +
-    
-    annotate("text",
-             x = 15, y = 0.80,
-             label = as.expression(bquote(rho == .(rho_sci) ~ m^{-1})),
-             hjust = 0, size = 6) +
-    
-    annotate("text",
-             x = 15, y = 0.65,
-             label = as.expression(bquote(range == .(format(range_km, digits = 4)) ~ km)),
-             hjust = 0, size = 6) +
+    scale_y_continuous(breaks = seq(0, 1, by = 0.2)) +
+    scale_x_continuous(breaks = c(0, seq(10, 50, by = 10))) +
+    coord_cartesian(xlim = c(0, 50), ylim = c(0, 1)) +
+    labs(x = "distance (km)", y = "Matern correlation") +
+    annotate(
+      "text",
+      x = 15,
+      y = 0.90,
+      label = as.expression(bquote(nu == .(
+        format(est_nu, digits = 3)
+      ))),
+      hjust = 0,
+      size = 6
+    ) +
+    annotate(
+      "text",
+      x = 15,
+      y = 0.80,
+      label = as.expression(bquote(rho == .(rho_sci) ~ m^{-1})),
+      hjust = 0,
+      size = 6
+    ) +
+    annotate(
+      "text",
+      x = 15,
+      y = 0.65,
+      label = as.expression(bquote(range == .(
+        format(range_km, digits = 4)
+      ) ~ km)),
+      hjust = 0,
+      size = 6
+    ) +
     theme_classic() +
     theme(
       panel.grid.minor.x = element_blank(),
-      axis.text = element_text(size=16),
-      axis.title = element_text(size=18)
+      axis.text = element_text(size = 16),
+      axis.title = element_text(size = 18)
     )
   
-  ggsave(filename=paste0(figure_path,filenameval,".png"),
-         plot=plot_materncor,
-         device="png",
-         width=3.3,
-         height=3.5)
+  ggsave(
+    filename = paste0(figure_path, filenameval, ".png"),
+    plot = plot_materncor,
+    device = "png",
+    width = 3.3,
+    height = 3.5
+  )
   
   return(plot_materncor)
   
 }
+
+get_grid_preds <- function(input_grid, 
+                           spamm_model_fit, 
+                           tx_group = "Treatment"){
+  
+  # convert grid into a data.frame with lon/lat variables
+  newd <- input_grid %>%
+    st_centroid() %>% 
+    st_as_sf(crs = 32631) %>% 
+    mutate(lon = sf::st_coordinates(.)[,1],
+           lat = sf::st_coordinates(.)[,2],
+           isTreated_child = tx_group,
+           site_code = 0, #dummy
+           pt_year_1to59 = 1000) %>% #per 1000 person-years
+    st_drop_geometry()
+  
+  # get predictions (response)
+  
+  temp_preds <- predict(object = spamm_model_fit,
+                        type = "response",
+                        newdata = newd)
+  
+  # get estimated variance at each location
+  temp_predVar <- spaMM::get_predVar(object = spamm_model_fit, 
+                                     newdata = newd, 
+                                     which = "predVar")
+  
+  # create a dataframe 
+  # for predictions using 
+  # centroid coordinates from the grid
+  # add predictions and variance to the grid
+  ret <- input_grid %>% 
+    as.data.frame() %>% 
+    st_as_sf(crs = 32631) %>% 
+    mutate(pred = as.numeric(temp_preds),
+           pred_var = as.numeric(temp_predVar),
+           isTreated_child = tx_group)
+  
+  return(ret)
+  
+}
+
 
 
 ```
@@ -160,23 +230,29 @@ plot_matern_corr_proj <- function(spamm_model_fit,
 # isTreated_child: 0=placebo+infant, 1=child
 # isTreated_alltx: 0=placebo, 1=infant+child
 
-avail_thr <- parallel::detectCores(logical=FALSE) - 1L 
+if(refit_models_flag) {
+  avail_thr <- parallel::detectCores(logical = FALSE) - 1L
+  
+  tic("Simple Krig: fit spaMM model for child mortality")
+  fitmort_child_simp_krig <- spaMM::fitme(
+    n_deaths_1to59 ~
+      1 +
+      Matern(1 | lat + lon) +
+      isTreated_child +
+      # (1|site_code) +
+      offset(log(pt_year_1to59)),
+    data = df_proj,
+    family = poisson(link = "log"),
+    control.HLfit = list(NbThreads = avail_thr)
+  )
+  toc()
+  
+  saveRDS(fitmort_child_simp_krig,
+          here("data", "fitmort_child_simp_krig.rds"))
+} else {
+  fitmort_child_simp_krig <- readRDS(here("data", "fitmort_child_simp_krig.rds"))
+}
 
-tic("Simple Krig: fit spaMM model for child mortality")
-fitmort_child_simp_krig <- spaMM::fitme(
-  n_deaths_1to59 ~
-    1 +
-    Matern(1 | lat + lon) +
-    isTreated_child +
-    # (1|site_code) +
-    offset(log(pt_year_1to59)),
-  data = df_proj,
-  family = poisson(link = "log"),
-  control.HLfit = list(NbThreads = avail_thr)
-)
-toc()
-
-saveRDS(fitmort_child_simp_krig, here("data","fitmort_child_simp_krig.rds"))
 ```
 
 ### Summary
@@ -184,28 +260,36 @@ saveRDS(fitmort_child_simp_krig, here("data","fitmort_child_simp_krig.rds"))
 
 summary(fitmort_child_simp_krig)
 
+print(AIC(fitmort_child_simp_krig))
+
 ```
 
 ## Generalized kriging model
 
 ### Fit model
 ```{r fit gen kriging model}
-tic("Generalized Krig: fit spaMM model for child mortality with linear lat/lon terms")
-fitmort_child_gen_krig <- spaMM::fitme(
-  n_deaths_1to59 ~
-    1 +
-    lat + lon +
-    Matern(1 | lat + lon) +
-    isTreated_child +
-    # (1|site_code) +
-    offset(log(pt_year_1to59)),
-  data = df_proj,
-  family = poisson(link = "log"),
-  control.HLfit = list(NbThreads = avail_thr)
-)
-toc()
 
-saveRDS(fitmort_child_gen_krig, here("data","fitmort_child_gen_krig.rds"))
+if(refit_models_flag) {
+  tic("Generalized Krig: fit spaMM model for child mortality with linear lat/lon terms")
+  fitmort_child_gen_krig <- spaMM::fitme(
+    n_deaths_1to59 ~
+      1 +
+      lat + lon +
+      Matern(1 | lat + lon) +
+      isTreated_child +
+      # (1|site_code) +
+      offset(log(pt_year_1to59)),
+    data = df_proj,
+    family = poisson(link = "log"),
+    control.HLfit = list(NbThreads = avail_thr)
+  )
+  toc()
+  
+  saveRDS(fitmort_child_gen_krig,
+          here("data", "fitmort_child_gen_krig.rds"))
+} else{
+  fitmort_child_gen_krig <- readRDS(here("data", "fitmort_child_gen_krig.rds"))
+}
 
 ```
 
@@ -213,8 +297,8 @@ saveRDS(fitmort_child_gen_krig, here("data","fitmort_child_gen_krig.rds"))
 
 ```{r compare simple and general kriging models}
 
-AIC(fitmort_child_simp_krig)
-AIC(fitmort_child_gen_krig)
+print(AIC(fitmort_child_simp_krig))
+print(AIC(fitmort_child_gen_krig))
 
 LRT(fitmort_child_gen_krig, fitmort_child_simp_krig)
 
@@ -241,20 +325,28 @@ materncorr_gen_krig
 ### Fit model
 ```{r fit interaction model}
 
-tic("fit spaMM model for child mortality with interaction")
-fitmort_child_gen_krig_int <- spaMM::fitme(n_deaths_1to59 ~ 
-                                   1 + lat + lon + 
-                                   Matern(1|lat + lon) +
-                                   isTreated_child +
-                                   isTreated_child*lat + isTreated_child*lon +
-                                   # (1|site_code) +
-                                   offset(log(pt_year_1to59)),
-                                 data = df_proj,
-                                 family = poisson(link = "log"),
-                                 control.HLfit=list(NbThreads = avail_thr))
-toc()
-
-saveRDS(fitmort_child_gen_krig_int, here("data","fitmort_child_gen_krig_int.rds"))
+if(refit_models_flag) {
+  tic("fit spaMM model for child mortality with interaction")
+  fitmort_child_gen_krig_int <- spaMM::fitme(
+    n_deaths_1to59 ~
+      1 + lat + lon +
+      Matern(1 | lat + lon) +
+      isTreated_child +
+      isTreated_child * lat + isTreated_child *
+      lon +
+      # (1|site_code) +
+      offset(log(pt_year_1to59)),
+    data = df_proj,
+    family = poisson(link = "log"),
+    control.HLfit = list(NbThreads = avail_thr)
+  )
+  toc()
+  
+  saveRDS(fitmort_child_gen_krig_int,
+          here("data", "fitmort_child_gen_krig_int.rds"))
+} else {
+  fitmort_child_gen_krig_int <- readRDS(here("data", "fitmort_child_gen_krig_int.rds"))
+}
 
 ```
 
@@ -262,8 +354,8 @@ saveRDS(fitmort_child_gen_krig_int, here("data","fitmort_child_gen_krig_int.rds"
 
 ```{r compare interaction model}
 
-AIC(fitmort_child_gen_krig)
-AIC(fitmort_child_gen_krig_int)
+print(AIC(fitmort_child_gen_krig))
+print(AIC(fitmort_child_gen_krig_int))
 
 LRT(fitmort_child_gen_krig_int, fitmort_child_gen_krig)
 
@@ -278,10 +370,44 @@ LRT and AIC indicate that the model with the interaction between treatment label
 summary(fitmort_child_gen_krig_int)
 
 materncorr_gen_krig_int <- plot_matern_corr_proj(fitmort_child_gen_krig_int,
-                                             "avenir-materncorr-fitmort_child_gen_krig")
+                                                 "avenir-materncorr-fitmort_child_gen_krig")
 
 materncorr_gen_krig_int
 
 ```
 
- 
+### Model predictions
+
+```{r predictions from interaction model}
+
+b_boxgrid <- st_make_grid(niger_adm1, n = c(100, 100), what = "centers", crs = 32631)
+
+b_preds_mort_tx0 <- get_grid_preds(input_grid = b_boxgrid,
+                                         spamm_model_fit = fitmort_child_gen_krig_int,
+                                         tx_group = "Control")
+
+b_preds_mort_tx1 <- get_grid_preds(input_grid = b_boxgrid,
+                                         spamm_model_fit = fitmort_child_gen_krig_int,
+                                         tx_group = "Treatment")
+
+b_preds_long <- rbind(
+  b_preds_mort_tx0,
+  b_preds_mort_tx1
+)
+
+saveRDS(b_preds_long, here("data", "b_preds_long.rds"))
+```
+
+### ATE estimation
+
+```{r ate estimate}
+
+b_preds_wide <- b_preds_long %>%
+  dplyr::select(-pred_var) %>%
+  pivot_wider(names_from = isTreated_child, values_from = pred, names_prefix = "pred") %>%
+  mutate(ATE = predTreatment - predControl)
+
+saveRDS(b_preds_wide, here("data", "ate_preds.rds"))
+
+```
+
