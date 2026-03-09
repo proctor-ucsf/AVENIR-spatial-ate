@@ -1,0 +1,75 @@
+---
+title: "Posterior probabilities of ATE being beneficial in AVENIR"
+# author: "Ariktha Srivathsan"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    df_print: paged
+    toc: true
+    toc_float: true
+    code_folding: hide
+editor:
+  markdown:
+    wrap: 72
+execute:
+  cache: true
+  warning: false
+---
+
+<style type="text/css">
+
+body{ /* Normal  */
+      font-size: 12px;
+  }
+td {  /* Table  */
+  font-size: 15px;
+}
+h1.title {
+  font-size: 26px;
+  color: Black;
+}
+h1 { /* Header 1 */
+  font-size: 24px;
+  color: Black;
+}
+h2 { /* Header 2 */
+    font-size: 20px;
+  color: Black;
+}
+h3 { /* Header 3 */
+  color: Black;
+}
+code.r{ /* Code block */
+    font-size: 12px;
+}
+pre { /* Code block - determines code spacing between lines */
+    font-size: 14px;
+}
+</style>
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+rm(list = ls())
+```
+
+```{r load data, warning=F, message=F}
+
+nsim_input <- 1000
+source(here::here("0-config.R"))
+
+niger_adm1 <- st_read(dsn = paste0(shp_data,"ner_adm01_feb2018/NER_adm01_feb2018.shp"))
+b_boxgrid <- st_make_grid(niger_adm1, n = c(100, 100), what = "centers", crs = 32631)
+
+fitmort_child_gen_krig_int <- readRDS(here("data", "fitmort_child_gen_krig_int.rds"))
+```
+
+```{r}
+
+newdat <- cross_join(
+  tibble(isTreated_child = c("Treatment", "Control")),
+  tibble(point = b_boxgrid)
+)
+
+```
+
