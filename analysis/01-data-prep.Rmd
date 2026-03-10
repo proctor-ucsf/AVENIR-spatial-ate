@@ -10,7 +10,7 @@ knitr::opts_chunk$set(echo = TRUE)
 ```
 
 ### Configure environment. Load data.
-```{r warning=F}
+```{r config and load data, warning=F}
 
 source(here::here("0-config.R"))
 
@@ -22,64 +22,74 @@ d_gps <-
 grappe_phase_mort <- 
   readRDS(paste0(final_data,"AVENIR_grappe_phase_2023-07-31.rds"))
 
+# Load Niger boundaries map from Humanitarian Data Exchange
+# Map downloaded from https://data.humdata.org/dataset/cod-ab-ner on 10 March 2026
+
+niger_adm1 <- st_read(dsn = here("data", "ner_admin_boundaries", "ner_admin1.shp"))
+niger_adm2 <- st_read(dsn = here("data", "ner_admin_boundaries", "ner_admin2.shp"))
+
 ```
 
 ### Collapse `grappe_phase_mort` to grappe-level outcome measures.
-```{r}
+```{r aggregate phase specific data}
 
-grappe_mort <- 
+# Dropping columns on started phase and n alive since they can't be summed across phases. We also don't need them to calculate mortality rates since we have person-years.
+
+grappe_mort <-
   grappe_phase_mort %>%
-  group_by(region, district, site_code, grappe,
-           adaptive_rand, tx) %>%
-  summarise(started_phase_1to59 = sum(started_phase_1to59, na.rm=T),
-            pt_year_1to59 = sum(pt_year_1to59, na.rm=T),
-            n_deaths_1to59 = sum(n_deaths_1to59, na.rm=T),
-            n_alive_1to59 = sum(n_alive_1to59, na.rm=T),
-            lost_1to59 = sum(lost_1to59, na.rm=T),
-            
-            started_phase_1to11 = sum(started_phase_1to11, na.rm=T),
-            pt_year_1to11 = sum(pt_year_1to11, na.rm=T),
-            n_deaths_1to11 = sum(n_deaths_1to11, na.rm=T),
-            n_alive_1to11 = sum(n_alive_1to11, na.rm=T),
-            lost_1to11 = sum(lost_1to11, na.rm=T),
-            
-            started_phase_12to59 = sum(started_phase_12to59, na.rm=T),
-            pt_year_12to59 = sum(pt_year_12to59, na.rm=T),
-            n_deaths_12to59 = sum(n_deaths_12to59, na.rm=T),
-            n_alive_12to59 = sum(n_alive_12to59, na.rm=T),
-            lost_12to59 = sum(lost_12to59, na.rm=T),
-            
-            deaths_per_1000_1to59 = n_deaths_1to59 * 1e3 / pt_year_1to59,
-            deaths_per_1000_1to11 = n_deaths_1to11 * 1e3 / pt_year_1to11,
-            deaths_per_1000_12to59 = n_deaths_12to59 * 1e3 / pt_year_12to59)
+  group_by(region, district, site_code, grappe, adaptive_rand, tx) %>%
+  summarise(
+    # started_phase_1to59 = sum(started_phase_1to59, na.rm = T),
+    pt_year_1to59 = sum(pt_year_1to59, na.rm = T),
+    n_deaths_1to59 = sum(n_deaths_1to59, na.rm = T),
+    # n_alive_1to59 = sum(n_alive_1to59, na.rm = T),
+    lost_1to59 = sum(lost_1to59, na.rm = T),
+    
+    # started_phase_1to11 = sum(started_phase_1to11, na.rm = T),
+    pt_year_1to11 = sum(pt_year_1to11, na.rm = T),
+    n_deaths_1to11 = sum(n_deaths_1to11, na.rm = T),
+    # n_alive_1to11 = sum(n_alive_1to11, na.rm = T),
+    lost_1to11 = sum(lost_1to11, na.rm = T),
+    
+    # started_phase_12to59 = sum(started_phase_12to59, na.rm = T),
+    pt_year_12to59 = sum(pt_year_12to59, na.rm = T),
+    n_deaths_12to59 = sum(n_deaths_12to59, na.rm = T),
+    # n_alive_12to59 = sum(n_alive_12to59, na.rm = T),
+    lost_12to59 = sum(lost_12to59, na.rm = T),
+    
+    deaths_per_1000_1to59 = n_deaths_1to59 * 1e3 / pt_year_1to59,
+    deaths_per_1000_1to11 = n_deaths_1to11 * 1e3 / pt_year_1to11,
+    deaths_per_1000_12to59 = n_deaths_12to59 * 1e3 / pt_year_12to59
+  )
 
 grappe_mort
 
 length(unique(grappe_phase_mort$site_code))
-length(unique(d_gps$site_code))
-
-## d_gps has 2 more rows than grappe_mort
-d_gps %>% dplyr::filter(!site_code %in% grappe_mort$site_code) %>% pull(grappe)
 
 ```
 
 ### Join gps to outcome data
-```{r}
-d_gps_latlon <-
-  d_gps %>%
+```{r add gps to data}
+d_gps_latlon <- d_gps %>%
   dplyr::select(site_code, lat, lon)
 
-grappe_mort_1 <- grappe_mort %>%
+grappe_mort <- grappe_mort %>%
     left_join(d_gps_latlon, by=c("site_code")) %>%
   relocate(lat, .after=grappe) %>%
   relocate(lon, .after=grappe)
 
-# confirm it was a clean 1:1 join
-nrow(grappe_mort_1) == nrow(grappe_mort)
-# nrow(grappe_mort_1) == nrow(d_gps) 
+```
+
+```{r rename districts to match shapefile district names}
+
+grappe_mort$district[grappe_mort$district == "Tibiri (Doutchi)"] <- "Tibiri"
+grappe_mort$district[grappe_mort$district == "Illela"] <- "Illéla"
+```
+
+```{r add tx labels and indicators}
 
 # Recode tx labels to align with ms nomenclature
-grappe_mort_2 <- grappe_mort_1 %>%
+grappe_mort <- grappe_mort %>%
   mutate(
   tx = case_when(
     tx == "1 - Azithro 1-59m" ~ "Child Azithro",
@@ -117,66 +127,64 @@ grappe_mort_2 <- grappe_mort_1 %>%
                                            "Randomization 3")),
          #add dummy var
          dummy = 1 
-         )
+         ) %>%
+  ungroup()
 
-# -------------------------
-# Don't store final dataset
-# locally--PHI
-# -------------------------
+grappe_mort$isTreated_child <- relevel(grappe_mort$isTreated_child, ref = "Control")
 
-grappe_gps_mort <- 
-  grappe_mort_2 %>%
-  filter(adaptive_rand %in% c("Randomization 1", "Randomization 2", "Randomization 3"))
+grappe_mort_filt <- grappe_mort %>%
+  filter(adaptive_rand %in% c("Randomization 1"))
 
-grappe_gps_mort$isTreated_child <- relevel(grappe_gps_mort$isTreated_child, ref = "Control")
+grappe_mort_filt %>% group_by(tx,isTreated_child) %>% summarise(n=n())
+# df_all %>% group_by(tx,isTreated_alltx) %>% summarise(n=n())
 
-df_all <- grappe_gps_mort
-df_tx1 <- grappe_gps_mort %>% filter(as.integer(tx)==1)
-df_tx2 <- grappe_gps_mort %>% filter(as.integer(tx)==2)
-df_tx3 <- grappe_gps_mort %>% filter(as.integer(tx)==3)
-
-df_all
-
-# --------------------------------------------------
-# Check that the binary treatment variables were 
-# properly assigned
-# --------------------------------------------------
-df_all %>% group_by(tx,isTreated_child) %>% summarise(n=n())
-df_all %>% group_by(tx,isTreated_alltx) %>% summarise(n=n())
-
-# --------------------------------------------------
-# See frequencies across districts
-# --------------------------------------------------
-df_all %>% group_by(district,isTreated_child) %>% summarise(n=n())
-df_all %>% group_by(district,isTreated_child) %>% summarise(n=n())
+grappe_mort_filt %>% group_by(district,isTreated_child) %>% summarise(n=n())
+# df_all %>% group_by(district,isTreated_alltx) %>% summarise(n=n())
 
 ```
 
-```{r}
+```{r add district level means}
 
-# --------------------------------------------------
-# Rename districts to match shapefile district names
-# --------------------------------------------------
-df_all$district[df_all$district=="Tibiri (Doutchi)"] <- "Tibiri"
-df_all$district[df_all$district=="Illela"] <- "Illéla"
+dist_mort_summ <- grappe_mort_filt %>%
+  group_by(district, isTreated_child) %>%
+  summarise(mean_deaths_per_1000_1to59 = mean(deaths_per_1000_1to59, na.rm=T), 
+            .groups = "drop") %>%
+  pivot_wider(names_from = isTreated_child, 
+              values_from = mean_deaths_per_1000_1to59, 
+              names_prefix = "MortRate") %>%
+  mutate(ATE = MortRateTreatment - MortRateControl)
 
-saveRDS(df_all, here("data", "mortality_analysis_dataset.rds"))
+```
+
+```{r save data}
+
+saveRDS(grappe_mort_filt, here("data", "grappe_mortality_data.rds"))
+saveRDS(dist_mort_summ, here("data", "district_mortality_means.rds"))
+
+# Save data not filtered for randomization 1 for figure 1
+
+saveRDS(grappe_mort, here("data", "grappe_mortality_data_all_rands.rds"))
 
 ```
 
-```{r}
+```{r save cropped mapping data}
 
-#-------------------------------
-# format grappe data as sf
-#-------------------------------
-d_sf <- st_as_sf(grappe_gps_mort, 
-                 coords = c("lon","lat"), 
-                 crs    = 4326) # set coordinate ref system to WGS84
+districts <- unique(grappe_mort_filt$district)
 
-d_sf$district[d_sf$district=="Tibiri (Doutchi)"] <- "Tibiri"
-d_sf$district[d_sf$district=="Illela"] <- "Illéla"
+niger_adm2_sub <- niger_adm2 %>%
+  filter(adm2_name %in% districts) %>%
+  st_make_valid()
 
-saveRDS(d_sf, here("data", "grappes_sf.rds"))
+niger_adm2_sub_proj <- niger_adm2_sub %>%
+  st_transform(crs = proj_crs)
+
+b_boxgrid <- st_make_grid(niger_adm2_sub, n = c(grid_res, grid_res), what = "centers", crs = proj_crs) %>%
+  st_as_sf() %>%
+  st_transform(crs = proj_crs)
+
+saveRDS(niger_adm2_sub, here("data", "niger_adm2_sub.rds"))
+saveRDS(b_boxgrid, here("data", "niger_grid.rds"))
 
 ```
+
 

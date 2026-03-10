@@ -1,0 +1,265 @@
+---
+title: "Fit spatial models and get predictions to examine spatial heterogeneity in the ATE in AVENIR"
+# author: "Ariktha Srivathsan"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    df_print: paged
+    toc: true
+    toc_float: true
+    code_folding: hide
+editor:
+  markdown:
+    wrap: 72
+execute:
+  cache: true
+  warning: false
+---
+
+<style type="text/css">
+
+body{ /* Normal  */
+      font-size: 16px;
+  }
+td {  /* Table  */
+  font-size: 15px;
+}
+h1.title {
+  font-size: 26px;
+  color: Black;
+}
+h1 { /* Header 1 */
+  font-size: 20px;
+  color: Black;
+}
+h2 { /* Header 2 */
+  font-size: 20px;
+  color: Black;
+}
+h3 { /* Header 3 */
+  font-size: 18px;
+  color: Black;
+}
+code.r{ /* Code block */
+    font-size: 12px;
+}
+pre { /* Code block - determines code spacing between lines */
+    font-size: 14px;
+}
+</style>
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+rm(list = ls())
+```
+
+
+```{r load data, warning=F, message=F}
+
+source(here::here("0-config.R"))
+source(here::here("analysis", "0-functions.R"))
+
+df_all <- readRDS(here("data","grappe_mortality_data.rds"))
+
+districts <- df_all %>% distinct(district) %>% pull(district)
+grappes <- df_all %>% distinct(grappe) %>% pull(grappe)
+
+# Project coordinates to UTM so distances are in meters, not degrees
+
+df_proj <- df_all %>%
+  ungroup() %>%
+  st_as_sf(coords = c("lon", "lat"), crs = global_crs) %>%
+  st_transform(crs = proj_crs) %>% # UTM zone 31N, for Niger
+  mutate(lon = sf::st_coordinates(.)[,1],
+         lat = sf::st_coordinates(.)[,2])
+
+dist_summ <- readRDS(here("data", "district_mortality_means.rds")) %>%
+  filter(district %in% districts)
+ate_preds <- readRDS(here("data", "preds_ATE.rds")) 
+
+# Load Niger boundaries map from Humanitarian Data Exchange
+# Map downloaded from https://data.humdata.org/dataset/cod-ab-ner on 10 March 2026
+
+niger_adm1 <- st_read(dsn = here("data", "ner_admin_boundaries", "ner_admin1.shp"))
+niger_adm2 <- st_read(dsn = here("data", "ner_admin_boundaries", "ner_admin2.shp"))
+
+niger_adm2_sub <- readRDS(here("data", "niger_adm2_sub.rds"))
+
+```
+
+```{r set up shared map attributes}
+
+niger_adm2 <- niger_adm2 %>%
+  filter(adm1_name == "Dosso") %>%
+  st_make_valid()
+
+base_map <- ggplot() +
+  geom_sf(data = niger_adm2, fill = NA, color = "black", size = 0.25) +
+  theme_minimal(base_size = 14) +
+  annotation_scale() +
+  scale_x_continuous(name = "Longitude") +
+  scale_y_continuous(name = "Latitude") +
+  theme(legend.position = "inside",
+        legend.position.inside = c(0.8, 0.2),
+        legend.background = element_rect(fill = "white", color = NA),
+        legend.title = element_text(hjust = 1, vjust = 0.5),
+        legend.text = element_text(hjust = 1, vjust = 0.5))
+
+# base_map
+
+```
+
+# Trial data and outcomes
+
+## Maps of treatment assignment, follow-up and mortality outcomes
+
+```{r map obs data, fig.width=9, fig.height=6}
+
+tx_assign <- base_map +
+  geom_point(data = df_all, aes(x = lon, y = lat, color = isTreated_child), size = 0.5) +
+  scale_color_manual(breaks = c("Control", "Treatment"),
+                     values = c("#fecd6c", "#e84d60"),
+                     name = "Treatment Arm") 
+
+person_time <- base_map +
+  geom_point(data = df_all, aes(x = lon, y = lat, color = pt_year_1to59),
+             alpha = 0.4) +
+  scale_color_viridis_c(name = "Person-years", option = "D", direction = -1)
+
+tx_assign | person_time
+
+n_deaths <- base_map +
+  geom_point(data = df_all, aes(x = lon, y = lat, color = n_deaths_1to59),
+             alpha = 0.4) +
+  scale_color_viridis_c(name = "# deaths", option = "C", direction = -1)
+
+n_deaths_per1000 <- base_map +
+  geom_point(data = df_all, aes(x = lon, y = lat, color = deaths_per_1000_1to59),
+             alpha = 0.4) +
+  scale_color_viridis_c(name = "# deaths/1000", option = "mako", direction = -1)
+
+n_deaths | n_deaths_per1000
+
+```
+
+## Explore relationships between mortality outcomes and person-time, by treatment group
+
+```{r parallel coordinates plots}
+
+par_coords_dat <- df_all %>%
+  st_drop_geometry() %>%
+  dplyr::select(isTreated_child, pt_year_1to59, n_deaths_1to59, deaths_per_1000_1to59) %>%
+  mutate(row_n = row_number()) %>%
+  pivot_longer(cols = c(deaths_per_1000_1to59, n_deaths_1to59), 
+               names_to = "variable", values_to = "value") %>%
+   mutate(variable = factor(variable, levels = c("n_deaths_1to59", "deaths_per_1000_1to59"),
+                            labels = c("# deaths", "deaths per 1000 py")))
+
+ggplot(data = par_coords_dat) +
+  geom_point(aes(x = variable, y = value, color = pt_year_1to59), alpha = 0.5) +
+  geom_line(aes(x = variable, y = value, group = row_n, color = pt_year_1to59), alpha = 0.5) +
+  facet_wrap(~isTreated_child, nrow = 2) +
+  scale_color_viridis_c(name = "Person-years", option = "D", direction = -1) +
+  theme_minimal() +
+  theme(legend.position = "bottom",
+        axis.title.x = element_blank())
+
+ggplot(data = df_all, aes(x = n_deaths_1to59, y = deaths_per_1000_1to59)) +
+  geom_point(aes(color = pt_year_1to59), alpha = 0.5) +
+  scale_color_viridis_c(name = "Person-years", option = "D", direction = -1) +
+  facet_wrap(~isTreated_child, nrow = 2) +
+  theme_minimal() +
+  theme(legend.position = "bottom") +
+  labs(x = "Total deaths", y = "Deaths per 1000 person-years") +
+  stat_cor(method = "pearson", 
+           label.x = 30, label.y = 10, hjust = 1, vjust = 0,
+           size = 4)
+
+```
+
+## District-level summaries of mortality outcomes
+
+```{r district names}
+
+base_map +
+  geom_text(data = niger_adm2_sub, aes(x = st_coordinates(st_centroid(geometry))[,1], 
+                      y = st_coordinates(st_centroid(geometry))[,2], 
+                      label = adm2_name), size = 3)
+
+```
+
+
+```{r table district effects}
+
+dist_summ %>%
+  arrange(ATE) %>%
+  knitr::kable(digits = 2)
+
+```
+
+Mortality rates are in deaths per 1000 person-years among children aged 1-59 months. ATE = mean mortality rate in treatment group - mean mortality rate in control group, by district.
+
+```{r map district effects, fig.width=9, fig.height=5}
+
+niger_adm2_sub <- niger_adm2_sub %>%
+  left_join(dist_summ, by = c("adm2_name" = "district"))
+
+data_mort_control <- base_map +
+  geom_sf(data = niger_adm2_sub, aes(fill = MortRateControl), color = NA, size = 0.25) +
+  scale_fill_viridis(option = "D", name = "mort rate\ncontrol", limits = c(0, 25), breaks = seq(0, 25, 5), na.value = NA)
+
+data_mort_treat <- base_map +
+  geom_sf(data = niger_adm2_sub, aes(fill = MortRateTreatment),
+                      color = NA, size = 0.25) +
+  scale_fill_viridis(option = "D", name = "mort rate\ntreatment", limits = c(0, 25), breaks = seq(0, 25, 5), na.value = NA)
+
+data_mort_ate <- base_map +
+  geom_sf(data = niger_adm2_sub, aes(fill = ATE), color = NA, size = 0.25) +
+  scale_fill_gradient2(name = "ATE", low = muted("dodgerblue"), mid = "white", high = muted("red"), midpoint = 0)
+
+data_mort_control | data_mort_treat | data_mort_ate
+
+```
+
+# Spatial model results
+
+## Mortality predictions from spatial models
+
+```{r simple model predictions}
+
+simp_dat <- ate_preds %>%
+  dplyr::filter(model == "gen_krig") %>%
+  mutate(lon = st_coordinates(geometry)[, 1],
+         lat = st_coordinates(geometry)[, 2])
+
+simp_pred_ctrl_rast <- points_to_raster(
+    x = simp_dat$lon,
+    y = simp_dat$lat,
+    z = simp_dat$predControl,
+    mask1 = niger_adm2_sub,
+    crop1 = niger_adm2_sub
+  )
+
+simp_pred_ctrl_df <- as.data.frame(simp_pred_ctrl_rast, xy = TRUE) %>%
+  drop_na(z)
+
+base_map +
+  geom_raster(data = simp_pred_ctrl_df, aes(x = x, y = y, fill = z))
+
+```
+
+```{r map predictions}
+
+
+
+```
+
+## ATE estimates from spatial model predictions
+
+```{r map ATE}
+
+
+
+```
+

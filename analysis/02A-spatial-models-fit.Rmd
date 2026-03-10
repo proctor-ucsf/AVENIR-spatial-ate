@@ -57,168 +57,29 @@ rm(list = ls())
 
 ```{r load data, warning=F, message=F}
 
-refit_models_flag <- FALSE
+refit_models_flag <- TRUE
 
 source(here::here("0-config.R"))
+source(here::here("analysis", "0-functions.R"))
 
-df_all <- readRDS(here("data","mortality_analysis_dataset.rds")) %>%
-  dplyr::filter(adaptive_rand == "Randomization 1")
+df_all <- readRDS(here("data","grappe_mortality_data.rds"))
 
 # Project coordinates to UTM so distances are in meters, not degrees
 
 df_proj <- df_all %>%
   ungroup() %>%
-  st_as_sf(coords = c("lon", "lat"), crs = 4326) %>%
-  st_transform(crs = 32631) %>% # UTM zone 31N, for Niger
+  st_as_sf(coords = c("lon", "lat"), crs = global_crs) %>%
+  st_transform(crs = proj_crs) %>% # UTM zone 31N, for Niger
   mutate(lon = sf::st_coordinates(.)[,1],
          lat = sf::st_coordinates(.)[,2])
 
-niger_adm1 <- st_read(dsn = paste0(shp_data,"ner_adm01_feb2018/NER_adm01_feb2018.shp"))
+# Load Niger boundaries map from Humanitarian Data Exchange
+# Map downloaded from https://data.humdata.org/dataset/cod-ab-ner on 10 March 2026
 
-```
+niger_adm1 <- st_read(dsn = here("data", "ner_admin_boundaries", "ner_admin1.shp"))
 
-```{r functions}
-
-plot_matern_corr_proj <- function(spamm_model_fit, filenameval = "avenir-materncorr") {
-  # create a distance matrix between all points
-  coords <- as.matrix(spamm_model_fit$data[, c("lon", "lat")])
-  d_vec_m <- as.numeric(dist(coords))
-  
-  # get estimated parameters from the Matern function
-  est_nu <- spamm_model_fit$CorrEst_and_RanFix$corrPars$`1`$nu
-  est_rho <- spamm_model_fit$CorrEst_and_RanFix$corrPars$`1`$rho
-  
-  rho_sci <- format(est_rho, scientific = TRUE, digits = 3)
-  range_km <- 1 / (1000 * est_rho)
-  
-  # estimate the correlation between each location
-  matern_vec <- spaMM::MaternCorr(d = d_vec_m, nu = est_nu, rho = est_rho)
-  
-  # store in a data frame for plotting
-  d_matern_cor <- tibble(distm = d_vec_m,
-                         distkm = distm / 1000,
-                         materncor = matern_vec) %>%
-    mutate(bin_km = cut(
-      distkm,
-      breaks = seq(0, max(distkm), by = 0.025),
-      include.lowest = TRUE
-    )) %>%
-    group_by(bin_km) %>%
-    summarise(
-      distkm    = mean(distkm),
-      materncor = mean(materncor),
-      .groups = "drop"
-    ) %>%
-    arrange(distkm)
-  
-  label_text <- sprintf("nu = %0.3f\rho = %0.3f\nrange = %0.2f km",
-                        est_nu,
-                        est_rho,
-                        range_km)
-  
-  # plot the correlation function
-  plot_materncor <- ggplot(data = d_matern_cor %>% filter(distkm <= 50)) +
-    # geom_point(aes(x=distms,y=distkm)) +
-    geom_point(
-      aes(x = distkm, y = materncor),
-      color = "black",
-      alpha = 1,
-      size = 0.1
-    ) +
-    # geom_vline(xintercept= 3 ,color="gray60", lwd=0.1) +
-    scale_y_continuous(breaks = seq(0, 1, by = 0.2)) +
-    scale_x_continuous(breaks = c(0, seq(10, 50, by = 10))) +
-    coord_cartesian(xlim = c(0, 50), ylim = c(0, 1)) +
-    labs(x = "distance (km)", y = "Matern correlation") +
-    annotate(
-      "text",
-      x = 15,
-      y = 0.90,
-      label = as.expression(bquote(nu == .(
-        format(est_nu, digits = 3)
-      ))),
-      hjust = 0,
-      size = 6
-    ) +
-    annotate(
-      "text",
-      x = 15,
-      y = 0.80,
-      label = as.expression(bquote(rho == .(rho_sci) ~ m^{-1})),
-      hjust = 0,
-      size = 6
-    ) +
-    annotate(
-      "text",
-      x = 15,
-      y = 0.65,
-      label = as.expression(bquote(range == .(
-        format(range_km, digits = 4)
-      ) ~ km)),
-      hjust = 0,
-      size = 6
-    ) +
-    theme_classic() +
-    theme(
-      panel.grid.minor.x = element_blank(),
-      axis.text = element_text(size = 16),
-      axis.title = element_text(size = 18)
-    )
-  
-  ggsave(
-    filename = paste0(figure_path, filenameval, ".png"),
-    plot = plot_materncor,
-    device = "png",
-    width = 3.3,
-    height = 3.5
-  )
-  
-  return(plot_materncor)
-  
-}
-
-get_grid_preds <- function(input_grid, 
-                           spamm_model_fit, 
-                           tx_group = "Treatment"){
-  
-  # convert grid into a data.frame with lon/lat variables
-  newd <- input_grid %>%
-    st_centroid() %>% 
-    st_as_sf(crs = 32631) %>% 
-    mutate(lon = sf::st_coordinates(.)[,1],
-           lat = sf::st_coordinates(.)[,2],
-           isTreated_child = tx_group,
-           site_code = 0, #dummy
-           pt_year_1to59 = 1000) %>% #per 1000 person-years
-    st_drop_geometry()
-  
-  # get predictions (response)
-  
-  temp_preds <- predict(object = spamm_model_fit,
-                        type = "response",
-                        newdata = newd)
-  
-  # get estimated variance at each location
-  temp_predVar <- spaMM::get_predVar(object = spamm_model_fit, 
-                                     newdata = newd, 
-                                     which = "predVar")
-  
-  # create a dataframe 
-  # for predictions using 
-  # centroid coordinates from the grid
-  # add predictions and variance to the grid
-  ret <- input_grid %>% 
-    as.data.frame() %>% 
-    st_as_sf(crs = 32631) %>% 
-    mutate(pred = as.numeric(temp_preds),
-           pred_var = as.numeric(temp_predVar),
-           isTreated_child = tx_group)
-  
-  return(ret)
-  
-}
-
-
+boxgrid <- readRDS(here("data", "niger_grid.rds"))
+niger_adm2_sub <- readRDS(here("data", "niger_adm2_sub.rds"))
 
 ```
 
@@ -226,13 +87,11 @@ get_grid_preds <- function(input_grid,
 
 ### Fit model
 ```{r fit simple kriging model}
-# fit spatial models for mortality rate with new binary tx vars,
+# fit spatial models for mortality rate with binary tx vars,
 # isTreated_child: 0=placebo+infant, 1=child
-# isTreated_alltx: 0=placebo, 1=infant+child
 
 if(refit_models_flag) {
-  avail_thr <- parallel::detectCores(logical = FALSE) - 1L
-  
+
   tic("Simple Krig: fit spaMM model for child mortality")
   fitmort_child_simp_krig <- spaMM::fitme(
     n_deaths_1to59 ~
@@ -262,6 +121,10 @@ summary(fitmort_child_simp_krig)
 
 print(AIC(fitmort_child_simp_krig))
 
+materncorr_simp_krig <- plot_matern_corr_proj(fitmort_child_simp_krig,
+                                             "avenir-materncorr-fitmort_child_simp_krig",
+                                             modelname = "Simple Kriging")
+
 ```
 
 ## Generalized kriging model
@@ -275,7 +138,7 @@ if(refit_models_flag) {
     n_deaths_1to59 ~
       1 +
       lat + lon +
-      Matern(1 | lat + lon) +
+      Matern(1 | lon + lat) +
       isTreated_child +
       # (1|site_code) +
       offset(log(pt_year_1to59)),
@@ -313,7 +176,8 @@ LRT and AIC indicate that adding linear terms for latitude and longitude signifi
 summary(fitmort_child_gen_krig)
 
 materncorr_gen_krig <- plot_matern_corr_proj(fitmort_child_gen_krig,
-                                             "avenir-materncorr-fitmort_child_gen_krig")
+                                             "avenir-materncorr-fitmort_child_gen_krig",
+                                             modelname = "Generalized Kriging")
 
 materncorr_gen_krig
 
@@ -370,7 +234,8 @@ LRT and AIC indicate that the model with the interaction between treatment label
 summary(fitmort_child_gen_krig_int)
 
 materncorr_gen_krig_int <- plot_matern_corr_proj(fitmort_child_gen_krig_int,
-                                                 "avenir-materncorr-fitmort_child_gen_krig")
+                                                 "avenir-materncorr-fitmort_child_gen_krig_int",
+                                                 modelname = "Generalized Kriging with Interaction")
 
 materncorr_gen_krig_int
 
@@ -378,36 +243,34 @@ materncorr_gen_krig_int
 
 ### Model predictions
 
-```{r predictions from interaction model}
+```{r predictions from all models}
 
-b_boxgrid <- st_make_grid(niger_adm1, n = c(100, 100), what = "centers", crs = 32631)
-
-b_preds_mort_tx0 <- get_grid_preds(input_grid = b_boxgrid,
-                                         spamm_model_fit = fitmort_child_gen_krig_int,
-                                         tx_group = "Control")
-
-b_preds_mort_tx1 <- get_grid_preds(input_grid = b_boxgrid,
-                                         spamm_model_fit = fitmort_child_gen_krig_int,
-                                         tx_group = "Treatment")
-
-b_preds_long <- rbind(
-  b_preds_mort_tx0,
-  b_preds_mort_tx1
+models_list <- list(
+  simp_krig = fitmort_child_simp_krig,
+  gen_krig = fitmort_child_gen_krig,
+  gen_krig_int = fitmort_child_gen_krig_int
 )
 
-saveRDS(b_preds_long, here("data", "b_preds_long.rds"))
+tic("Get predictions from all models for both treatment groups")
+preds_mort <- lapply(models_list, function(model) {
+  get_grid_preds_both_tx(input_grid = boxgrid, spamm_model_fit = model)
+})
+toc()
+
+preds_long <- bind_rows(preds_mort, .id = "model")
+
 ```
 
 ### ATE estimation
 
 ```{r ate estimate}
 
-b_preds_wide <- b_preds_long %>%
+preds_wide <- preds_long %>%
   dplyr::select(-pred_var) %>%
-  pivot_wider(names_from = isTreated_child, values_from = pred, names_prefix = "pred") %>%
+  pivot_wider(id_cols = c(model, geometry), names_from = isTreated_child, values_from = pred, names_prefix = "pred") %>%
   mutate(ATE = predTreatment - predControl)
 
-saveRDS(b_preds_wide, here("data", "ate_preds.rds"))
+saveRDS(preds_wide, here("data", "preds_ATE.rds"))
 
 ```
 
