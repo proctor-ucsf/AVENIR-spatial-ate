@@ -7,6 +7,8 @@ output: html_document
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
+
+rm(list = ls()) 
 ```
 
 ### Configure environment. Load data.
@@ -62,7 +64,7 @@ grappe_mort <-
     deaths_per_1000_12to59 = n_deaths_12to59 * 1e3 / pt_year_12to59
   )
 
-grappe_mort
+# grappe_mort
 
 length(unique(grappe_phase_mort$site_code))
 
@@ -171,6 +173,11 @@ saveRDS(grappe_mort, here("data", "grappe_mortality_data_all_rands.rds"))
 
 districts <- unique(grappe_mort_filt$district)
 
+crs(niger_adm2)
+
+niger_adm2_proj <- niger_adm2 %>%
+  st_transform(crs = proj_crs)
+
 niger_adm2_sub <- niger_adm2 %>%
   filter(adm2_name %in% districts) %>%
   st_make_valid()
@@ -178,9 +185,9 @@ niger_adm2_sub <- niger_adm2 %>%
 niger_adm2_sub_proj <- niger_adm2_sub %>%
   st_transform(crs = proj_crs)
 
-b_boxgrid <- st_make_grid(niger_adm2_sub, n = c(grid_res, grid_res), what = "centers", crs = proj_crs) %>%
-  st_as_sf() %>%
-  st_transform(crs = proj_crs)
+# The grid is in the projected CRS
+b_boxgrid <- st_make_grid(niger_adm2_sub_proj, n = c(grid_res, grid_res), what = "centers", crs = proj_crs) %>%
+  st_as_sf()
 
 saveRDS(niger_adm2_sub, here("data", "niger_adm2_sub.rds"))
 saveRDS(b_boxgrid, here("data", "niger_grid.rds"))

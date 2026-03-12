@@ -141,13 +141,15 @@ get_grid_preds <- function(input_grid,
   # convert grid into a data.frame with lon/lat variables
   newd <- input_grid %>%
     st_centroid() %>% 
-    st_as_sf(crs = proj_crs) %>% 
+    # st_transform(crs = proj_crs) %>% 
     mutate(lon = sf::st_coordinates(.)[,1],
            lat = sf::st_coordinates(.)[,2],
-           isTreated_child = tx_group,
-           site_code = 0, #dummy
+           isTreated_child = as.factor(tx_group),
+           site_code = "0", #dummy
            pt_year_1to59 = 1000) %>% #per 1000 person-years
     st_drop_geometry()
+  
+  # str(newd)
   
   # get predictions (response)
   
@@ -156,9 +158,9 @@ get_grid_preds <- function(input_grid,
                         newdata = newd)
   
   # get estimated variance at each location
-  temp_predVar <- spaMM::get_predVar(object = spamm_model_fit, 
-                                     newdata = newd, 
-                                     which = "predVar")
+  # temp_predVar <- spaMM::get_predVar(object = spamm_model_fit, 
+  #                                    newdata = newd, 
+  #                                    which = "predVar")
   
   # create a dataframe 
   # for predictions using 
@@ -168,7 +170,7 @@ get_grid_preds <- function(input_grid,
     as.data.frame() %>% 
     st_as_sf(crs = proj_crs) %>% 
     mutate(pred = as.numeric(temp_preds),
-           pred_var = as.numeric(temp_predVar),
+           # pred_var = as.numeric(temp_predVar),
            isTreated_child = tx_group)
   
   return(ret)
@@ -212,10 +214,10 @@ get_grid_preds_both_tx <- function(input_grid, spamm_model_fit){
 # @mask2  : mask the raster by a second variable? if NULL skips.
 # @crop1  : crop the raster by the first variable?  if NULL, skips
 
-points_to_raster <- function(x, y, z, mask1 = NULL, mask2 = NULL, crop1 = NULL) {
+points_to_raster <- function(x, y, z, mask1 = NULL, mask2 = NULL, crop1 = NULL, crs_inp = global_crs) {
   
   # make raster from points
-  pred_raster <- raster::rasterFromXYZ(xyz = data.frame(x = x, y = y, z = z), crs = 4326)
+  pred_raster <- raster::rasterFromXYZ(xyz = data.frame(x = x, y = y, z = z), crs = crs_inp)
   
   # mask and crop raster if specified
   if(!is.null(mask1)) {

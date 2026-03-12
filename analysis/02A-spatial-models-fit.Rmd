@@ -57,7 +57,7 @@ rm(list = ls())
 
 ```{r load data, warning=F, message=F}
 
-refit_models_flag <- TRUE
+refit_models_flag <- FALSE # Set to TRUE to refit models, which can take a long time. Set to FALSE to load previously fitted models.
 
 source(here::here("0-config.R"))
 source(here::here("analysis", "0-functions.R"))
@@ -96,7 +96,7 @@ if(refit_models_flag) {
   fitmort_child_simp_krig <- spaMM::fitme(
     n_deaths_1to59 ~
       1 +
-      Matern(1 | lat + lon) +
+      Matern(1 | lon + lat) +
       isTreated_child +
       # (1|site_code) +
       offset(log(pt_year_1to59)),
@@ -183,6 +183,48 @@ materncorr_gen_krig
 
 ```
 
+### Fit model with random effect for site code
+```{r fit gen kriging model w RE for site code}
+
+if(refit_models_flag) {
+  tic("Generalized Krig: fit spaMM model for child mortality with linear lat/lon terms and RE for site code")
+  fitmort_child_gen_krig_re <- spaMM::fitme(
+    n_deaths_1to59 ~
+      1 +
+      lat + lon +
+      Matern(1 | lon + lat) +
+      isTreated_child +
+      (1|site_code) +
+      offset(log(pt_year_1to59)),
+    data = df_proj,
+    family = poisson(link = "log"), 
+    control.HLfit = list(NbThreads = avail_thr)
+  )
+  toc()
+  
+  saveRDS(fitmort_child_gen_krig_re,
+          here("data", "fitmort_child_gen_krig_re.rds"))
+} else{
+  fitmort_child_gen_krig_re <- readRDS(here("data", "fitmort_child_gen_krig_re.rds"))
+}
+
+print(AIC(fitmort_child_simp_krig))
+print(AIC(fitmort_child_gen_krig))
+print(AIC(fitmort_child_gen_krig_re))
+
+LRT(fitmort_child_gen_krig, fitmort_child_simp_krig)
+LRT(fitmort_child_gen_krig_re, fitmort_child_gen_krig)
+
+summary(fitmort_child_gen_krig_re)
+
+materncorr_gen_krig_re <- plot_matern_corr_proj(fitmort_child_gen_krig_re,
+                                             "avenir-materncorr-fitmort_child_gen_krig_re",
+                                             modelname = "Generalized Kriging with cluster RE")
+
+materncorr_gen_krig
+
+```
+
 
 ## Generalized krig with interaction
 
@@ -194,7 +236,7 @@ if(refit_models_flag) {
   fitmort_child_gen_krig_int <- spaMM::fitme(
     n_deaths_1to59 ~
       1 + lat + lon +
-      Matern(1 | lat + lon) +
+      Matern(1 | lon + lat) +
       isTreated_child +
       isTreated_child * lat + isTreated_child *
       lon +
@@ -248,6 +290,7 @@ materncorr_gen_krig_int
 models_list <- list(
   simp_krig = fitmort_child_simp_krig,
   gen_krig = fitmort_child_gen_krig,
+  gen_krig_re = fitmort_child_gen_krig_re,
   gen_krig_int = fitmort_child_gen_krig_int
 )
 
@@ -266,7 +309,8 @@ preds_long <- bind_rows(preds_mort, .id = "model")
 ```{r ate estimate}
 
 preds_wide <- preds_long %>%
-  dplyr::select(-pred_var) %>%
+  # dplyr::select(-pred_var) %>%
+  rename(geometry = x) %>%
   pivot_wider(id_cols = c(model, geometry), names_from = isTreated_child, values_from = pred, names_prefix = "pred") %>%
   mutate(ATE = predTreatment - predControl)
 

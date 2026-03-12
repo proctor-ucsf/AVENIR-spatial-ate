@@ -100,8 +100,7 @@ base_map <- ggplot() +
   annotation_scale() +
   scale_x_continuous(name = "Longitude") +
   scale_y_continuous(name = "Latitude") +
-  theme(legend.position = "inside",
-        legend.position.inside = c(0.8, 0.2),
+  theme(legend.position = "bottom",
         legend.background = element_rect(fill = "white", color = NA),
         legend.title = element_text(hjust = 1, vjust = 0.5),
         legend.text = element_text(hjust = 1, vjust = 0.5))
@@ -207,18 +206,83 @@ niger_adm2_sub <- niger_adm2_sub %>%
 
 data_mort_control <- base_map +
   geom_sf(data = niger_adm2_sub, aes(fill = MortRateControl), color = NA, size = 0.25) +
-  scale_fill_viridis(option = "D", name = "mort rate\ncontrol", limits = c(0, 25), breaks = seq(0, 25, 5), na.value = NA)
+  scale_fill_viridis(option = "D", name = "mort rate\ncontrol", limits = c(0, 35), breaks = seq(0, 35, 5), na.value = NA)
 
 data_mort_treat <- base_map +
   geom_sf(data = niger_adm2_sub, aes(fill = MortRateTreatment),
                       color = NA, size = 0.25) +
-  scale_fill_viridis(option = "D", name = "mort rate\ntreatment", limits = c(0, 25), breaks = seq(0, 25, 5), na.value = NA)
+  scale_fill_viridis(option = "D", name = "mort rate\ntreatment", limits = c(0, 35), breaks = seq(0, 35, 5), na.value = NA)
 
 data_mort_ate <- base_map +
   geom_sf(data = niger_adm2_sub, aes(fill = ATE), color = NA, size = 0.25) +
-  scale_fill_gradient2(name = "ATE", low = muted("dodgerblue"), mid = "white", high = muted("red"), midpoint = 0)
+  scale_fill_gradient2(name = "ATE", low = muted("dodgerblue"), mid = "white", high = muted("red"), midpoint = 0, limits = c(-7, 2), breaks = seq(-7, 2, 1), na.value = NA)
 
 data_mort_control | data_mort_treat | data_mort_ate
+
+```
+
+## Zoom in on Boboye
+
+```{r map boboye, fig.width=9, fig.height=10}
+
+boboye_map <- ggplot() +
+  geom_sf(data = subset(niger_adm2, adm2_name == "Boboye"), fill = NA, color = "black", size = 0.25) +
+  theme_minimal(base_size = 14) +
+  annotation_scale() +
+  scale_x_continuous(name = "Longitude") +
+  scale_y_continuous(name = "Latitude") +
+  theme(legend.position = "bottom",
+        legend.background = element_rect(fill = "white", color = NA),
+        legend.title = element_text(hjust = 1, vjust = 0.5),
+        legend.text = element_text(hjust = 1, vjust = 0.5))
+
+boboye_df <- df_all %>%
+  filter(district == "Boboye")
+
+boboye_tx_assign <- boboye_map +
+  geom_point(data = boboye_df, aes(x = lon, y = lat, color = isTreated_child), size = 0.5) +
+  scale_color_manual(breaks = c("Control", "Treatment"),
+                     values = c("#fecd6c", "#e84d60"),
+                     name = "Treatment Arm") 
+
+boboye_person_time <- boboye_map +
+  geom_point(data = boboye_df, aes(x = lon, y = lat, color = pt_year_1to59, size = pt_year_1to59),
+             alpha = 0.4) +
+  scale_color_viridis_c(name = "Person-years", option = "D", direction = -1) +
+  guides(size = "none")
+
+boboye_n_deaths <- boboye_map +
+  geom_point(data = boboye_df, aes(x = lon, y = lat, color = n_deaths_1to59, size = n_deaths_1to59),
+             alpha = 0.4) +
+  scale_color_viridis_c(name = "# deaths", option = "C", direction = -1) +
+  guides(size = "none")
+
+boboye_n_deaths_per1000 <- boboye_map +
+  geom_point(data = boboye_df, aes(x = lon, y = lat, color = deaths_per_1000_1to59, size = deaths_per_1000_1to59),
+             alpha = 0.4) +
+  scale_color_viridis_c(name = "# deaths/1000", option = "mako", direction = -1) +
+  guides(size = "none")
+
+(boboye_tx_assign | boboye_person_time) / (boboye_n_deaths | boboye_n_deaths_per1000)
+
+
+```
+
+```{r boxplot boboye}
+
+boboye_long <- boboye_df %>%
+  dplyr::select(isTreated_child, grappe, pt_year_1to59, n_deaths_1to59, deaths_per_1000_1to59) %>%
+  pivot_longer(cols = c(pt_year_1to59, n_deaths_1to59, deaths_per_1000_1to59), names_to = "variable", values_to = "value")
+
+ggplot(data = boboye_long, aes(x = isTreated_child, y = value, color = isTreated_child)) +
+  geom_boxplot() +
+  labs(x = "Treatment group", title = "Boboye") +
+  facet_wrap(~variable, scales = "free_y") +
+  theme_minimal() +
+  theme(legend.position = "bottom")+
+  scale_color_manual(breaks = c("Control", "Treatment"),
+                     values = c("#fecd6c", "#e84d60"),
+                     name = "Treatment Arm") 
 
 ```
 
@@ -226,40 +290,41 @@ data_mort_control | data_mort_treat | data_mort_ate
 
 ## Mortality predictions from spatial models
 
-```{r simple model predictions}
+```{r model predictions}
 
-simp_dat <- ate_preds %>%
-  dplyr::filter(model == "gen_krig") %>%
-  mutate(lon = st_coordinates(geometry)[, 1],
-         lat = st_coordinates(geometry)[, 2])
-
-simp_pred_ctrl_rast <- points_to_raster(
-    x = simp_dat$lon,
-    y = simp_dat$lat,
-    z = simp_dat$predControl,
-    mask1 = niger_adm2_sub,
-    crop1 = niger_adm2_sub
-  )
-
-simp_pred_ctrl_df <- as.data.frame(simp_pred_ctrl_rast, xy = TRUE) %>%
-  drop_na(z)
+pred_long <- ate_preds %>%
+  dplyr::select(-ATE) %>%
+  pivot_longer(cols = c(predControl, predTreatment), names_to = "tx_group", values_to = "pred") %>%
+  st_transform(crs = global_crs) %>%
+  mutate(lon = st_coordinates(.)[,1],
+         lat = st_coordinates(.)[,2]) %>%
+  { .[ rowSums(st_within(., niger_adm2_sub, sparse = FALSE)) > 0, ] }
 
 base_map +
-  geom_raster(data = simp_pred_ctrl_df, aes(x = x, y = y, fill = z))
+  geom_sf(data = pred_long, aes(color = pred)) +
+  facet_grid(tx_group ~ model) +
+  scale_color_viridis_c(name = "Predicted mortality rate\n(per 1000 person-years)", limits = c(0, 35)) +
+  theme(legend.position = "bottom")
 
 ```
 
-```{r map predictions}
-
-
-
-```
 
 ## ATE estimates from spatial model predictions
 
 ```{r map ATE}
 
+ate <- ate_preds %>%
+  dplyr::select(-predControl, -predTreatment) %>%
+  st_transform(crs = global_crs) %>%
+  mutate(lon = st_coordinates(.)[,1],
+         lat = st_coordinates(.)[,2]) %>%
+  { .[ rowSums(st_within(., niger_adm2_sub, sparse = FALSE)) > 0, ] }
 
+base_map +
+  geom_sf(data = ate, aes(color = ATE)) +
+  scale_color_gradient2(name = "Predicted ATE", low = muted("dodgerblue"), mid = "white", high = muted("red"), midpoint = 0, limits = c(-7, 2)) +
+  facet_wrap(~model, nrow = 1) +
+  theme(legend.position = "bottom")
 
 ```
 

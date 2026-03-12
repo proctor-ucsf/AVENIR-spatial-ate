@@ -55,11 +55,14 @@ rm(list = ls())
 
 ```{r load data, warning=F, message=F}
 
-nsim_input <- 1000
 source(here::here("0-config.R"))
 
-niger_adm1 <- st_read(dsn = paste0(shp_data,"ner_adm01_feb2018/NER_adm01_feb2018.shp"))
-b_boxgrid <- st_make_grid(niger_adm1, n = c(100, 100), what = "centers", crs = 32631)
+# Load Niger boundaries map from Humanitarian Data Exchange
+# Map downloaded from https://data.humdata.org/dataset/cod-ab-ner on 10 March 2026
+
+niger_adm1 <- st_read(dsn = here("data", "ner_admin_boundaries", "ner_admin1.shp"))
+
+b_boxgrid <- st_make_grid(niger_adm1, n = c(grid_res, grid_res), what = "centers", crs = proj_crs)
 
 fitmort_child_gen_krig_int <- readRDS(here("data", "fitmort_child_gen_krig_int.rds"))
 ```
