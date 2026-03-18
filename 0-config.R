@@ -5,7 +5,6 @@
 
 # by Mia Navarro (mia.navarro@ucsf.edu); Ariktha Srivathsan (ariktha.srivathsan@ucsf.edu)
 
-
 # Load required packages ----
 
 library(dplyr)
@@ -44,8 +43,7 @@ proj_crs <- 32631 # UTM zone 31N, for Niger, for projected distances in meters
 avail_thr <- parallel::detectCores(logical = FALSE) - 1L
 
 ## Grid dimensions for prediction layers
-grid_res <- 100 
+grid_res <- 100
 
 ## Simulations for posterior predictions
-n_sims_input <- 1000
-
+nsim_input <- 1000

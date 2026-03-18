@@ -62,7 +62,8 @@ refit_models_flag <- FALSE # Set to TRUE to refit models, which can take a long 
 source(here::here("0-config.R"))
 source(here::here("analysis", "0-functions.R"))
 
-df_all <- readRDS(here("data","grappe_mortality_data.rds"))
+df_all <- readRDS(here("data","grappe_mortality_data.rds")) %>%
+  mutate(mordorstate = ifelse(district %in% c("Boboye", "Falmey", "Loga"), TRUE, FALSE))
 
 # Project coordinates to UTM so distances are in meters, not degrees
 
@@ -179,7 +180,7 @@ materncorr_gen_krig <- plot_matern_corr_proj(fitmort_child_gen_krig,
                                              "avenir-materncorr-fitmort_child_gen_krig",
                                              modelname = "Generalized Kriging")
 
-materncorr_gen_krig
+# materncorr_gen_krig
 
 ```
 
@@ -219,9 +220,9 @@ summary(fitmort_child_gen_krig_re)
 
 materncorr_gen_krig_re <- plot_matern_corr_proj(fitmort_child_gen_krig_re,
                                              "avenir-materncorr-fitmort_child_gen_krig_re",
-                                             modelname = "Generalized Kriging with cluster RE")
+                                             modelname = "Gen krige + cluster RE")
 
-materncorr_gen_krig
+# materncorr_gen_krig
 
 ```
 
@@ -277,13 +278,68 @@ summary(fitmort_child_gen_krig_int)
 
 materncorr_gen_krig_int <- plot_matern_corr_proj(fitmort_child_gen_krig_int,
                                                  "avenir-materncorr-fitmort_child_gen_krig_int",
-                                                 modelname = "Generalized Kriging with Interaction")
+                                                 modelname = "Gen Krige + Interaction")
 
-materncorr_gen_krig_int
+# materncorr_gen_krig_int
 
 ```
 
-### Model predictions
+## Generalized krige with MORDOR indicator and interaction
+
+### Fit model
+
+```{r}
+
+if(refit_models_flag) {
+
+  tic("fit spaMM model for child mortality with mordor interaction")
+  fitmort_child_gen_krig_mordor <- spaMM::fitme(
+    n_deaths_1to59 ~
+      1 + lat + lon +
+      Matern(1 | lon + lat) +
+      isTreated_child +
+      isTreated_child * mordorstate +
+      # (1|site_code) +
+      offset(log(pt_year_1to59)),
+    data = df_proj,
+    family = poisson(link = "log"),
+    control.HLfit = list(NbThreads = avail_thr)
+  )
+  toc()
+
+  saveRDS(fitmort_child_gen_krig_mordor,
+          here("data", "fitmort_child_gen_krig_mordor.rds"))
+
+} else {
+  fitmort_child_gen_krig_mordor <- readRDS(here("data", "fitmort_child_gen_krig_mordor.rds"))
+}
+
+```
+
+### Compare to generalized krig model with interaction
+
+```{r compare interaction model}
+
+print(AIC(fitmort_child_gen_krig_mordor))
+print(AIC(fitmort_child_gen_krig_int))
+
+```
+
+### Model results
+
+```{r results of the mordor model}
+
+summary(fitmort_child_gen_krig_mordor)
+
+materncorr_gen_krig_int <- plot_matern_corr_proj(fitmort_child_gen_krig_mordor,
+                                                 "avenir-materncorr-fitmort_child_gen_krig_mordor",
+                                                 modelname = "Gen Krige + MORDOR")
+
+# materncorr_gen_krig_mordor
+
+```
+
+# Model predictions
 
 ```{r predictions from all models}
 
@@ -291,7 +347,8 @@ models_list <- list(
   simp_krig = fitmort_child_simp_krig,
   gen_krig = fitmort_child_gen_krig,
   gen_krig_re = fitmort_child_gen_krig_re,
-  gen_krig_int = fitmort_child_gen_krig_int
+  gen_krig_int = fitmort_child_gen_krig_int,
+  gen_krig_mordor = fitmort_child_gen_krig_mordor
 )
 
 tic("Get predictions from all models for both treatment groups")
@@ -316,5 +373,14 @@ preds_wide <- preds_long %>%
 
 saveRDS(preds_wide, here("data", "preds_ATE.rds"))
 
+```
+
+### Matern corr plots
+
+```{r}
+materncorr_simp_krig + materncorr_gen_krig + materncorr_gen_krig_int + materncorr_gen_krig_re + materncorr_gen_krig_mordor
+
+ggsave(here("results", "figs" ,"matern_corrs.png"), 
+    bg = "white", width = 10, height = 9)
 ```
 

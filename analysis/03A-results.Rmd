@@ -1,5 +1,5 @@
 ---
-title: "Fit spatial models and get predictions to examine spatial heterogeneity in the ATE in AVENIR"
+title: "Results of spatial heterogeneity in the ATE in AVENIR"
 # author: "Ariktha Srivathsan"
 date: "`r Sys.Date()`"
 output:
@@ -16,6 +16,7 @@ execute:
   warning: false
 ---
 
+```{=html}
 <style type="text/css">
 
 body{ /* Normal  */
@@ -47,13 +48,13 @@ pre { /* Code block - determines code spacing between lines */
     font-size: 14px;
 }
 </style>
+```
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 
 rm(list = ls())
 ```
-
 
 ```{r load data, warning=F, message=F}
 
@@ -77,6 +78,7 @@ df_proj <- df_all %>%
 dist_summ <- readRDS(here("data", "district_mortality_means.rds")) %>%
   filter(district %in% districts)
 ate_preds <- readRDS(here("data", "preds_ATE.rds")) 
+post_prob_map <- readRDS(here("data", "post_prob_dat.rds"))
 
 # Load Niger boundaries map from Humanitarian Data Exchange
 # Map downloaded from https://data.humdata.org/dataset/cod-ab-ner on 10 March 2026
@@ -188,7 +190,6 @@ base_map +
 
 ```
 
-
 ```{r table district effects}
 
 dist_summ %>%
@@ -197,7 +198,9 @@ dist_summ %>%
 
 ```
 
-Mortality rates are in deaths per 1000 person-years among children aged 1-59 months. ATE = mean mortality rate in treatment group - mean mortality rate in control group, by district.
+Mortality rates are in deaths per 1000 person-years among children aged
+1-59 months. ATE = mean mortality rate in treatment group - mean
+mortality rate in control group, by district.
 
 ```{r map district effects, fig.width=9, fig.height=5}
 
@@ -288,9 +291,13 @@ ggplot(data = boboye_long, aes(x = isTreated_child, y = value, color = isTreated
 
 # Spatial model results
 
+## Matern correlations
+
+![](images/matern_corrs.png)
+
 ## Mortality predictions from spatial models
 
-```{r model predictions}
+```{r model predictions, fig.height = 7, fig.width = 10}
 
 pred_long <- ate_preds %>%
   dplyr::select(-ATE) %>%
@@ -308,6 +315,45 @@ base_map +
 
 ```
 
+```{r}
+pred_model_wide <- pred_long %>%
+  st_drop_geometry() %>%
+  dplyr::select(c(model, pred, tx_group, lat, lon)) %>%
+  # mutate(row_n = row_number()) %>%
+  pivot_wider(id_cols = c(tx_group, lat, lon), names_from = model, values_from = pred)
+
+simp_corr_plot <- ggplot(data = pred_model_wide, aes(x = gen_krig, y = simp_krig, group = tx_group, color = tx_group)) +
+  geom_point(alpha = 0.3) +
+  stat_cor(show.legend = FALSE) +
+  theme_minimal() +
+  scale_color_manual(breaks = c("predControl", "predTreatment"),
+                    labels = c("Control", "Treatment"),
+                     values = c("#fecd6c", "#e84d60"),
+                     name = "Treatment Group") 
+
+gen_int_corr_plot <- ggplot(data = pred_model_wide, aes(x = gen_krig, y = gen_krig_int, group = tx_group, color = tx_group)) +
+  geom_point(alpha = 0.3) +
+  stat_cor(show.legend = FALSE) +
+  theme_minimal() +
+  scale_color_manual(breaks = c("predControl", "predTreatment"),
+                    labels = c("Control", "Treatment"),
+                     values = c("#fecd6c", "#e84d60"),
+                     name = "Treatment Group") 
+
+gen_re_corr_plot <- ggplot(data = pred_model_wide, aes(x = gen_krig, y = gen_krig_re, group = tx_group, color = tx_group)) +
+  geom_point(alpha = 0.3) +
+  stat_cor(show.legend = FALSE) +
+  theme_minimal() +
+  scale_color_manual(breaks = c("predControl", "predTreatment"),
+                    labels = c("Control", "Treatment"),
+                     values = c("#fecd6c", "#e84d60"),
+                     name = "Treatment Group") 
+
+simp_corr_plot + gen_int_corr_plot + gen_re_corr_plot +
+  plot_layout(guides = "collect") &
+  theme(legend.position = "bottom")
+
+```
 
 ## ATE estimates from spatial model predictions
 
@@ -328,3 +374,14 @@ base_map +
 
 ```
 
+```{r map posterior probs}
+post_prob_map <- post_prob_map %>%
+  { .[ rowSums(st_within(., niger_adm2_sub, sparse = FALSE)) > 0, ] }
+
+base_map +
+  geom_sf(data = post_prob_map, aes(color = prob)) +
+  scale_color_viridis(name = "Posterior prob", limits = c(0.3, 0.86), option = "magma") +
+  facet_wrap(~model, nrow = 1) +
+  theme(legend.position = "bottom")
+
+```
