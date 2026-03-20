@@ -1,0 +1,51 @@
+---
+title: "CSI-level analysis for spatial heterogeneity in the ATE in AVENIR"
+# author: "Ariktha Srivathsan"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    df_print: paged
+    toc: true
+    toc_float: true
+    code_folding: hide
+editor:
+  markdown:
+    wrap: 72
+execute:
+  cache: true
+  warning: false
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r Load packages and config}
+source(here::here("0-config.R"))
+source(here::here("analysis", "0-functions.R"))
+```
+
+```{r Load base maps}
+
+# Load Niger boundaries map from Humanitarian Data Exchange
+# Map downloaded from https://data.humdata.org/dataset/cod-ab-ner on 10 March 2026
+
+niger_adm1 <- st_read(dsn = here("data", "ner_admin_boundaries", "ner_admin1.shp"))
+niger_adm2 <- st_read(dsn = here("data", "ner_admin_boundaries", "ner_admin2.shp"))
+
+```
+
+```{r Load data}
+
+df_all <- readRDS(here("data","grappe_mortality_data_all_rands.rds"))
+
+# Project coordinates to UTM so distances are in meters, not degrees
+
+d_sf <- df_all %>%
+  ungroup() %>%
+  st_as_sf(coords = c("lon", "lat"), crs = global_crs) %>%
+  # st_transform(crs = proj_crs) %>% 
+  mutate(lon = sf::st_coordinates(.)[,1],
+         lat = sf::st_coordinates(.)[,2])
+
+```
