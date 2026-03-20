@@ -59,27 +59,15 @@ source(here::here("0-config.R"))
 
 re_simulate <- TRUE
 
-# Load Niger boundaries map from Humanitarian Data Exchange
-# Map downloaded from https://data.humdata.org/dataset/cod-ab-ner on 10 March 2026
-
-niger_adm1 <- st_read(dsn = here("data", "ner_admin_boundaries", "ner_admin1.shp"))
-
-niger_adm2_sub <- readRDS(here("data", "niger_adm2_sub.rds"))
-niger_adm2_sub_proj <- niger_adm2_sub %>%
-  st_transform(crs = proj_crs)
-
-b_boxgrid <- st_make_grid(
-  niger_adm2_sub_proj,
-  n = c(grid_res, grid_res),
-  what = "centers",
-  crs = proj_crs
-) %>%
-  st_sf(geometry = .) %>%
-  st_filter(niger_adm2_sub_proj)
+b_boxgrid <- readRDS(here("data", "boxgrid.rds"))
 
 fitmort_child_gen_krig_int <- readRDS(here("data", "fitmort_child_gen_krig_int.rds"))
 fitmort_child_gen_krig <- readRDS(here("data", "fitmort_child_gen_krig.rds"))
 ```
+
+Simulating responses from fitted models using `type = "predVar"` to get both fixed effect and dispersion variances, to capture uncertainty in predictions for the poisson models. We use these simulations to calculate the posterior probability that the ATE is beneficial (i.e. that the predicted mortality rate under treatment is lower than under control) at each grid point.
+
+Simulations took 789.3 sec (13.2 min) for the generalized kriging model without interaction and 765.641 sec (12.8 min) for the model with interaction. 
 
 ```{r simulate responses}
 

@@ -185,12 +185,17 @@ niger_adm2_sub <- niger_adm2 %>%
 niger_adm2_sub_proj <- niger_adm2_sub %>%
   st_transform(crs = proj_crs)
 
-# The grid is in the projected CRS
-b_boxgrid <- st_make_grid(niger_adm2_sub_proj, n = c(grid_res, grid_res), what = "centers", crs = proj_crs) %>%
-  st_as_sf()
+b_boxgrid <- st_make_grid(
+  niger_adm2_sub_proj,
+  n = c(grid_res, grid_res),
+  what = "centers",
+  crs = proj_crs
+) %>%
+  st_sf(geometry = .) %>%
+  st_filter(niger_adm2_sub_proj)
 
 saveRDS(niger_adm2_sub, here("data", "niger_adm2_sub.rds"))
-saveRDS(b_boxgrid, here("data", "niger_grid.rds"))
+saveRDS(b_boxgrid, here("data", "boxgrid.rds"))
 
 ```
 

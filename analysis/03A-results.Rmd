@@ -201,7 +201,8 @@ dist_summ %>%
 
 Mortality rates are in deaths per 1000 person-years among children aged
 1-59 months. ATE = mean mortality rate in treatment group - mean
-mortality rate in control group, by district. Negative ATEs are favorable.
+mortality rate in control group, by district. Negative ATEs are
+favorable.
 
 ```{r map district effects, fig.width=9, fig.height=5}
 
@@ -294,7 +295,7 @@ ggplot(data = boboye_long, aes(x = isTreated_child, y = value, color = isTreated
 
 ## Matern correlations
 
-![](images/matern_corrs.png)
+![](images/matern_corrs-2.png)
 
 ## Mortality predictions from spatial models
 
