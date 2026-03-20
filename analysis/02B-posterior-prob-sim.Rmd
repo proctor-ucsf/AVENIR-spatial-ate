@@ -160,8 +160,8 @@ sim2tib <- function(sim_responses, newdat, modelname = NA_character_){
 }
 
 full_pred_long <- rbind(
-  sim2tib(simulated_responses_gen_krig, newdat, "gen_krige"),
-  sim2tib(simulated_responses_gen_krig_int, newdat, "gen_krige_int")
+  sim2tib(simulated_responses_gen_krig, newdat, "gen_krig"),
+  sim2tib(simulated_responses_gen_krig_int, newdat, "gen_krig_int")
 )
 
 full_pred <- full_pred_long %>%

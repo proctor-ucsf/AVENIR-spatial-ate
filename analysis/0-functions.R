@@ -268,7 +268,12 @@ points_to_raster <- function(
   return(pred_raster)
 }
 
-make_raster_map <- function(df, proj_crs = proj_crs, global_crs = global_crs) {
+make_raster_map <- function(
+  df,
+  proj_crs = proj_crs,
+  global_crs = global_crs,
+  colname = "pred"
+) {
   # extract coordinates
   df2 <- df %>%
     mutate(
@@ -278,7 +283,7 @@ make_raster_map <- function(df, proj_crs = proj_crs, global_crs = global_crs) {
     st_drop_geometry()
 
   # rasterize
-  r_proj <- terra::rast(df2[, c("x", "y", "pred")], type = "xyz")
+  r_proj <- terra::rast(df2[, c("x", "y", colname)], type = "xyz")
   terra::crs(r_proj) <- sf::st_crs(proj_crs)$wkt
 
   # project
