@@ -27,8 +27,8 @@ grappe_phase_mort <-
 # Load Niger boundaries map from Humanitarian Data Exchange
 # Map downloaded from https://data.humdata.org/dataset/cod-ab-ner on 10 March 2026
 
-niger_adm1 <- st_read(dsn = here("data", "ner_admin_boundaries", "ner_admin1.shp"))
-niger_adm2 <- st_read(dsn = here("data", "ner_admin_boundaries", "ner_admin2.shp"))
+niger_adm1 <- st_read(dsn = here("data", "untouched", "ner_admin_boundaries", "ner_admin1.shp"))
+niger_adm2 <- st_read(dsn = here("data", "untouched", "ner_admin_boundaries", "ner_admin2.shp"))
 
 ```
 
