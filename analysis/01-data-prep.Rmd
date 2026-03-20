@@ -73,10 +73,10 @@ length(unique(grappe_phase_mort$site_code))
 ### Join gps to outcome data
 ```{r add gps to data}
 d_gps_latlon <- d_gps %>%
-  dplyr::select(site_code, lat, lon)
+  dplyr::select(site_code, lat, lon, csi)
 
 grappe_mort <- grappe_mort %>%
-    left_join(d_gps_latlon, by=c("site_code")) %>%
+  left_join(d_gps_latlon, by=c("site_code")) %>%
   relocate(lat, .after=grappe) %>%
   relocate(lon, .after=grappe)
 
