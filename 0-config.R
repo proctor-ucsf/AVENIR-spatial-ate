@@ -43,7 +43,7 @@ proj_crs <- 32631 # UTM zone 31N, for Niger, for projected distances in meters
 avail_thr <- parallel::detectCores(logical = FALSE) - 1L
 
 ## Grid dimensions for prediction layers
-grid_res <- 100
+grid_res <- 150
 
 ## Simulations for posterior predictions
 nsim_input <- 1000

@@ -78,7 +78,7 @@ df_proj <- df_all %>%
 dist_summ <- readRDS(here("data", "district_mortality_means.rds")) %>%
   filter(district %in% districts)
 ate_preds <- readRDS(here("data", "preds_ATE.rds")) 
-post_prob_map <- readRDS(here("data", "post_prob_dat.rds"))
+post_prob_raw <- readRDS(here("data", "post_prob_dat.rds"))
 
 # Load Niger boundaries map from Humanitarian Data Exchange
 # Map downloaded from https://data.humdata.org/dataset/cod-ab-ner on 10 March 2026
@@ -87,7 +87,8 @@ niger_adm1 <- st_read(dsn = here("data", "ner_admin_boundaries", "ner_admin1.shp
 niger_adm2 <- st_read(dsn = here("data", "ner_admin_boundaries", "ner_admin2.shp"))
 
 niger_adm2_sub <- readRDS(here("data", "niger_adm2_sub.rds"))
-
+niger_adm2_sub_proj <- niger_adm2_sub %>%
+  st_transform(crs = proj_crs)
 ```
 
 ```{r set up shared map attributes}
@@ -200,7 +201,7 @@ dist_summ %>%
 
 Mortality rates are in deaths per 1000 person-years among children aged
 1-59 months. ATE = mean mortality rate in treatment group - mean
-mortality rate in control group, by district.
+mortality rate in control group, by district. Negative ATEs are favorable.
 
 ```{r map district effects, fig.width=9, fig.height=5}
 
@@ -297,21 +298,76 @@ ggplot(data = boboye_long, aes(x = isTreated_child, y = value, color = isTreated
 
 ## Mortality predictions from spatial models
 
-```{r model predictions, fig.height = 7, fig.width = 10}
+```{r model predictions, fig.height = 8, fig.width = 10}
 
 pred_long <- ate_preds %>%
   dplyr::select(-ATE) %>%
-  pivot_longer(cols = c(predControl, predTreatment), names_to = "tx_group", values_to = "pred") %>%
-  st_transform(crs = global_crs) %>%
-  mutate(lon = st_coordinates(.)[,1],
-         lat = st_coordinates(.)[,2]) %>%
-  { .[ rowSums(st_within(., niger_adm2_sub, sparse = FALSE)) > 0, ] }
+  pivot_longer(cols = c(predControl, predTreatment), names_to = "tx_group", values_to = "pred")
 
-base_map +
-  geom_sf(data = pred_long, aes(color = pred)) +
+grouped <- pred_long %>%
+  group_by(model, tx_group) %>%
+  group_split()
+
+group_keys <- pred_long %>%
+  group_by(model, tx_group) %>%
+  group_keys()
+
+results <- purrr::map(grouped, ~
+  make_raster_map(.x, proj_crs, global_crs)
+)
+
+names(results) <- paste(group_keys$model, group_keys$tx_group, sep = "__")
+
+raster_df <- imap_dfr(results, function(res, name) {
+  
+  # parse names like "gen_krige__Treatment"
+  model <- strsplit(name, "__")[[1]][1]
+  tx_group <- strsplit(name, "__")[[1]][2]
+  
+  as.data.frame(res, xy = TRUE, na.rm = FALSE) %>%
+    mutate(
+      model = model,
+      tx_group = tx_group
+    )
+})
+
+raster_df$model <- factor(raster_df$model, 
+levels = c("simp_krig", "gen_krig", "gen_krig_int", "gen_krig_re"),
+labels = c("Simple", "Gen", "Gen + int", "Gen + RE"),
+ordered = TRUE)
+
+raster_df$tx_group <- factor(raster_df$tx_group,
+levels = c("predTreatment", "predControl"),
+labels = c("Treatment", "Control"),
+ordered = TRUE)
+
+ggplot() +
+  geom_raster(data = raster_df, aes(x = x, y = y, fill = pred), na.rm = TRUE) +
+  geom_sf(data = niger_adm2, fill = NA, color = "black", linewidth = 0.25) +
   facet_grid(tx_group ~ model) +
-  scale_color_viridis_c(name = "Predicted mortality rate\n(per 1000 person-years)", limits = c(0, 35)) +
-  theme(legend.position = "bottom")
+  theme_minimal(base_size = 14) +
+  annotation_scale() +
+  theme(legend.position = "bottom",
+  axis.title = element_blank()) +
+  scale_fill_viridis_c(limits = c(0, 35),
+                      na.value = NA,
+                      breaks = seq(0,30,by=10),
+                      guide=guide_colorbar(title="Modeled mortality rate (per 1000 person-years)", 
+                                          title.position = "top",
+                                          title.hjust = 0.5,
+                                          label.position = "bottom",
+                                          label.hjust = 0.5,
+                                          barheight=unit(10,"pt"),
+                                          barwidth=unit(200,"pt"),
+                                          ticks.colour = "white",
+                                          ticks.linewidth = 1,
+                                          frame.colour = "white")) +
+  scale_y_continuous(n.breaks = 5) +
+  scale_x_continuous(n.breaks = 3)
+
+ggsave(here("results", "figs", "model_mort_pred.png"),
+bg = "white",
+width = 8, height = 6, units = "in")
 
 ```
 
@@ -375,13 +431,88 @@ base_map +
 ```
 
 ```{r map posterior probs}
-post_prob_map <- post_prob_map %>%
-  { .[ rowSums(st_within(., niger_adm2_sub, sparse = FALSE)) > 0, ] }
 
-base_map +
-  geom_sf(data = post_prob_map, aes(color = prob)) +
-  scale_color_viridis(name = "Posterior prob", limits = c(0.3, 0.86), option = "magma") +
-  facet_wrap(~model, nrow = 1) +
+post_prob <- post_prob_raw %>%
+  # st_filter(niger_adm2_sub_proj) %>%
+  mutate(
+    x = st_coordinates(.)[,1],
+    y = st_coordinates(.)[,2]
+  ) %>%
+  st_drop_geometry()
+
+# Separate posterior probability results for the generalized kriging models with and without interaction
+gen_prob_proj <- post_prob %>%
+  dplyr::filter(model == "gen_krige")
+
+gen_int_prob_proj <- post_prob %>%
+  dplyr::filter(model == "gen_krige_int")
+
+# Make a raster of posterior probability results for each model, the project the raster to WGS 84 (global_crs) for plotting
+
+gen_proj <- rast(gen_prob_proj[, c("x", "y", "prob")], type = "xyz")
+crs(gen_proj) <- sf::st_crs(proj_crs)$wkt
+
+gen_global <- project(gen_proj, sf::st_crs(global_crs)$wkt, method = "bilinear")
+
+gen_int_proj <- rast(gen_int_prob_proj[, c("x", "y", "prob")], type = "xyz")
+crs(gen_int_proj) <- sf::st_crs(proj_crs)$wkt
+
+gen_int_global <- project(gen_int_proj, sf::st_crs(global_crs)$wkt, method = "bilinear")
+
+# Maps
+
+gen_prob_map <- ggplot() +
+  geom_spatraster(data = gen_global, aes(fill = prob), na.rm = TRUE) +
+  geom_sf(data = niger_adm2, fill = NA, color = "black", linewidth = 0.25) +
+  # scale_fill_viridis(name = "Posterior prob", limits = c(0.3, 1), option = "magma", na.value = NA, direction = -1) +
+  theme_minimal(base_size = 14) +
+  annotation_scale() +
+  theme(legend.position = "bottom") + 
+  scale_fill_viridis(option = "magma", direction = 1,
+                      limits = c(0.3, 1),
+                      na.value = NA,
+                      # breaks = seq(0,10,by=2),
+                      guide=guide_colorbar(title="Posterior pr(mortality ATE < 0)", 
+                                          title.position = "top",
+                                          title.hjust = 0.5,
+                                          direction="horizontal",
+                                          label.position = "bottom",
+                                          label.hjust = 0.5,
+                                          barheight=unit(10,"pt"),
+                                          barwidth=unit(200,"pt"),
+                                          ticks.colour = "white",
+                                          ticks.linewidth = 1,
+                                          frame.colour = "white") )
+
+gen_int_prob_map <- ggplot() +
+  geom_spatraster(data = gen_int_global, aes(fill = prob), na.rm = TRUE) +
+  geom_sf(data = niger_adm2, fill = NA, color = "black", linewidth = 0.25) +
+  # scale_fill_viridis(name = "Posterior prob", limits = c(0.3, 1), option = "magma", na.value = NA, direction = -1) +
+  theme_minimal(base_size = 14) +
+  annotation_scale() +
+  theme(legend.position = "bottom") + 
+  scale_fill_viridis(option = "magma", direction = 1,
+                      limits = c(0.3, 1),
+                      na.value = NA,
+                      # breaks = seq(0,10,by=2),
+                      guide=guide_colorbar(title="Posterior pr(mortality ATE < 0)", 
+                                          title.position = "top",
+                                          title.hjust = 0.5,
+                                          direction="horizontal",
+                                          label.position = "bottom",
+                                          label.hjust = 0.5,
+                                          barheight=unit(10,"pt"),
+                                          barwidth=unit(200,"pt"),
+                                          ticks.colour = "white",
+                                          ticks.linewidth = 1,
+                                          frame.colour = "white") )
+
+posterior_prob_maps <- gen_prob_map + gen_int_prob_map +
+  plot_annotation(tag_levels = 'A') +
+  plot_layout(guides = "collect") &
   theme(legend.position = "bottom")
+
+ggsave(here("results", "figs", "posterior_prob_maps.png"),
+bg = "white", width = 8, height = 6, units = "in")
 
 ```
