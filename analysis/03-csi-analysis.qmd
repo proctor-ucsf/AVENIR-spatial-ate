@@ -18,34 +18,195 @@ execute:
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
+
+rm(list = ls())
 ```
 
 ```{r Load packages and config}
 source(here::here("0-config.R"))
 source(here::here("analysis", "0-functions.R"))
-```
 
-```{r Load base maps}
-
-# Load Niger boundaries map from Humanitarian Data Exchange
-# Map downloaded from https://data.humdata.org/dataset/cod-ab-ner on 10 March 2026
-
-niger_adm1 <- st_read(dsn = here("data", "ner_admin_boundaries", "ner_admin1.shp"))
-niger_adm2 <- st_read(dsn = here("data", "ner_admin_boundaries", "ner_admin2.shp"))
-
+refit_models_flag <- FALSE # Set to TRUE to refit models, which can take a long time. Set to FALSE to load previously fitted models.
 ```
 
 ```{r Load data}
 
-df_all <- readRDS(here("data","grappe_mortality_data_all_rands.rds"))
+# Load grappe-level mortality data
+grappe_mort_data_raw <- readRDS(here("data","grappe_mortality_data.rds"))
 
-# Project coordinates to UTM so distances are in meters, not degrees
+niger_adm2_sub <- readRDS(here("data", "niger_adm2_sub.rds"))
+boxgrid <- readRDS(here("data", "boxgrid.rds"))
 
-d_sf <- df_all %>%
-  ungroup() %>%
-  st_as_sf(coords = c("lon", "lat"), crs = global_crs) %>%
-  # st_transform(crs = proj_crs) %>% 
-  mutate(lon = sf::st_coordinates(.)[,1],
-         lat = sf::st_coordinates(.)[,2])
+```
+
+```{r prep csi data}
+
+csi_centroids <- grappe_mort_data_raw %>%
+    group_by(csi) %>%
+    summarise(lon = mean(lon), lat = mean(lat))
+
+csi_dat <- grappe_mort_data_raw %>%
+    group_by(csi) %>%
+    summarise(across(c(starts_with("n_"), starts_with("pt_year"), starts_with("lost")), sum)) %>%
+    left_join(csi_centroids, by = "csi") %>%
+    st_as_sf(coords = c("lon", "lat"), crs = global_crs) %>%
+    st_transform(proj_crs) %>%
+    mutate(lon = st_coordinates(.)[,1], lat = st_coordinates(.)[,2])
+
+```
+
+```{r fit csi models}
+
+if(refit_models_flag){
+
+fit_csi <- spaMM::fitme(n_deaths_1to59 ~ 
+                                 1 + Matern(1|lon + lat) +
+                                     offset(log(pt_year_1to59)),
+                                   data = csi_dat,
+                                   family = poisson(link = "log"),
+                               control.HLfit=list(NbThreads=max(avail_thr, 1L))
+                        )
+
+saveRDS(fit_csi, here("data", "fit_csi_simp_krig.rds"))
+
+fit_csi_gen <- spaMM::fitme(n_deaths_1to59 ~ 
+                                 1 + 
+                                lat + lon +
+                                 Matern(1|lon + lat) +
+                                     offset(log(pt_year_1to59)),
+                                   data = csi_dat,
+                                   family = poisson(link = "log"),
+                               control.HLfit=list(NbThreads=max(avail_thr, 1L))
+                        )                      
+
+saveRDS(fit_csi_gen, here("data", "fit_csi_gen_krig.rds"))
+
+} else {
+  fit_csi <- readRDS(here("data", "fit_csi_simp_krig.rds"))
+  fit_csi_gen <- readRDS(here("data", "fit_csi_gen_krig.rds"))
+}
+
+summary(fit_csi)
+summary(fit_csi_gen)
+```
+
+```{r compare csi models}
+
+AIC(fit_csi)
+AIC(fit_csi_gen)
+
+LRT(fit_csi, fit_csi_gen)
+
+```
+
+The LRT comparing the simple kriging model (fit_csi) to the more complex model with lat/lon fixed effects (fit_csi_gen) has a p-value of 0.005162613, indicating that the more complex model fits significantly better than the simple kriging model.
+
+```{r plot csi matern corr}
+
+materncorr_csi_simp <- plot_matern_corr_proj(fit_csi,
+                                             "avenir-materncorr-csi_simp_krig",
+                                             modelname = "CSI: Simple Kriging")
+
+materncorr_csi_gen <- plot_matern_corr_proj(fit_csi_gen,
+                                             "avenir-materncorr-csi_gen_krig",
+                                             modelname = "CSI: Gen Kriging")
+
+materncorr_csi_simp + materncorr_csi_gen
+
+ggsave(here("results", "figs" ,"matern_corrs_csi.png"), 
+       bg = "white", width = 10, height = 5)
+
+```
+
+The range of the Matern correlation with the better fitting (generalized kriging) model is 14.38 km, which is much smaller than the range of 166.4 km for the simple kriging model.
+
+When comparing this csi-level aggregate analysis to the grappe-level analysis, we see that the csi-level models have a larger Matern correlation range (14.38 km for the generalized kriging model) compared to the grappe-level models (range of 11.27 km for the generalized kriging model and 11.37 km when we include an interaction with treatment). This suggests that there is more spatial correlation in the grappe-level data than in the csi-level data, which makes sense given that the grappe-level data has more spatial granularity and may capture more local spatial patterns. However, csi-level surveillance still captures some spatial correlation, even as it may miss finer-scale spatial details.
+
+```{r predictions from csi models}
+
+csi_models <- list(
+  simp_krig = fit_csi,
+  gen_krig = fit_csi_gen
+)
+
+tic("Get predictions from all models for both treatment groups")
+csi_preds_mort <- lapply(csi_models, function(model) {
+  get_grid_preds(input_grid = boxgrid, spamm_model_fit = model)
+})
+toc()
+
+csi_preds_long <- bind_rows(csi_preds_mort, .id = "model")
+
+saveRDS(csi_preds_long, here("data", "csi_preds_mort.rds"))
+
+```
+
+```{r}
+
+csi_preds_long <- csi_preds_long %>%
+  dplyr::select(-c(isTreated_child))
+
+grouped_csi_preds <- csi_preds_long %>%
+  group_by(model) %>%
+  group_split()
+
+csi_group_keys <- csi_preds_long %>%
+  group_by(model) %>%
+  group_keys()
+
+csi_results <- purrr::map(grouped_csi_preds, ~
+  make_raster_map(.x, proj_crs, global_crs, "pred")
+)
+
+names(csi_results) <- csi_group_keys$model
+csi_raster_df <- imap_dfr(csi_results, function(res, name) {
+  
+  model <- name
+  
+  as.data.frame(res, xy = TRUE, na.rm = FALSE) %>%
+    mutate(
+      model = model
+    )
+})
+
+csi_raster_df$model <- factor(csi_raster_df$model, 
+levels = c("simp_krig", "gen_krig"),
+labels = c("Simple", "Gen"),
+ordered = TRUE)
+
+ggplot() +
+  geom_raster(data = csi_raster_df, aes(x = x, y = y, fill = pred), na.rm = TRUE) +
+  geom_sf(data = niger_adm2_sub, fill = NA, color = "black", linewidth = 0.25) +
+  facet_wrap(~ model, nrow = 1) +
+  theme_minimal(base_size = 14) +
+  annotation_scale() +
+  theme(legend.position = "bottom",
+  axis.title = element_blank()) +
+  scale_fill_viridis_c(limits = c(0, 35),
+                      na.value = NA,
+                      breaks = seq(0,30,by=10),
+                      guide=guide_colorbar(title="Modeled mortality rate (per 1000 person-years)", 
+                                          title.position = "top",
+                                          title.hjust = 0.5,
+                                          label.position = "bottom",
+                                          label.hjust = 0.5,
+                                          barheight=unit(10,"pt"),
+                                          barwidth=unit(200,"pt"),
+                                          ticks.colour = "white",
+                                          ticks.linewidth = 1,
+                                          frame.colour = "white")) +
+  scale_y_continuous(n.breaks = 5) +
+  scale_x_continuous(n.breaks = 3)
+
+csi_preds_wide <- csi_preds_long %>%
+  dplyr::select(c(model, pred, geometry)) %>%
+  pivot_wider(id_cols = geometry, names_from = model, values_from = pred)
+
+csi_corr_plot <- ggplot(data = csi_preds_wide, aes(x = gen_krig, y = simp_krig)) +
+  geom_point(alpha = 0.3) +
+  stat_cor(show.legend = FALSE) +
+  theme_minimal()
+
+csi_corr_plot
 
 ```

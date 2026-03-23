@@ -7,6 +7,7 @@ output:
     df_print: paged
     toc: true
     toc_float: true
+    code-fold: true
     code_folding: hide
 editor:
   markdown:
@@ -79,6 +80,8 @@ dist_summ <- readRDS(here("data", "district_mortality_means.rds")) %>%
   filter(district %in% districts)
 ate_preds <- readRDS(here("data", "preds_ATE.rds")) 
 post_prob_raw <- readRDS(here("data", "post_prob_dat.rds"))
+
+csi_preds <- readRDS(here("data", "csi_preds_mort.rds"))
 
 # Load Niger boundaries map from Humanitarian Data Exchange
 # Map downloaded from https://data.humdata.org/dataset/cod-ab-ner on 10 March 2026
@@ -539,6 +542,73 @@ ggplot() +
   scale_x_continuous(n.breaks = 3)
 
 ggsave(here("results", "figs", "model_posterior_prob_map.png"),
+bg = "white",
+width = 8, height = 6, units = "in")
+
+```
+
+# CSI-level analysis
+
+![](images/matern_corrs_csi.png)
+
+```{r}
+
+csi_preds_long <- csi_preds %>%
+  dplyr::select(-c(isTreated_child))
+
+grouped_csi_preds <- csi_preds_long %>%
+  group_by(model) %>%
+  group_split()
+
+csi_group_keys <- csi_preds_long %>%
+  group_by(model) %>%
+  group_keys()
+
+csi_results <- purrr::map(grouped_csi_preds, ~
+  make_raster_map(.x, proj_crs, global_crs, "pred")
+)
+
+names(csi_results) <- csi_group_keys$model
+csi_raster_df <- imap_dfr(csi_results, function(res, name) {
+  
+  model <- name
+  
+  as.data.frame(res, xy = TRUE, na.rm = FALSE) %>%
+    mutate(
+      model = model
+    )
+})
+
+csi_raster_df$model <- factor(csi_raster_df$model, 
+levels = c("simp_krig", "gen_krig"),
+labels = c("Simple", "Gen"),
+ordered = TRUE)
+
+ggplot() +
+  geom_raster(data = csi_raster_df, aes(x = x, y = y, fill = pred), na.rm = TRUE) +
+  geom_sf(data = niger_adm2_sub, fill = NA, color = "black", linewidth = 0.25) +
+  facet_wrap(~ model, nrow = 1) +
+  theme_minimal(base_size = 14) +
+  annotation_scale() +
+  theme(legend.position = "bottom",
+  axis.title = element_blank()) +
+  scale_fill_viridis_c(limits = c(0, 35),
+                      na.value = NA,
+                      breaks = seq(0,30,by=10),
+                      guide=guide_colorbar(title="Modeled mortality rate (per 1000 person-years)", 
+                                          title.position = "top",
+                                          title.hjust = 0.5,
+                                          label.position = "bottom",
+                                          label.hjust = 0.5,
+                                          barheight=unit(10,"pt"),
+                                          barwidth=unit(200,"pt"),
+                                          ticks.colour = "white",
+                                          ticks.linewidth = 1,
+                                          frame.colour = "white")) +
+  scale_y_continuous(n.breaks = 5) +
+  scale_x_continuous(n.breaks = 3)
+
+ggsave(here("results", "figs", "csi_model_mort_pred.png"),
 bg = "white",
 width = 8, height = 6, units = "in")
 
