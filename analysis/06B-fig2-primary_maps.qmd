@@ -1,0 +1,262 @@
+---
+title: "02-context-map"
+author: "Ariktha Srivathsan"
+date: "2024-10-29"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+rm(list = ls())
+```
+
+```{r Load packages and config}
+
+library(here)
+library(tidyverse)
+library(sf)
+sf_use_s2(FALSE)
+
+source(here::here("0-config.R"))
+```
+
+```{r Load data}
+
+df_all <- readRDS(here("data","grappe_mortality_data.rds"))
+districts <- df_all %>% distinct(district) %>% pull(district)
+
+niger_adm2_sub <- readRDS(here("data", "niger_adm2_sub.rds"))
+
+# Panels A and B
+dist_summ <- readRDS(here("data", "district_mortality_means.rds")) %>%
+  filter(district %in% districts)
+
+# Panels C and D
+ate_preds <- readRDS(here("data", "preds_ATE.rds")) 
+
+# Panel E
+csi_preds <- readRDS(here("data", "csi_preds_mort.rds"))
+
+# Panel F
+post_prob_raw <- readRDS(here("data", "post_prob_dat.rds"))
+
+```
+
+```{r prep data}
+
+# Panels A and B: District-level mortality rates in control arm and ATE estimates
+
+niger_adm2_sub <- niger_adm2_sub %>%
+  left_join(dist_summ, by = c("adm2_name" = "district"))
+
+# Panel C: Mortality rate predictions from grappe-level spatial models
+
+mod_mort_pred <- ate_preds %>%
+    dplyr::filter(model == "gen_krig_int") %>%
+    dplyr::select(geometry, predControl) %>%
+    rename(pred = predControl)
+
+mod_mort_pred_rast <- make_raster_map(mod_mort_pred, proj_crs, global_crs, "pred")
+mod_mort_pred_df <- as.data.frame(mod_mort_pred_rast, xy = TRUE, na.rm = FALSE)
+
+# Panel D: ATE estimates from grappe-level spatial models
+
+mod_ate_pred <- ate_preds %>%
+    dplyr::filter(model == "gen_krig_int") %>%
+    dplyr::select(geometry, ATE)
+
+mod_ate_pred_rast <- make_raster_map(mod_ate_pred, proj_crs, global_crs, "ATE")
+mod_ate_pred_df <- as.data.frame(mod_ate_pred_rast, xy = TRUE, na.rm = FALSE)
+
+# Panel E: Mortality rate predictions from CSI-level spatial models
+
+mod_csi_mort_pred <- csi_preds %>%
+    dplyr::filter(model == "gen_krig") %>%
+    dplyr::select(geometry, pred)
+
+mod_csi_mort_pred_rast <- make_raster_map(mod_csi_mort_pred, proj_crs, global_crs, "pred")
+mod_csi_mort_pred_df <- as.data.frame(mod_csi_mort_pred_rast, xy = TRUE, na.rm = FALSE)
+
+# Panel F: Posterior probabilities of ATE < 0 from grappe-level spatial models
+
+mod_post_prob <- post_prob_raw %>%
+    dplyr::filter(model == "gen_krig_int") %>%
+    dplyr::select(geometry, prob)
+
+mod_post_prob_rast <- make_raster_map(mod_post_prob, proj_crs, global_crs, "prob")
+mod_post_prob_df <- as.data.frame(mod_post_prob_rast, xy = TRUE, na.rm = FALSE)
+
+```
+
+```{r base map}
+
+base_map <- ggplot() +
+  geom_sf(data = niger_adm2_sub, fill = NA, color = "black", size = 0.25) +
+  theme_minimal(base_size = 14) +
+  annotation_scale() +
+  scale_x_continuous(name = "Longitude") +
+  scale_y_continuous(name = "Latitude") +
+  theme(
+    legend.position = "bottom",
+    legend.background = element_rect(fill = "white", color = NA),
+    legend.title = element_text(hjust = 1, vjust = 0.5),
+    legend.text = element_text(hjust = 1, vjust = 0.5)
+  )
+
+```
+
+```{r Panel A}
+
+data_mort_control <- base_map +
+  geom_sf(data = niger_adm2_sub, aes(fill = MortRateControl), color = NA, size = 0.25) +
+  scale_fill_viridis_c(limits = c(0, 35),
+                      na.value = NA,
+                      breaks = seq(0,30,by=10),
+                      guide=guide_colorbar(title="Mortality rate\n(per 1000 person-years)", 
+                                          title.position = "top",
+                                          title.hjust = 0.5,
+                                          label.position = "bottom",
+                                          label.hjust = 0.5,
+                                          barheight=unit(10,"pt"),
+                                          barwidth=unit(200,"pt"),
+                                          ticks.colour = "white",
+                                          ticks.linewidth = 1,
+                                          frame.colour = "white"))
+
+data_mort_control
+```
+
+```{r Panel B}
+
+data_ate <- base_map +
+  geom_sf(data = niger_adm2_sub, aes(fill = ATE), color = NA, size = 0.25) +
+  scale_fill_gradient2(low = muted("dodgerblue"), 
+                        mid = "white", 
+                        high = muted("red"), 
+                        midpoint = 0, 
+                        limits = c(-13, 3),
+                        na.value = NA,
+                        breaks = seq(-10, 0, by = 5),
+                        guide=guide_colorbar(title="ATE: difference in mortality\nrate (per 1000 person-years)", 
+                                          title.position = "top",
+                                          title.hjust = 0.5,
+                                          label.position = "bottom",
+                                          label.hjust = 0.5,
+                                          barheight=unit(10,"pt"),
+                                          barwidth=unit(200,"pt"),
+                                          ticks.colour = "white",
+                                          ticks.linewidth = 1,
+                                          frame.colour = "white"))
+
+data_ate
+```
+
+```{r Panel C}
+
+model_mort_control <- base_map +
+  geom_raster(data = mod_mort_pred_df, aes(x = x, y = y, fill = pred), na.rm = TRUE) +
+  geom_sf(data = niger_adm2_sub, fill = NA, color = "grey60", size = 0.25) +
+  scale_fill_viridis_c(limits = c(0, 35),
+                      na.value = NA,
+                      breaks = seq(0,30,by=10),
+                      guide=guide_colorbar(title="Modeled mortality rate\n(per 1000 person-years)", 
+                                          title.position = "top",
+                                          title.hjust = 0.5,
+                                          label.position = "bottom",
+                                          label.hjust = 0.5,
+                                          barheight=unit(10,"pt"),
+                                          barwidth=unit(200,"pt"),
+                                          ticks.colour = "white",
+                                          ticks.linewidth = 1,
+                                          frame.colour = "white"))
+
+model_mort_control
+```
+```{r Panel D}
+
+model_ate <- base_map +
+    geom_raster(data = mod_ate_pred_df, aes(x = x, y = y, fill = ATE), na.rm = TRUE) +
+    geom_sf(data = niger_adm2_sub, fill = NA, color = "grey70", size = 0.25) +
+    scale_fill_gradient2(low = muted("dodgerblue"), 
+                            mid = "white", 
+                            high = muted("red"), 
+                            midpoint = 0, 
+                            limits = c(-13, 3),
+                            na.value = NA,
+                            breaks = seq(-10, 0, by = 5),
+                            guide=guide_colorbar(title="Modeled ATE: difference in mortality\nrate (per 1000 person-years)", 
+                                            title.position = "top",
+                                            title.hjust = 0.5,
+                                            label.position = "bottom",
+                                            label.hjust = 0.5,
+                                            barheight=unit(10,"pt"),
+                                            barwidth=unit(200,"pt"),
+                                            ticks.colour = "white",
+                                            ticks.linewidth = 1,
+                                            frame.colour = "white"))
+
+model_ate
+```
+
+```{r Panel E}
+
+csi_model_mort <- base_map +
+    geom_raster(data = mod_csi_mort_pred_df, aes(x = x, y = y, fill = pred), na.rm = TRUE) +
+    geom_sf(data = niger_adm2_sub, fill = NA, color = "grey60", size = 0.25) +
+    scale_fill_viridis_c(limits = c(0, 35),
+                        na.value = NA,
+                        breaks = seq(0,30,by=10),
+                        guide=guide_colorbar(title="Modeled mortality rate\n(per 1000 person-years)", 
+                                            title.position = "top",
+                                            title.hjust = 0.5,
+                                            label.position = "bottom",
+                                            label.hjust = 0.5,
+                                            barheight=unit(10,"pt"),
+                                            barwidth=unit(200,"pt"),
+                                            ticks.colour = "white",
+                                            ticks.linewidth = 1,
+                                            frame.colour = "white"))
+
+csi_model_mort
+
+```
+
+```{r Panel F}
+
+mod_post_prob_map <- base_map +
+    geom_raster(data = mod_post_prob_df, aes(x = x, y = y, fill = prob), na.rm = TRUE) +
+    geom_sf(data = niger_adm2_sub, fill = NA, color = "grey70", size = 0.25) +
+  scale_fill_paletteer_c("grDevices::PinkYl",
+                      limits = c(0.3, 1),
+                      na.value = NA,
+                      # breaks = seq(0,10,by=2),
+                      guide = guide_colorbar(title="Posterior probability\n(mortality ATE < 0)",  
+                                          title.position = "top",
+                                          title.hjust = 0.5,
+                                          label.position = "bottom",
+                                          label.hjust = 0.5,
+                                          barheight=unit(10,"pt"),
+                                          barwidth=unit(200,"pt"),
+                                          ticks.colour = "white",
+                                          ticks.linewidth = 1,
+                                          frame.colour = "white"))
+
+mod_post_prob_map
+
+```
+
+
+```{r composite figure}
+
+fig2 <- data_mort_control + 
+  model_mort_control + 
+  csi_model_mort +
+  data_ate +
+  model_ate +
+  mod_post_prob_map 
+
+ggsave(here("results", "manuscript", "fig2-primary_maps.png"), 
+       plot = fig2, bg = "white", width = 12, height = 10)
+ 
+```
