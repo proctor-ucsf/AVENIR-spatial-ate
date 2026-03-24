@@ -1,20 +1,53 @@
 ---
 title: "CSI-level analysis for spatial heterogeneity in the ATE in AVENIR"
+date: today
 # author: "Ariktha Srivathsan"
-date: "`r Sys.Date()`"
-output:
-  html_document:
-    df_print: paged
+format:
+  html:
     toc: true
-    toc_float: true
-    code_folding: hide
-editor:
-  markdown:
-    wrap: 72
+    toc-location: right
+    code-fold: true
+    code-summary: "Show code"
+    df-print: paged
 execute:
   cache: true
   warning: false
+  message: false
+editor: visual
 ---
+
+```{=html}
+<style type="text/css">
+body{
+  font-size: 14px;
+}
+td {
+  font-size: 15px;
+}
+h1.title {
+  font-size: 26px;
+  color: Black;
+}
+h1 {
+  font-size: 24px;
+  color: Black;
+}
+h2 {
+  font-size: 22px;
+  color: Black;
+}
+h3 {
+  font-size: 20px;
+  color: Black;
+}
+code.r{
+  font-size: 12px;
+}
+pre {
+  font-size: 14px;
+}
+</style>
+```
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
@@ -53,6 +86,102 @@ csi_dat <- grappe_mort_data_raw %>%
     st_transform(proj_crs) %>%
     mutate(lon = st_coordinates(.)[,1], lat = st_coordinates(.)[,2])
 
+```
+
+```{r csi-histogram}
+
+csi_summ_arm <- grappe_mort_data_raw %>%
+  group_by(isTreated_child, csi) %>%
+  summarise(n = n(), .groups = "drop") 
+  
+csi_summ_wide <- csi_summ_arm %>%
+  pivot_wider(names_from = isTreated_child, values_from = n, values_fill = 0, names_prefix = "n_") %>%
+  mutate(total = n_Control + n_Treatment,
+  prop_treated = n_Treatment / total)
+
+hist1 <- ggplot(csi_summ_wide, aes(x = total)) +
+  geom_histogram(fill = "steelblue") +
+  theme_minimal(base_size = 14) +
+  labs(x = "Total number of grappes per CSI",
+       y = "Count of CSIs")
+
+hist2 <- ggplot(csi_summ_arm, aes(x = n, fill = factor(isTreated_child))) +
+  geom_histogram() +
+  theme_minimal(base_size = 14) +
+  facet_wrap(~ isTreated_child, nrow = 2) +
+  labs(x = "Total number of grappes per CSI",
+       y = "Count of CSIs") +
+  guides(fill = "none")
+
+hist3 <- ggplot(csi_summ_wide, aes(x = prop_treated)) +
+  geom_histogram(fill = "steelblue") +
+  theme_minimal(base_size = 14) +
+  labs(x = "Proportion of treated grappes per CSI",
+       y = "Count of CSIs")
+
+(hist1 / hist3) | hist2
+
+ggsave(here("results", "figs", "csi_histograms.png"), 
+       bg = "white", width = 10, height = 6)
+```
+
+Left panels in steel blue show the distribution of the total number of grappes per CSI (top) and the proportion of treated grappes per CSI (bottom). The right panels show the distribution of the number of grappes per CSI separately for control and treatment grappes per CSI.
+
+```{r csi-map, message=FALSE, warning=FALSE}
+
+# sf + projected CRS
+grappes_sf <- grappe_mort_data_raw %>%
+  ungroup() %>%
+  st_as_sf(coords = c("lon", "lat"), crs = global_crs) %>%
+  mutate(lon = sf::st_coordinates(.)[,1],
+         lat = sf::st_coordinates(.)[,2])
+
+# Map: grappes colored by CSI assignment
+
+p1 <- ggplot() +
+  geom_sf(data = grappes_sf, aes(color = factor(csi)), size = 1.2, alpha = 0.9) +
+  geom_sf(data = niger_adm2_sub, fill = NA, color = "black", linewidth = 0.25) +
+  theme_minimal(base_size = 14) +
+  theme(legend.position = "none") 
+
+# Voronoi tessellation from CSI centroids
+
+# create bounding box (slightly expanded to avoid edge clipping)
+bbox <- st_bbox(grappes_sf)
+bbox_poly <- st_as_sfc(bbox)
+
+csi_centroids_sf <- csi_centroids %>%
+  st_as_sf(coords = c("lon", "lat"), crs = global_crs)
+
+voronoi <- st_voronoi(st_union(csi_centroids_sf), envelope = bbox_poly) %>%
+  st_collection_extract("POLYGON") %>%
+  st_sf() %>%
+  mutate(csi = csi_centroids_sf$csi) %>%
+  st_intersection(niger_adm2_sub)
+
+# Map: CSI centroids + Voronoi + grappes
+
+p2 <- ggplot() +
+  geom_sf(data = voronoi, fill = NA, color = "grey40", linewidth = 0.6) +
+  geom_sf(data = grappes_sf, color = "black", size = 0.6, alpha = 0.6) +
+  geom_sf(data = csi_centroids_sf, color = "red", size = 1) +
+  theme_minimal(base_size = 14)
+
+# Map: CSI approximate locations
+
+p3 <- ggplot() +
+  geom_sf(data = csi_centroids_sf, color = "black", size = 0.75) +
+  geom_sf(data = niger_adm2_sub, fill = NA, color = "black", linewidth = 0.25) +
+  theme_minimal(base_size = 14) +
+  theme(legend.position = "none")
+
+# Plot side by side
+
+(p1 | p2 | p3) +
+  plot_annotation(title = "CSI approximate locations and spatial coverage")
+
+ggsave(here("results", "figs", "csi_spatial_coverage.png"), 
+       bg = "white", width = 10, height = 6)
 ```
 
 ```{r fit csi models}
@@ -210,3 +339,4 @@ csi_corr_plot <- ggplot(data = csi_preds_wide, aes(x = gen_krig, y = simp_krig))
 csi_corr_plot
 
 ```
+
