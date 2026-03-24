@@ -340,7 +340,7 @@ print(AIC(fitmort_child_gen_krig_int))
 
 summary(fitmort_child_gen_krig_mordor)
 
-materncorr_gen_krig_int <- plot_matern_corr_proj(fitmort_child_gen_krig_mordor,
+materncorr_gen_krig_mordor <- plot_matern_corr_proj(fitmort_child_gen_krig_mordor,
                                                  "avenir-materncorr-fitmort_child_gen_krig_mordor",
                                                  modelname = "Gen Krige + MORDOR")
 
@@ -389,5 +389,35 @@ materncorr_simp_krig + materncorr_gen_krig + materncorr_gen_krig_int + materncor
 
 ggsave(here("results", "figs" ,"matern_corrs.png"), 
     bg = "white", width = 10, height = 9)
+```
+
+```{r aic and lrt tables}
+aic_table <- data.frame(
+  Model = c("Simple Kriging", "Generalized Kriging", "Gen Krige + Interaction", "Gen Krige + Cluster RE", "Gen Krige + MORDOR"),
+  AIC = c(
+    AIC(fitmort_child_simp_krig)[1],
+    AIC(fitmort_child_gen_krig)[1],
+    AIC(fitmort_child_gen_krig_int)[1],
+    AIC(fitmort_child_gen_krig_re)[1],
+    AIC(fitmort_child_gen_krig_mordor)[1]
+  )
+)
+
+lrt_table <- data.frame(
+  Comparison = c("Gen Krige vs Simple Krige", "Gen Krige + Interaction vs Gen Krige", "Gen Krige + MORDOR vs Gen Krige"),
+  LRT_statistic = c(
+    LRT(fitmort_child_gen_krig, fitmort_child_simp_krig)$basicLRT$chi2_LR,
+    LRT(fitmort_child_gen_krig_int, fitmort_child_gen_krig)$basicLRT$chi2_LR,
+    LRT(fitmort_child_gen_krig_mordor, fitmort_child_gen_krig)$basicLRT$chi2_LR
+  ),
+  p_value = c(
+    LRT(fitmort_child_gen_krig, fitmort_child_simp_krig)$basicLRT$p_value,
+    LRT(fitmort_child_gen_krig_int, fitmort_child_gen_krig)$basicLRT$p_value,
+    LRT(fitmort_child_gen_krig_mordor, fitmort_child_gen_krig)$basicLRT$p_value
+  )
+)
+
+saveRDS(aic_table, here("data", "model_aic_table.rds"))
+saveRDS(lrt_table, here("data", "model_lrt_table.rds"))
 ```
 
