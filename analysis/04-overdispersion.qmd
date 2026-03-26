@@ -1,0 +1,147 @@
+---
+title: "CSI-level analysis for spatial heterogeneity in the ATE in AVENIR"
+date: today
+# author: "Ariktha Srivathsan"
+format:
+  html:
+    toc: true
+    toc-location: right
+    code-fold: true
+    code-summary: "Show code"
+    df-print: paged
+execute:
+  cache: true
+  warning: false
+  message: false
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+rm(list = ls())
+```
+
+```{r}
+#| label: load-packages
+
+source(here::here("0-config.R"))
+source(here::here("analysis", "0-functions.R"))
+
+refit_models_flag <- TRUE # Set to TRUE to refit models, which can take a long time. Set to FALSE to load previously fitted models.
+```
+
+```{r}
+#| label: load-data
+
+# Load grappe-level mortality data
+df_all <- readRDS(here("data","grappe_mortality_data.rds"))
+
+```
+
+```{r}
+#| label: prep data
+
+# Project coordinates to UTM so distances are in meters, not degrees
+
+df_proj <- df_all %>%
+  ungroup() %>%
+  st_as_sf(coords = c("lon", "lat"), crs = global_crs) %>%
+  st_transform(crs = proj_crs) %>% # UTM zone 31N, for Niger
+  mutate(lon = sf::st_coordinates(.)[,1],
+         lat = sf::st_coordinates(.)[,2])
+
+```
+
+```{r}
+#| label: fit model
+
+if (refit_models_flag) {
+
+tic("Fitting nested model with Matern correlation and random effects for CSI and district")
+  fit_nested <- spaMM::fitme(n_deaths_1to59 ~ 
+                               1 + 
+                               Matern(1|lat + lon) +
+                               (1 | district:csi) +
+                               (1 | district) +
+                             offset(log(pt_year_1to59)),
+                           data = df_proj,
+                           family = poisson(link = "log"),
+                           control.HLfit=list(NbThreads=max(avail_thr, 1L))
+                           )
+toc()
+
+saveRDS(fit_nested, here("data", "var_partition_model.rds"))
+} else {
+fit_nested <- readRDS(here("data", "var_partition_model.rds"))
+}
+
+summary(fit_nested)
+
+```
+
+```{r}
+#| label: variance-components
+
+# extract the variance components from the model
+varcomps <- get_ranPars(fit_nested)
+varcomps$lambda
+
+# summarize the proportion of the variance in mortality
+# explained by each random effect
+# (fine-scale spatial correlation, CSI within district, district)
+prop_var <- varcomps$lambda / sum(varcomps$lambda)
+round(prop_var,3)
+
+```
+
+The variance partitioning results suggest that approximately `r round(prop_var[1],3)*100`% of the variance in mortality is explained by fine-scale spatial correlation, `r round(prop_var[2],3)*100`% is explained by differences between CSIs within districts, and `r round(prop_var[3],3)*100`% is explained by differences between districts.
+
+Estimating the proportion of variance lost due to aggregation to the CSI level
+
+
+```{r}
+#| label: fit grappe and csi models
+
+if(refit_models_flag){
+  tic("Fitting grappe-level model with Matern correlation and random effects for CSI and district")
+fit_grappe <- fitme(
+  n_deaths_1to59 ~ 1 + isTreated_child + lon + lat +
+    Matern(1 | lon + lat) +
+    (1 | district) +
+    (1 | district:csi) +
+  offset(log(pt_year_1to59)),
+  family = negbin(),  # important
+  data = df_proj,
+  control.HLfit=list(NbThreads=max(avail_thr, 1L))
+)
+toc()
+saveRDS(fit_grappe, here("data", "var_part_grappe_model.rds"))
+} else {
+fit_grappe <- readRDS(here("data", "var_part_grappe_model.rds"))
+}
+
+if(refit_models_flag){
+  tic("Fitting CSI-level model with Matern correlation and random effects for district")
+fit_csi <- fitme(
+  n_deaths_1to59 ~ 1 + 
+    lon + lat +
+    Matern(1 | lon + lat) +
+    (1 | district) +
+  offset(log(pt_year_1to59)),
+  family = negbin(),  # important
+  data = df_proj %>%
+    group_by(district, csi) %>%
+    summarise(n_deaths_1to59 = sum(n_deaths_1to59),
+              pt_year_1to59 = sum(pt_year_1to59),
+              lon = mean(lon),
+              lat = mean(lat)) %>%
+    ungroup(),
+  control.HLfit=list(NbThreads=max(avail_thr, 1L))
+)
+toc()
+saveRDS(fit_csi, here("data", "var_part_csi_model.rds"))
+} else {
+fit_csi <- readRDS(here("data", "var_part_csi_model.rds"))
+}
+
+```

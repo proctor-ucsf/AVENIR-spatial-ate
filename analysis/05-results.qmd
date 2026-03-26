@@ -9,11 +9,11 @@ format:
     code-fold: true
     code-summary: "Show code"
     df-print: paged
+    self-contained: true
 execute:
   cache: true
   warning: false
   message: false
-editor: visual
 ---
 
 ```{=html}
@@ -119,8 +119,6 @@ base_map <- ggplot() +
 ```
 
 # Trial data and outcomes
-
-There are a total of 1390 grappes across the 8 departments in the Dosso Region of Niger. 914 grappes were assigned to the control arm and 476 were assigned to the treatment arm for this analysis.
 
 ## Histograms of person-time and mortality outcomes
 
@@ -705,19 +703,7 @@ The posterior probability map provides a probabilistic interpretation of treatme
 
 We also fit spatial models at the CSI level, which has less spatial granularity than the grappe-level data but may still capture some spatial correlation. Since the randomization was at the grappe level, we cannot include a term for the treatment indicator in the CSI-level models, but we can still fit spatial models to predict mortality rates across the study area and compare the spatial correlation structure to the grappe-level models, akin to how it will be done in future programmatic surveillance analyses.
 
-## Grappes per CSI
-
-![](images/csi_histograms.png){width="787"}
-
-## Spatial coverage of CSIs
-
-![](images/csi_spatial_coverage.png){width="898"}
-
-## Matern Correlations from CSI spatial models
-
-![](images/matern_corrs_csi.png){width="794"}
-
-## CSI-level mortality predictions from spatial models
+![](images/matern_corrs_csi.png)
 
 ```{r}
 #| label: csi-model-predictions
@@ -788,3 +774,9 @@ width = 8, height = 6, units = "in")
 When comparing this csi-level aggregate analysis to the grappe-level analysis, we see that the csi-level models have a larger Matern correlation range (14.38 km for the generalized kriging model) compared to the grappe-level models (range of 11.27 km for the generalized kriging model and 11.37 km when we include an interaction with treatment). This suggests that there is more spatial correlation in the grappe-level data than in the csi-level data, which makes sense given that the grappe-level data has more spatial granularity and may capture more local spatial patterns.
 
 Despite the loss of spatial resolution, the CSI-level analysis preserves the broad spatial gradients in mortality. However, the increased correlation range suggests that aggregation smooths over local variability, effectively inflating the apparent spatial scale of dependence. This implies that CSI-level surveillance may be adequate for identifying large-scale patterns but may miss localized hotspots or heterogeneity in treatment effects that are detectable at the grappe level.
+
+# Variance partitioning
+
+Using a model with treatment indicator, matern correlation, and a random effect for district and csi nested in district, we partition the variance in mortality rates (on the latent scale) into components attributable to treatment, spatial correlation (sub-csi level variance), district-level effects, and csi-level effects.
+
+The variance partitioning results suggest that approximately 97.6% of the variance in mortality is explained by fine-scale spatial correlation, 2.4% is explained by differences between CSIs within districts, and 0% is explained by differences between districts.
