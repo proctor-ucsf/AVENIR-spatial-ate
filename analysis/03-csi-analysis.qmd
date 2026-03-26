@@ -184,6 +184,8 @@ ggsave(here("results", "figs", "csi_spatial_coverage.png"),
        bg = "white", width = 10, height = 6)
 ```
 
+The left panel shows the locations of all grappes colored by their CSI "assignment". The middle panel shows the Voronoi tessellation from the CSI centroids, which approximates the spatial coverage of each CSI, along with the locations of the grappes and CSI centroids but is not exact. The right panel shows only the CSI centroids, which are the approximate locations of the CSIs used in this analysis.
+
 ```{r fit csi models}
 
 if(refit_models_flag){
