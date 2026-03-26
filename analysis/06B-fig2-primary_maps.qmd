@@ -19,6 +19,7 @@ library(sf)
 sf_use_s2(FALSE)
 
 source(here::here("0-config.R"))
+source(here::here("analysis", "0-functions.R"))
 ```
 
 ```{r Load data}
@@ -226,12 +227,12 @@ csi_model_mort
 
 mod_post_prob_map <- base_map +
     geom_raster(data = mod_post_prob_df, aes(x = x, y = y, fill = prob), na.rm = TRUE) +
-    geom_sf(data = niger_adm2_sub, fill = NA, color = "grey70", size = 0.25) +
+    geom_sf(data = niger_adm2_sub, fill = NA, color = "grey55", size = 0.25) +
   scale_fill_paletteer_c("grDevices::PinkYl",
                       limits = c(0.3, 1),
                       na.value = NA,
                       # breaks = seq(0,10,by=2),
-                      guide = guide_colorbar(title="Posterior probability\n(mortality ATE < 0)",  
+                      guide = guide_colorbar(title="Simulated posterior probability\n(mortality ATE < 0)",  
                                           title.position = "top",
                                           title.hjust = 0.5,
                                           label.position = "bottom",
@@ -254,9 +255,11 @@ fig2 <- data_mort_control +
   csi_model_mort +
   data_ate +
   model_ate +
-  mod_post_prob_map 
+  mod_post_prob_map +
+  plot_annotation(tag_levels = "A") &
+  theme(plot.margin = margin(0.5, 0.7, 0.5, 0.7, "cm"))
 
 ggsave(here("results", "manuscript", "fig2-primary_maps.png"), 
-       plot = fig2, bg = "white", width = 12, height = 10)
+       plot = fig2, bg = "white", width = 12, height = 11)
  
 ```
