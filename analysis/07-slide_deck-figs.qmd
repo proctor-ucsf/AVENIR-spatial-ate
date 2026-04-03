@@ -1,0 +1,525 @@
+---
+title: "07-slide-deck-figs"
+author: "Ariktha Srivathsan"
+date: "2024-10-29"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+rm(list = ls())
+```
+
+```{r}
+#| label: load-libraries-and-data
+
+library(here)
+library(tidyverse)
+library(sf)
+sf_use_s2(FALSE)
+
+source(here::here("0-config.R"))
+load(here("data", "results-vars.RData"))
+
+csi_dat <- readRDS(here("data", "csi_dat.rds"))
+```
+
+```{r}
+#| label: base-map
+
+niger_adm2 <- niger_adm2 %>%
+  filter(adm1_name == "Dosso") %>%
+  st_make_valid()
+
+base_map <- ggplot() +
+  geom_sf(data = niger_adm2, fill = NA, color = "black", size = 0.25) +
+  theme_minimal(base_size = 14) +
+  annotation_scale() +
+  scale_x_continuous(name = "Longitude") +
+  scale_y_continuous(name = "Latitude") +
+  theme(
+    legend.position = "bottom",
+    legend.background = element_rect(fill = "white", color = NA),
+    legend.title = element_text(hjust = 1, vjust = 0.5),
+    legend.text = element_text(hjust = 1, vjust = 0.5)
+  )
+```
+
+```{r}
+#| label: villages-map
+
+base_map +
+  geom_point(data = df_all, aes(x = lon, y = lat), 
+  size = 0.5, alpha = 0.5, color = "darkgoldenrod2") +
+  geom_sf(data = niger_adm2_sub, fill = NA, color = "black", size = 0.4)
+
+ggsave(here("results", "figs", "slides-villages_map.png") , width = 4.5, height = 5, units = "in", bg = "white")
+
+```
+
+
+```{r}
+#| label: tx-assignment-map
+
+base_map +
+  geom_point(data = df_all, aes(x = lon, y = lat, color = isTreated_child), 
+  size = 0.5, alpha = 0.5) +
+  geom_sf(data = niger_adm2_sub, fill = NA, color = "black", size = 0.25) +
+  scale_color_manual(breaks = c("Control", "Treatment"),
+                     values = c("#fecd6c", "#e84d60"),
+                     name = "Treatment Arm") +
+  guides(color = guide_legend(override.aes = list(size = 3, alpha = 1)))
+
+ggsave(here("results", "figs", "slides-treatment_assignment_map.png") , width = 4.5, height = 5, units = "in", bg = "white")
+
+```
+
+```{r}
+#| label: mortality-rate-grappes-maps-by-arm
+
+base_map +
+  geom_point(data = df_all, aes(x = lon, y = lat, 
+  color = deaths_per_1000_1to59,
+  size = deaths_per_1000_1to59),
+             alpha = 0.3) +
+              facet_wrap(~isTreated_child) +
+  scale_color_viridis_c(limits = c(0, 60),
+                      na.value = NA,
+                      breaks = seq(0,60,by=20),
+                      option = "mako", direction = 1,
+                      begin = 0.2, end = 1,
+                      guide=guide_colorbar(title="Mortality rate (per 1000 person-years)", 
+                                          title.position = "top",
+                                          title.hjust = 0.5,
+                                          label.position = "bottom",
+                                          label.hjust = 0.5,
+                                          barheight=unit(10,"pt"),
+                                          barwidth=unit(200,"pt"),
+                                          ticks.colour = "white",
+                                          ticks.linewidth = 1,
+                                          frame.colour = "white"))  +
+  scale_size_continuous(range = c(0.5, 3.5)) +
+  guides(size = "none")
+
+ggsave(here("results", "figs", "slides-mortality_rate_maps_by_arm.png") , width = 6, height = 5, units = "in", bg = "white")
+```
+
+```{r}
+#| label: mortality-rate-districts-maps-by-arm
+
+dist_summ_long <- dist_summ %>%
+  pivot_longer(cols = c(MortRateControl, MortRateTreatment), names_to = "tx_group", values_to = "mort_rate", names_prefix = "MortRate") %>%
+  left_join(niger_adm2_sub, by = c("district" = "adm2_name"))
+
+base_map +
+  geom_sf(data = dist_summ_long, aes(fill = mort_rate, geometry = geometry), color = NA, size = 0.25) +
+  facet_wrap(~tx_group) +
+  scale_fill_viridis_c(limits = c(0, 35),
+                      na.value = NA,
+                      breaks = seq(0,30,by=10),
+                      guide=guide_colorbar(title="Mortality rate (per 1000 person-years)", 
+                                          title.position = "top",
+                                          title.hjust = 0.5,
+                                          label.position = "bottom",
+                                          label.hjust = 0.5,
+                                          barheight=unit(10,"pt"),
+                                          barwidth=unit(200,"pt"),
+                                          ticks.colour = "white",
+                                          ticks.linewidth = 1,
+                                          frame.colour = "white"))
+
+ggsave(here("results", "figs", "slides-mortality_rate_maps.png") , width = 6, height = 5, units = "in", bg = "white")
+
+```
+
+```{r}
+#| label: model-prediction-maps-by-arm
+
+raster_df$tx_group <- factor(raster_df$tx_group, levels = c("Control", "Treatment"), ordered = TRUE)
+
+ggplot() +
+  geom_raster(data = subset(raster_df, model == "Gen + int"), aes(x = x, y = y, fill = pred), na.rm = TRUE) +
+  geom_sf(data = niger_adm2, fill = NA, color = "black", linewidth = 0.25) +
+  facet_grid(~tx_group) +
+  theme_minimal(base_size = 14) +
+  annotation_scale() +
+  theme(legend.position = "bottom") +
+  scale_fill_viridis_c(limits = c(0, 35),
+                      na.value = NA,
+                      breaks = seq(0,30,by=10),
+                      guide=guide_colorbar(title="Modeled mortality rate (per 1000 person-years)", 
+                                          title.position = "top",
+                                          title.hjust = 0.5,
+                                          label.position = "bottom",
+                                          label.hjust = 0.5,
+                                          barheight=unit(10,"pt"),
+                                          barwidth=unit(200,"pt"),
+                                          ticks.colour = "white",
+                                          ticks.linewidth = 1,
+                                          frame.colour = "white")) +
+                                            scale_x_continuous(name = "Longitude") +
+                                            scale_y_continuous(name = "Latitude")
+
+ggsave(here("results", "figs", "slides-model_mort_pred.png"), bg = "white", width = 6, height = 5, units = "in")
+```
+
+```{r}
+#| label: dist-avg-and-model-prediction-control
+
+dist_avg_panel <- base_map +
+  geom_sf(data = subset(dist_summ_long, tx_group == "Control"), aes(fill = mort_rate, geometry = geometry), color = NA, size = 0.25) +
+  scale_fill_viridis_c(limits = c(0, 35),
+                      na.value = NA,
+                      breaks = seq(0,30,by=10),
+                      guide=guide_colorbar(title="Mortality rate (per 1000 person-years)", 
+                                          title.position = "top",
+                                          title.hjust = 0.5,
+                                          label.position = "bottom",
+                                          label.hjust = 0.5,
+                                          barheight=unit(10,"pt"),
+                                          barwidth=unit(200,"pt"),
+                                          ticks.colour = "white",
+                                          ticks.linewidth = 1,
+                                          frame.colour = "white"))
+
+dist_avg_panel
+
+pred_panel <- ggplot() +
+  geom_raster(data = subset(raster_df, model == "Gen + int" & tx_group == "Control"), aes(x = x, y = y, fill = pred), na.rm = TRUE) +
+  geom_sf(data = niger_adm2, fill = NA, color = "grey30", linewidth = 0.25) +
+  theme_minimal(base_size = 14) +
+  annotation_scale() +
+  theme(legend.position = "bottom",
+  axis.text.y = element_blank(),
+  axis.title.y = element_blank()) +
+  scale_fill_viridis_c(limits = c(0, 35),
+                      na.value = NA,
+                      breaks = seq(0,30,by=10),
+                      guide=guide_colorbar(title="Mortality rate (per 1000 person-years)", 
+                                          title.position = "top",
+                                          title.hjust = 0.5,
+                                          label.position = "bottom",
+                                          label.hjust = 0.5,
+                                          barheight=unit(10,"pt"),
+                                          barwidth=unit(200,"pt"),
+                                          ticks.colour = "white",
+                                          ticks.linewidth = 1,
+                                          frame.colour = "white")) +
+                                            scale_x_continuous(name = "Longitude") +
+                                            scale_y_continuous(name = "Latitude")+
+                                            guides(fill = "none")
+
+pred_panel
+
+dist_avg_panel + pred_panel + 
+  plot_layout(guides = "collect") & theme(legend.position = "bottom")
+
+ggsave(here("results", "figs", "slides-dist_avg_and_model_pred.png"), bg = "white", width = 7, height = 5, units = "in")
+
+```
+
+```{r}
+#| label: ate-district-avg-map
+
+base_map +
+  geom_sf(data = niger_adm2_sub, aes(fill = ATE, geometry = geometry), color = NA, size = 0.25) +
+  scale_fill_gradient2(low = muted("dodgerblue"), 
+                        mid = "white", 
+                        high = muted("red"), 
+                        midpoint = 0, 
+                        limits = c(-13, 3),
+                        na.value = NA,
+                        breaks = seq(-10, 0, by = 5),
+                        guide=guide_colorbar(title="ATE: difference in mortality rate\n(per 1000 person-years)", 
+                                          title.position = "top",
+                                          title.hjust = 0.5,
+                                          label.position = "bottom",
+                                          label.hjust = 0.5,
+                                          barheight=unit(10,"pt"),
+                                          barwidth=unit(200,"pt"),
+                                          ticks.colour = "white",
+                                          ticks.linewidth = 1,
+                                          frame.colour = "white"))
+
+ggsave(here("results", "figs", "slides-district-avg-ate_maps.png") , width = 4, height = 5, units = "in", bg = "white")
+
+```
+
+```{r}
+#| label: ate-pred-map
+
+ggplot() +
+  geom_raster(data = subset(ate_raster_df, model == "Gen + int"), aes(x = x, y = y, fill = ATE), na.rm = TRUE) +
+  geom_sf(data = niger_adm2, fill = NA, color = "black", linewidth = 0.25) +
+  theme_minimal(base_size = 14) +
+  annotation_scale() +
+  theme(legend.position = "bottom",
+  axis.title = element_blank()) +
+  scale_fill_gradient2(low = muted("dodgerblue"), 
+                        mid = "white", 
+                        high = muted("red"), 
+                        midpoint = 0, 
+                        limits = c(-13, 3),
+                        na.value = NA,
+                        breaks = seq(-10, 0, by = 5),
+                        guide=guide_colorbar(title="ATE: difference in mortality rate\n(per 1000 person-years)", 
+                                          title.position = "top",
+                                          title.hjust = 0.5,
+                                          label.position = "bottom",
+                                          label.hjust = 0.5,
+                                          barheight=unit(10,"pt"),
+                                          barwidth=unit(200,"pt"),
+                                          ticks.colour = "white",
+                                          ticks.linewidth = 1,
+                                          frame.colour = "white"))
+
+ggsave(here("results", "figs", "slides-ate_pred.png"), bg = "white", width = 4, height = 5, units = "in")
+```
+
+```{r}
+#| label: ate-pred-map-side-by-side
+
+ate_dist_panel <- base_map +
+  geom_sf(data = niger_adm2_sub, aes(fill = ATE, geometry = geometry), color = NA, size = 0.25) +
+  scale_fill_gradient2(low = muted("dodgerblue"), 
+                        mid = "white", 
+                        high = muted("red"), 
+                        midpoint = 0, 
+                        limits = c(-13, 3),
+                        na.value = NA,
+                        breaks = seq(-10, 0, by = 5),
+                        guide=guide_colorbar(title="ATE: difference in mortality rate\n(per 1000 person-years)", 
+                                          title.position = "top",
+                                          title.hjust = 0.5,
+                                          label.position = "bottom",
+                                          label.hjust = 0.5,
+                                          barheight=unit(10,"pt"),
+                                          barwidth=unit(200,"pt"),
+                                          ticks.colour = "white",
+                                          ticks.linewidth = 1,
+                                          frame.colour = "white"))
+
+ate_dist_panel
+
+ate_model_panel <- ggplot() +
+  geom_raster(data = subset(ate_raster_df, model == "Gen + int"), aes(x = x, y = y, fill = ATE), na.rm = TRUE) +
+  geom_sf(data = niger_adm2, fill = NA, color = "grey60", linewidth = 0.25) +
+  theme_minimal(base_size = 14) +
+  annotation_scale() +
+  theme(legend.position = "bottom",
+  axis.title.y = element_blank(),
+  axis.text.y = element_blank()) +
+  scale_fill_gradient2(low = muted("dodgerblue"), 
+                        mid = "white", 
+                        high = muted("red"), 
+                        midpoint = 0, 
+                        limits = c(-13, 3),
+                        na.value = NA,
+                        breaks = seq(-10, 0, by = 5),
+                        guide=guide_colorbar(title="ATE: difference in mortality rate\n(per 1000 person-years)", 
+                                          title.position = "top",
+                                          title.hjust = 0.5,
+                                          label.position = "bottom",
+                                          label.hjust = 0.5,
+                                          barheight=unit(10,"pt"),
+                                          barwidth=unit(200,"pt"),
+                                          ticks.colour = "white",
+                                          ticks.linewidth = 1,
+                                          frame.colour = "white")) +
+                                            guides(fill = "none") +
+                                            scale_x_continuous(name = "Longitude") 
+
+ate_model_panel
+
+ate_dist_panel + ate_model_panel + 
+  plot_layout(guides = "collect") & theme(legend.position = "bottom")
+
+ggsave(here("results", "figs", "slides-ate_dist_and_model.png"), bg = "white", width = 7, height = 5, units = "in")
+
+```
+
+```{r}
+#| label: post-prob-map
+
+ggplot() +
+  geom_raster(data = subset(post_raster_df, model == "Gen + int"), aes(x = x, y = y, fill = prob), na.rm = TRUE) +
+  geom_sf(data = niger_adm2, fill = NA, color = "black", linewidth = 0.25) +
+  theme_minimal(base_size = 14) +
+  annotation_scale() +
+  theme(legend.position = "bottom",
+  axis.title = element_blank()) +
+  scale_fill_gradient(low = "#F1ECF7",
+high = "#7A6C9D",
+                      limits = c(0.3, 1),
+                      na.value = NA,
+                      # breaks = seq(0,10,by=2),
+                      guide = guide_colorbar(title="Posterior probability of\nmortality ATE < 0",  
+                                          title.position = "top",
+                                          title.hjust = 0.5,
+                                          label.position = "bottom",
+                                          label.hjust = 0.5,
+                                          barheight=unit(10,"pt"),
+                                          barwidth=unit(200,"pt"),
+                                          ticks.colour = "white",
+                                          ticks.linewidth = 1,
+                                          frame.colour = "white"))
+
+ggsave(here("results", "figs", "slides-post_prob.png"), bg = "white", width = 4, height = 5, units = "in")                                            
+```
+
+```{r}
+#| label: csi-location-map
+
+csi_global <- st_transform(csi_dat, crs = st_crs(niger_adm2)) %>%
+  mutate(lon = st_coordinates(geometry)[,1],
+         lat = st_coordinates(geometry)[,2])
+
+n_per_csi <- df_all %>%
+  group_by(csi) %>%
+  summarise(n = n())
+
+summary(n_per_csi$n)
+
+8base_map +
+  geom_point(data = df_all, aes(x = lon, y = lat, color = csi), 
+             size = 0.5) +
+  scale_color_viridis_d() +
+  guides(color = "none") +
+  theme(axis.title = element_blank())
+
+ggsave(here("results", "figs", "slides-csi_map1.png") , width = 4.5, height = 5, units = "in", bg = "white")
+
+base_map +
+  geom_point(data = df_all, aes(x = lon, y = lat, color = csi), 
+             size = 0.5, alpha = 0.5) +
+  geom_point(data = csi_global, aes(x = lon, y = lat), size = 0.5, shape = 4) +
+  scale_color_viridis_d() +
+  guides(color = "none") +
+  theme(axis.title = element_blank()) 
+
+ggsave(here("results", "figs", "slides-csi_map2.png") , width = 4.5, height = 5, units = "in", bg = "white")
+
+```
+
+```{r}
+#| label: csi-mortality-map
+
+csi_global <- csi_global %>%
+  mutate(deaths_per_1000_1to59 = (n_deaths_1to59 * 1000) / pt_year_1to59)
+
+base_map +
+  geom_sf(data = csi_global, aes(color = deaths_per_1000_1to59, size = deaths_per_1000_1to59, geometry = geometry), alpha = 0.5) +
+  scale_color_viridis_c(limits = c(0, 50),
+                      na.value = NA,
+                      breaks = seq(0,50,by=10),
+                      option = "mako", direction = 1,
+                      begin = 0.2, end = 1,
+                      guide=guide_colorbar(title="Mortality rate\n(per 1000 person-years)", 
+                                          title.position = "top",
+                                          title.hjust = 0.5,
+                                          label.position = "bottom",
+                                          label.hjust = 0.5,
+                                          barheight=unit(10,"pt"),
+                                          barwidth=unit(200,"pt"),
+                                          ticks.colour = "white",
+                                          ticks.linewidth = 1,
+                                          frame.colour = "white"))  +
+  # scale_size_continuous(range = c(0.5, 3.5)) +
+  guides(size = "none")
+
+ggsave(here("results", "figs", "slides-csi_mortality_map.png") , width = 4.5, height = 5, units = "in", bg = "white")
+
+```
+
+
+```{r}
+#| label: csi-prediction-map
+
+ggplot() +
+  geom_raster(data = subset(csi_raster_df, model == "Gen"), aes(x = x, y = y, fill = pred), na.rm = TRUE) +
+  geom_sf(data = niger_adm2, fill = NA, color = "black", linewidth = 0.25) +
+  theme_minimal(base_size = 14) +
+  annotation_scale() +
+  theme(legend.position = "bottom") +
+  scale_fill_viridis_c(limits = c(0, 35),
+                      na.value = NA,
+                      breaks = seq(0,30,by=10),
+                      guide=guide_colorbar(title="Modeled mortality rate\n(per 1000 person-years)", 
+                                          title.position = "top",
+                                          title.hjust = 0.5,
+                                          label.position = "bottom",
+                                          label.hjust = 0.5,
+                                          barheight=unit(10,"pt"),
+                                          barwidth=unit(200,"pt"),
+                                          ticks.colour = "white",
+                                          ticks.linewidth = 1,
+                                          frame.colour = "white")) +
+                                            scale_x_continuous(name = "Longitude") +
+                                            scale_y_continuous(name = "Latitude")
+
+ggsave(here("results", "figs", "slides-csi_mort_pred.png"), bg = "white", width = 4.5, height = 5, units = "in")
+```
+
+
+```{r}
+#| label: csi-patchwork
+
+grappe_panel <- ggplot() +
+  geom_raster(data = subset(raster_df, model == "Gen + int" & tx_group == "Control"), aes(x = x, y = y, fill = pred), na.rm = TRUE) +
+  geom_sf(data = niger_adm2, fill = NA, color = "black", linewidth = 0.25) +
+  theme_minimal(base_size = 14) +
+  annotation_scale() +
+  theme(legend.position = "bottom",
+  axis.title = element_blank()) +
+  scale_fill_viridis_c(limits = c(0, 35),
+                      na.value = NA,
+                      breaks = seq(0,30,by=10),
+                      guide=guide_colorbar(title="Modeled mortality rate (per 1000 person-years)", 
+                                          title.position = "top",
+                                          title.hjust = 0.5,
+                                          label.position = "bottom",
+                                          label.hjust = 0.5,
+                                          barheight=unit(10,"pt"),
+                                          barwidth=unit(200,"pt"),
+                                          ticks.colour = "white",
+                                          ticks.linewidth = 1,
+                                          frame.colour = "white")) +
+  scale_x_continuous(name = "Longitude") +
+  scale_y_continuous(name = "Latitude") +
+  ggtitle("Village-level model") +
+  geom_text(data = data.frame(x = 2.5, y = 14.5, label = "Range = 11.3 km"), aes(x = x, y = y, label = label), size = 4, hjust = 0) 
+
+grappe_panel
+
+csi_panel <- ggplot() +
+  geom_raster(data = subset(csi_raster_df, model == "Gen"), aes(x = x, y = y, fill = pred), na.rm = TRUE) +
+  geom_sf(data = niger_adm2, fill = NA, color = "black", linewidth = 0.25) +
+  theme_minimal(base_size = 14) +
+  annotation_scale() +
+  theme(legend.position = "bottom",
+  axis.title = element_blank(),
+  axis.text.y = element_blank()) +
+  scale_fill_viridis_c(limits = c(0, 35),
+                      na.value = NA,
+                      breaks = seq(0,30,by=10),
+                      guide=guide_colorbar(title="Modeled mortality rate (per 1000 person-years)", 
+                                          title.position = "top",
+                                          title.hjust = 0.5,
+                                          label.position = "bottom",
+                                          label.hjust = 0.5,
+                                          barheight=unit(10,"pt"),
+                                          barwidth=unit(200,"pt"),
+                                          ticks.colour = "white",
+                                          ticks.linewidth = 1,
+                                          frame.colour = "white")) +
+  scale_x_continuous(name = "Longitude") +
+  scale_y_continuous(name = "Latitude") +
+  ggtitle("CSI-level model") +
+  geom_text(data = data.frame(x = 2.5, y = 14.5, label = "Range = 14.4 km"), aes(x = x, y = y, label = label), size = 4, hjust = 0)
+
+grappe_panel + csi_panel + 
+  plot_layout(guides = "collect") & theme(legend.position = "bottom")
+
+ggsave(here("results", "figs", "slides-csi_grappe_panel.png"), bg = "white", width = 7, height = 5, units = "in")
+
+```
