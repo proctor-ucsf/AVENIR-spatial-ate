@@ -13,7 +13,6 @@ execute:
   cache: true
   warning: false
   message: false
-editor: visual
 ---
 
 ```{=html}
@@ -59,7 +58,7 @@ rm(list = ls())
 source(here::here("0-config.R"))
 source(here::here("analysis", "0-functions.R"))
 
-refit_models_flag <- FALSE # Set to TRUE to refit models, which can take a long time. Set to FALSE to load previously fitted models.
+refit_models_flag <- TRUE # Set to TRUE to refit models, which can take a long time. Set to FALSE to load previously fitted models.
 ```
 
 ```{r Load data}
@@ -78,13 +77,20 @@ csi_centroids <- grappe_mort_data_raw %>%
     group_by(csi) %>%
     summarise(lon = mean(lon), lat = mean(lat))
 
+csi_dist <- grappe_mort_data_raw %>%
+  dplyr::select(district, csi) %>%
+  distinct() 
+
 csi_dat <- grappe_mort_data_raw %>%
     group_by(csi) %>%
     summarise(across(c(starts_with("n_"), starts_with("pt_year"), starts_with("lost")), sum)) %>%
     left_join(csi_centroids, by = "csi") %>%
     st_as_sf(coords = c("lon", "lat"), crs = global_crs) %>%
     st_transform(proj_crs) %>%
-    mutate(lon = st_coordinates(.)[,1], lat = st_coordinates(.)[,2])
+    mutate(lon = st_coordinates(.)[,1], lat = st_coordinates(.)[,2]) %>%
+    left_join(csi_dist, by = "csi")
+
+saveRDS(csi_dat, here("data", "csi_dat.rds"))
 
 ```
 
@@ -341,4 +347,3 @@ csi_corr_plot <- ggplot(data = csi_preds_wide, aes(x = gen_krig, y = simp_krig))
 csi_corr_plot
 
 ```
-

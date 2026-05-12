@@ -225,8 +225,8 @@ n_deaths_per1000 <- base_map +
   scale_color_viridis_c(name = "# deaths/1000", option = "mako", direction = -1)
 
 n_deaths | n_deaths_per1000
-
 ```
+
 
 ## Relationships between mortality outcomes and person-time, by treatment group
 
@@ -282,6 +282,21 @@ base_map +
 
 ```
 
+### Test of heterogeneity in mortality rates across departments
+
+```{r}
+#| label: heterogeneity-test
+
+global_poi_mod <- glm(n_deaths_1to59 ~ isTreated_child + offset(log(pt_year_1to59)),
+                      data = subset(df_all, pt_year_1to59 > 0), family = poisson(link = "log"))
+
+state_poi_mod <- glm(n_deaths_1to59 ~ isTreated_child + factor(district) + offset(log(pt_year_1to59)),
+                      data = subset(df_all, pt_year_1to59 > 0), family = poisson(link = "log"))
+
+lmtest::lrtest(state_poi_mod, global_poi_mod)
+
+```
+
 ### Table of ATE estimates by department
 
 ```{r table department effects}
@@ -323,6 +338,7 @@ data_mort_ate <- base_map +
 data_mort_control | data_mort_treat | data_mort_ate
 
 ```
+
 
 ### Boboye's positive ATE
 
@@ -697,7 +713,10 @@ width = 8, height = 6, units = "in")
 
 ```
 
+
 The posterior probability map provides a probabilistic interpretation of treatment benefit. Areas with high probability (close to 1) indicate strong evidence that treatment reduces mortality, while lower values indicate uncertainty or potential harm. Compared to the base generalized model, the interaction model produces more spatially differentiated probability surfaces, particularly in regions like Boboye, where the probability of benefit is substantially lower. This reinforces the conclusion that treatment effects are spatially heterogeneous.
+
+This was estimated using a simulation-based approach where we drew samples from the posterior distribution of model parameters, calculated the ATE for each sample, and then computed the proportion of samples where the ATE was less than 0 at each location. This approach accounts for uncertainty in model parameters and provides a more nuanced assessment of treatment effects across space.
 
 # CSI-level analysis
 
@@ -775,8 +794,26 @@ When comparing this csi-level aggregate analysis to the grappe-level analysis, w
 
 Despite the loss of spatial resolution, the CSI-level analysis preserves the broad spatial gradients in mortality. However, the increased correlation range suggests that aggregation smooths over local variability, effectively inflating the apparent spatial scale of dependence. This implies that CSI-level surveillance may be adequate for identifying large-scale patterns but may miss localized hotspots or heterogeneity in treatment effects that are detectable at the grappe level.
 
+
+
 # Variance partitioning
 
 Using a model with treatment indicator, matern correlation, and a random effect for district and csi nested in district, we partition the variance in mortality rates (on the latent scale) into components attributable to treatment, spatial correlation (sub-csi level variance), district-level effects, and csi-level effects.
 
 The variance partitioning results suggest that approximately 97.6% of the variance in mortality is explained by fine-scale spatial correlation, 2.4% is explained by differences between CSIs within districts, and 0% is explained by differences between districts.
+
+# Outro
+
+```{r}
+#| label: save-rda
+
+save.image(here("data", "results-vars.RData"))
+
+```
+
+
+```{r}
+#| label: r-session-info
+
+sessionInfo()
+```

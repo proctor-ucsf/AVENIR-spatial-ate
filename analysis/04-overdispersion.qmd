@@ -36,6 +36,8 @@ refit_models_flag <- TRUE # Set to TRUE to refit models, which can take a long t
 # Load grappe-level mortality data
 df_all <- readRDS(here("data","grappe_mortality_data.rds"))
 
+csi_dat <- readRDS(here("data", "csi_dat.rds"))
+
 ```
 
 ```{r}
@@ -48,9 +50,49 @@ df_proj <- df_all %>%
   st_as_sf(coords = c("lon", "lat"), crs = global_crs) %>%
   st_transform(crs = proj_crs) %>% # UTM zone 31N, for Niger
   mutate(lon = sf::st_coordinates(.)[,1],
-         lat = sf::st_coordinates(.)[,2])
+         lat = sf::st_coordinates(.)[,2]) %>%
+  dplyr::filter(pt_year_1to59 > 0)
 
 ```
+
+```{r}
+#| label: hierarchical-variance-partition
+
+# Pure hierarchical model (no Matern) to get unconfounded variance components
+# across administrative scales. One observation per grappe means grappe-level
+# RE is unidentifiable, so we only include CSI-within-district and district.
+
+if (refit_models_flag) {
+  tic("Fitting pure hierarchical model for variance decomposition")
+  fit_hier <- glmer(
+    n_deaths_1to59 ~ isTreated_child +
+      offset(log(pt_year_1to59)) +
+      (1 | district/csi),
+    data = df_proj,
+    family = poisson(link = "log")
+  )
+  toc()
+  saveRDS(fit_hier, here("data", "var_partition_hier_model.rds"))
+} else {
+  fit_hier <- readRDS(here("data", "var_partition_hier_model.rds"))
+}
+
+summary(fit_hier)
+
+```
+
+```{r}
+#| label: hierarchical-variance-components
+
+vc <- as.data.frame(VarCorr(fit_hier))
+vc <- vc %>%
+  dplyr::select(grp, vcov) %>%
+  mutate(pct = round(vcov / sum(vcov) * 100, 1))
+
+vc
+```
+
+Note that unlike the Matérn-based variance partition above, these components are estimated without a spatial random effect competing for the same variance. The CSI-within-district component here reflects genuine between-CSI heterogeneity rather than a residual after the Matérn has already absorbed spatially-structured variation at that scale.
 
 ```{r}
 #| label: fit model
@@ -100,42 +142,17 @@ Estimating the proportion of variance lost due to aggregation to the CSI level
 
 
 ```{r}
-#| label: fit grappe and csi models
-
-if(refit_models_flag){
-  tic("Fitting grappe-level model with Matern correlation and random effects for CSI and district")
-fit_grappe <- fitme(
-  n_deaths_1to59 ~ 1 + isTreated_child + lon + lat +
-    Matern(1 | lon + lat) +
-    (1 | district) +
-    (1 | district:csi) +
-  offset(log(pt_year_1to59)),
-  family = negbin(),  # important
-  data = df_proj,
-  control.HLfit=list(NbThreads=max(avail_thr, 1L))
-)
-toc()
-saveRDS(fit_grappe, here("data", "var_part_grappe_model.rds"))
-} else {
-fit_grappe <- readRDS(here("data", "var_part_grappe_model.rds"))
-}
+#| label: fit csi model
 
 if(refit_models_flag){
   tic("Fitting CSI-level model with Matern correlation and random effects for district")
 fit_csi <- fitme(
   n_deaths_1to59 ~ 1 + 
-    lon + lat +
     Matern(1 | lon + lat) +
     (1 | district) +
   offset(log(pt_year_1to59)),
-  family = negbin(),  # important
-  data = df_proj %>%
-    group_by(district, csi) %>%
-    summarise(n_deaths_1to59 = sum(n_deaths_1to59),
-              pt_year_1to59 = sum(pt_year_1to59),
-              lon = mean(lon),
-              lat = mean(lat)) %>%
-    ungroup(),
+  family = poisson(link = "log"),
+  data = csi_dat,
   control.HLfit=list(NbThreads=max(avail_thr, 1L))
 )
 toc()
@@ -145,3 +162,16 @@ fit_csi <- readRDS(here("data", "var_part_csi_model.rds"))
 }
 
 ```
+
+```{r}
+#| label: csi variance components
+
+varcomps_csi <- get_ranPars(fit_csi)
+varcomps_csi$lambda
+
+prop_var_csi <- varcomps_csi$lambda / sum(varcomps_csi$lambda)
+round(prop_var_csi,3)
+
+```
+
+The variance partitioning results for the CSI-level model suggest that approximately `r round(prop_var_csi[1],3)*100`% of the variance in mortality is explained by fine-scale spatial correlation, and `r round(prop_var_csi[2],3)*100`% is explained by differences between districts.

@@ -57,7 +57,7 @@ rm(list = ls())
 
 source(here::here("0-config.R"))
 
-re_simulate <- TRUE
+re_simulate <- FALSE
 
 b_boxgrid <- readRDS(here("data", "boxgrid.rds"))
 
@@ -111,7 +111,7 @@ if(re_simulate){
   saveRDS(simulated_responses_gen_krig_int, here("data", "simulated_responses_gen_krig_int.rds"))
 
 } else {
-  simulated_responses_gen_krig <- readRDS(here("data", "simulated_responses_gen_krig.rds"))
+  simulated_responses_gen_krig <- readRDS(here("data", "simulated_responses_gen_krig.rds")) 
   simulated_responses_gen_krig_int <- readRDS(here("data", "simulated_responses_gen_krig_int.rds"))
 }
 

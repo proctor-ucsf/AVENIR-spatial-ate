@@ -307,7 +307,9 @@ if(refit_models_flag) {
       1 + lat + lon +
       Matern(1 | lon + lat) +
       isTreated_child +
-      isTreated_child * mordorstate +
+      mordorstate +
+      isTreated_child * lat + 
+      isTreated_child * lon +
       # (1|site_code) +
       offset(log(pt_year_1to59)),
     data = df_proj,
@@ -327,7 +329,7 @@ if(refit_models_flag) {
 
 ### Compare to generalized krig model with interaction
 
-```{r compare interaction model}
+```{r compare mordor model}
 
 print(AIC(fitmort_child_gen_krig_mordor))
 print(AIC(fitmort_child_gen_krig_int))
