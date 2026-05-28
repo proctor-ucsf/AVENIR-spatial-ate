@@ -8,20 +8,35 @@ output: html_document
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 
-rm(list = ls()) 
+rm(list = ls())
 ```
+
+## Overview
+
+This script prepares grappe-level mortality data for the AVENIR spatial average treatment effect (ATE) analysis. The pipeline:
+
+1. Loads GPS coordinates, phase-level mortality counts, and Niger administrative shapefiles.
+2. Collapses phase-level records to a single row per grappe, summing person-years and deaths.
+3. Joins spatial coordinates and recodes treatment labels.
+4. Filters to the primary analysis cohort (Randomization 1).
+5. Computes district-level mean mortality rates by treatment arm and their difference (ATE).
+6. Saves processed data and a prediction grid for downstream spatial modeling.
+
+---
 
 ### Configure environment. Load data.
 ```{r config and load data, warning=F}
 
 source(here::here("0-config.R"))
 
-d_gps <- 
+# GPS coordinates for each grappe (cluster); median lat/lon across households
+d_gps <-
   read_csv(here(final_data,"AVENIR_grappe_gps_2023-07-31.csv")) %>%
   rename(lat = median_latitude,
          lon = median_longitude)
 
-grappe_phase_mort <- 
+# Phase-level mortality data: one row per grappe × study phase
+grappe_phase_mort <-
   readRDS(paste0(final_data,"AVENIR_grappe_phase_2023-07-31.rds"))
 
 # Load Niger boundaries map from Humanitarian Data Exchange
@@ -32,7 +47,14 @@ niger_adm2 <- st_read(dsn = here("data", "untouched", "ner_admin_boundaries", "n
 
 ```
 
-### Collapse `grappe_phase_mort` to grappe-level outcome measures.
+---
+
+### Collapse phase-level data to grappe level
+
+Each grappe has multiple rows in `grappe_phase_mort` (one per study phase). We sum person-years and deaths across all phases to obtain a single mortality rate per grappe over the full follow-up period. Mortality rates (deaths per 1,000 person-years) are computed directly within the same `summarise()` call after the sums are available.
+
+Note: `started_phase_*` and `n_alive_*` columns are excluded — they cannot be meaningfully summed across phases and are not needed once we have total person-years.
+
 ```{r aggregate phase specific data}
 
 # Dropping columns on started phase and n alive since they can't be summed across phases. We also don't need them to calculate mortality rates since we have person-years.
@@ -46,19 +68,20 @@ grappe_mort <-
     n_deaths_1to59 = sum(n_deaths_1to59, na.rm = T),
     # n_alive_1to59 = sum(n_alive_1to59, na.rm = T),
     lost_1to59 = sum(lost_1to59, na.rm = T),
-    
+
     # started_phase_1to11 = sum(started_phase_1to11, na.rm = T),
     pt_year_1to11 = sum(pt_year_1to11, na.rm = T),
     n_deaths_1to11 = sum(n_deaths_1to11, na.rm = T),
     # n_alive_1to11 = sum(n_alive_1to11, na.rm = T),
     lost_1to11 = sum(lost_1to11, na.rm = T),
-    
+
     # started_phase_12to59 = sum(started_phase_12to59, na.rm = T),
     pt_year_12to59 = sum(pt_year_12to59, na.rm = T),
     n_deaths_12to59 = sum(n_deaths_12to59, na.rm = T),
     # n_alive_12to59 = sum(n_alive_12to59, na.rm = T),
     lost_12to59 = sum(lost_12to59, na.rm = T),
-    
+
+    # Mortality rates computed within summarise() after summing — valid in dplyr >= 1.1
     deaths_per_1000_1to59 = n_deaths_1to59 * 1e3 / pt_year_1to59,
     deaths_per_1000_1to11 = n_deaths_1to11 * 1e3 / pt_year_1to11,
     deaths_per_1000_12to59 = n_deaths_12to59 * 1e3 / pt_year_12to59
@@ -66,11 +89,17 @@ grappe_mort <-
 
 # grappe_mort
 
+# Verify expected number of unique sites
 length(unique(grappe_phase_mort$site_code))
 
 ```
 
-### Join gps to outcome data
+---
+
+### Join GPS coordinates to outcome data
+
+Grappe-level GPS coordinates (latitude, longitude, and CSI health facility code) are joined to the mortality data by `site_code`. This provides the spatial locations needed for all subsequent geostatistical modeling.
+
 ```{r add gps to data}
 d_gps_latlon <- d_gps %>%
   dplyr::select(site_code, lat, lon, csi)
@@ -82,11 +111,33 @@ grappe_mort <- grappe_mort %>%
 
 ```
 
+---
+
+### Harmonize district names with shapefile
+
+Two district names in the outcome data differ from those in the Niger ADM2 shapefile. These are corrected here so that downstream spatial joins and map labels match correctly.
+
 ```{r rename districts to match shapefile district names}
 
+# "Tibiri (Doutchi)" disambiguates from another Tibiri in Niger; the shapefile uses just "Tibiri"
 grappe_mort$district[grappe_mort$district == "Tibiri (Doutchi)"] <- "Tibiri"
+
+# Restore the accented form used in the shapefile
 grappe_mort$district[grappe_mort$district == "Illela"] <- "Illéla"
 ```
+
+---
+
+### Recode treatment labels and create analysis indicators
+
+Treatment arms are relabeled to match manuscript nomenclature. Two binary treatment indicators are created:
+
+- `isTreated_child`: Treatment = "Child Azithro" only (primary analysis arm); all others are Control.
+- `isTreated_alltx`: Treatment = either azithromycin arm; Placebo = Control.
+
+The adaptive randomization label is also shortened to "Randomization 1/2/3". A `dummy` column (always 1) is added as a constant covariate required by the spaMM model formula.
+
+The data is then filtered to **Randomization 1 only**, which is the primary pre-specified analysis cohort. Grappes from Randomizations 2 and 3 are retained in a separate unfiltered object for descriptive figures.
 
 ```{r add tx labels and indicators}
 
@@ -97,66 +148,89 @@ grappe_mort <- grappe_mort %>%
     tx == "1 - Azithro 1-59m" ~ "Child Azithro",
     tx == "2 - Azithro 1-11m" ~ "Infant Azithro",
     tx == "3 - Placebo 1-59m" ~ "Placebo"),
-  
+
+  # Primary analysis: "Child Azithro" vs. all others
   isTreated_child = case_when(
     tx == "Child Azithro" ~ "Treatment",
     .default = "Control"
     ),
-  
+
+  # Secondary analysis: any azithromycin arm vs. placebo
   isTreated_alltx = case_when(
     tx == "Placebo" ~ "Control",
     .default = "Treatment"
     ),
-  
-  tx = factor(tx, 
+
+  tx = factor(tx,
               levels = c("Child Azithro","Infant Azithro","Placebo")),
-  
-  isTreated_child = factor(isTreated_child, 
+
+  isTreated_child = factor(isTreated_child,
                            levels = c("Control","Treatment")),
-  
-  isTreated_alltx = factor(isTreated_alltx, 
+
+  isTreated_alltx = factor(isTreated_alltx,
                            levels = c("Control","Treatment"))
-  
-  
+
+
   ) %>%
   # shorten adaptive randomization labels
-  mutate(adaptive_rand = factor(adaptive_rand, 
-                                levels = c("Random Allocation 1", 
-                                           "Random Allocation 2", 
+  mutate(adaptive_rand = factor(adaptive_rand,
+                                levels = c("Random Allocation 1",
+                                           "Random Allocation 2",
                                            "Random Allocation 3"),
-                                labels = c("Randomization 1", 
-                                           "Randomization 2", 
+                                labels = c("Randomization 1",
+                                           "Randomization 2",
                                            "Randomization 3")),
-         #add dummy var
-         dummy = 1 
+         # constant covariate required by spaMM model formula
+         dummy = 1
          ) %>%
   ungroup()
 
+# Ensure Control is the reference level for model contrasts
 grappe_mort$isTreated_child <- relevel(grappe_mort$isTreated_child, ref = "Control")
 
+# Filter to Randomization 1 (primary analysis cohort)
 grappe_mort_filt <- grappe_mort %>%
   filter(adaptive_rand %in% c("Randomization 1"))
 
+# Verify treatment × arm counts
 grappe_mort_filt %>% group_by(tx,isTreated_child) %>% summarise(n=n())
 # df_all %>% group_by(tx,isTreated_alltx) %>% summarise(n=n())
 
+# Verify treatment balance across districts
 grappe_mort_filt %>% group_by(district,isTreated_child) %>% summarise(n=n())
 # df_all %>% group_by(district,isTreated_alltx) %>% summarise(n=n())
 
 ```
 
+---
+
+### Compute district-level mean mortality rates and ATE
+
+For descriptive purposes, we compute mean mortality rates by district and treatment arm, then take their difference as a naive district-level ATE estimate. This is used for mapping and summary tables, not for the primary causal inference.
+
 ```{r add district level means}
 
 dist_mort_summ <- grappe_mort_filt %>%
   group_by(district, isTreated_child) %>%
-  summarise(mean_deaths_per_1000_1to59 = mean(deaths_per_1000_1to59, na.rm=T), 
+  summarise(mean_deaths_per_1000_1to59 = mean(deaths_per_1000_1to59, na.rm=T),
             .groups = "drop") %>%
-  pivot_wider(names_from = isTreated_child, 
-              values_from = mean_deaths_per_1000_1to59, 
+  pivot_wider(names_from = isTreated_child,
+              values_from = mean_deaths_per_1000_1to59,
               names_prefix = "MortRate") %>%
+  # ATE = simple difference in mean mortality rates (Treatment − Control)
   mutate(ATE = MortRateTreatment - MortRateControl)
 
 ```
+
+---
+
+### Save processed data
+
+Three objects are saved:
+
+- `grappe_mortality_data.rds` — Randomization 1 cohort; used in all primary analyses.
+- `district_mortality_means.rds` — District-level mean mortality rates and naive ATE estimates.
+- `grappe_mortality_data_all_rands.rds` — Full data across all randomizations; used in Figure 1.
 
 ```{r save data}
 
@@ -164,20 +238,34 @@ saveRDS(grappe_mort_filt, here("data", "grappe_mortality_data.rds"))
 saveRDS(dist_mort_summ, here("data", "district_mortality_means.rds"))
 
 # Save data not filtered for randomization 1 for figure 1
-
 saveRDS(grappe_mort, here("data", "grappe_mortality_data_all_rands.rds"))
 
 ```
+
+---
+
+### Build and save spatial prediction grid
+
+A regular grid of prediction locations (centroids) is constructed over the study area for use in spatial interpolation. The grid is:
+
+1. Built over the bounding box of the study districts at resolution `grid_res` × `grid_res` (set in `0-config.R`).
+2. Clipped to the district boundaries so predictions are only generated inside the study area.
+
+Both the district polygon subset and the clipped grid are saved for use in the modeling and mapping scripts.
 
 ```{r save cropped mapping data}
 
 districts <- unique(grappe_mort_filt$district)
 
+# Inspect CRS of downloaded shapefile before transforming
 crs(niger_adm2)
 
+# Project full ADM2 shapefile to local projected CRS for distance-based operations
 niger_adm2_proj <- niger_adm2 %>%
   st_transform(crs = proj_crs)
 
+# Subset to study districts only; st_make_valid() repairs any self-intersecting
+# polygon geometries that can cause downstream spatial operations to fail
 niger_adm2_sub <- niger_adm2 %>%
   filter(adm2_name %in% districts) %>%
   st_make_valid()
@@ -185,14 +273,16 @@ niger_adm2_sub <- niger_adm2 %>%
 niger_adm2_sub_proj <- niger_adm2_sub %>%
   st_transform(crs = proj_crs)
 
+# Build a regular grid of point centroids over the study area bounding box,
+# then clip to district boundaries so only interior points are retained
 b_boxgrid <- st_make_grid(
   niger_adm2_sub_proj,
-  n = c(grid_res, grid_res),
+  n = c(grid_res, grid_res),  # grid_res defined in 0-config.R
   what = "centers",
   crs = proj_crs
 ) %>%
   st_sf(geometry = .) %>%
-  st_filter(niger_adm2_sub_proj)
+  st_filter(niger_adm2_sub_proj)  # drop points outside study districts
 
 saveRDS(niger_adm2_sub, here("data", "niger_adm2_sub.rds"))
 saveRDS(b_boxgrid, here("data", "boxgrid.rds"))
