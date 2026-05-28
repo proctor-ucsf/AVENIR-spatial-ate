@@ -54,15 +54,31 @@ knitr::opts_chunk$set(echo = TRUE)
 rm(list = ls())
 ```
 
+## Overview
+
+This document fits a series of geostatistical models (Poisson regression with Matérn spatial random effects via `spaMM::fitme`) to grappe-level child mortality data from the AVENIR trial. The goal is to estimate and characterize spatial heterogeneity in the average treatment effect (ATE) of child azithromycin.
+
+Five model specifications are evaluated in sequence, each adding one component to the previous:
+
+1. **Simple Kriging** — intercept + Matérn spatial RE + treatment indicator
+2. **Generalized Kriging** — adds linear lat/lon fixed effects to capture large-scale spatial trend in baseline mortality
+3. **Generalized Kriging + Cluster RE** — adds a random intercept per health facility site (`site_code`) for residual between-cluster variance
+4. **Generalized Kriging + Interaction** — adds `treatment × lat` and `treatment × lon` to allow the treatment effect to vary with location (key model for spatial ATE heterogeneity)
+5. **Generalized Kriging + MORDOR** — extends the interaction model with an indicator for districts overlapping the MORDOR azithromycin trial
+
+Models are compared via AIC and likelihood ratio tests (LRT). The four best-fitting models (excluding MORDOR) are used to generate predicted mortality surfaces and spatial ATE maps over the study grid.
+
+---
 
 ```{r load data, warning=F, message=F}
 
-refit_models_flag <- FALSE # Set to TRUE to refit models, which can take a long time. Set to FALSE to load previously fitted models.
-
-source(here::here("0-config.R"))
+source(here::here("analysis", "0-config.R"))
 source(here::here("analysis", "0-functions.R"))
 
 df_all <- readRDS(here("data","grappe_mortality_data.rds")) %>%
+  # mordorstate: TRUE for districts (Boboye, Falmey, Loga) that overlapped
+  # with the MORDOR mass azithromycin trial in Niger. Included as a covariate
+  # to test whether MORDOR districts have systematically different baseline mortality.
   mutate(mordorstate = ifelse(district %in% c("Boboye", "Falmey", "Loga"), TRUE, FALSE))
 
 # Project coordinates to UTM so distances are in meters, not degrees
@@ -79,11 +95,17 @@ boxgrid <- readRDS(here("data", "boxgrid.rds"))
 
 ```
 
+All spatial coordinates are projected to UTM Zone 31N (`proj_crs`) so that Matérn range parameters are interpretable in metres and Euclidean distance calculations are valid. The `mordorstate` flag is `TRUE` for `r sum(df_all$mordorstate)` grappes in the three MORDOR districts.
+
+---
+
 ## Simple Kriging model
+
+The baseline model includes a treatment indicator and a Matérn spatial random effect to account for residual spatial correlation in mortality after conditioning on treatment. No large-scale spatial trend is modelled — the Matérn RE must absorb both local and regional spatial structure. The Poisson outcome (`n_deaths_1to59`) uses `log(pt_year_1to59)` as an offset so that predictions are on the mortality rate scale (deaths per person-year).
 
 ### Fit model
 
-Model fitting took 374.293 sec (just over 6 minutes) with 11 threads. 
+Model fitting took 374.293 sec (just over 6 minutes) with 11 threads.
 
 ```{r fit simple kriging model}
 # fit spatial models for mortality rate with binary tx vars,
@@ -104,7 +126,7 @@ if(refit_models_flag) {
     control.HLfit = list(NbThreads = avail_thr)
   )
   toc()
-  
+
   saveRDS(fitmort_child_simp_krig,
           here("data", "fitmort_child_simp_krig.rds"))
 } else {
@@ -126,7 +148,11 @@ materncorr_simp_krig <- plot_matern_corr_proj(fitmort_child_simp_krig,
 
 ```
 
+---
+
 ## Generalized kriging model
+
+The generalized kriging model extends the simple kriging model by adding linear fixed effects for latitude and longitude. This captures any broad north–south or east–west trend in baseline mortality (a "drift" in geostatistical terms), allowing the Matérn random effect to focus on residual local-scale spatial variation rather than absorbing the regional trend.
 
 ### Fit model
 
@@ -149,7 +175,7 @@ if(refit_models_flag) {
     control.HLfit = list(NbThreads = avail_thr)
   )
   toc()
-  
+
   saveRDS(fitmort_child_gen_krig,
           here("data", "fitmort_child_gen_krig.rds"))
 } else{
@@ -169,7 +195,7 @@ LRT(fitmort_child_gen_krig, fitmort_child_simp_krig)
 
 ```
 
-LRT and AIC indicate that adding linear terms for latitude and longitude significantly improves model fit, i.e., the generalized krige model is preferred over the simple krige. 
+LRT and AIC indicate that adding linear terms for latitude and longitude significantly improves model fit, i.e., the generalized krige model is preferred over the simple krige.
 
 ### Model results
 
@@ -185,7 +211,15 @@ materncorr_gen_krig <- plot_matern_corr_proj(fitmort_child_gen_krig,
 
 ```
 
+---
+
 ## Random effect for site code
+
+This model extends the generalized kriging model by adding a random intercept for `site_code` (health facility catchment area). This accounts for clustering of grappes within sites — residual between-site heterogeneity in mortality that is not captured by the Matérn spatial correlation. Because site locations are spatially clustered, some of this variance may overlap with the Matérn RE, making the site RE and the spatial RE partially competing.
+
+The AIC and LRT comparisons for all three models accumulated so far (simple, generalized, and generalized + RE) are computed together in this chunk.
+
+> **Note:** This model took substantially longer to fit (~72 minutes) than the others due to the additional random effect. The `site_code` RE was commented out in the previous models as a simplification.
 
 Model fitting took 4332.422 sec (just over 72 minutes) with 11 threads.
 
@@ -202,21 +236,24 @@ if(refit_models_flag) {
       (1|site_code) +
       offset(log(pt_year_1to59)),
     data = df_proj,
-    family = poisson(link = "log"), 
+    family = poisson(link = "log"),
     control.HLfit = list(NbThreads = avail_thr)
   )
   toc()
-  
+
   saveRDS(fitmort_child_gen_krig_re,
           here("data", "fitmort_child_gen_krig_re.rds"))
 } else{
   fitmort_child_gen_krig_re <- readRDS(here("data", "fitmort_child_gen_krig_re.rds"))
 }
 
+# AIC for all three models fitted so far
 print(AIC(fitmort_child_simp_krig))
 print(AIC(fitmort_child_gen_krig))
 print(AIC(fitmort_child_gen_krig_re))
 
+# LRT: gen krig vs simple (repeated from above for consolidated view),
+# then RE model vs gen krig
 LRT(fitmort_child_gen_krig, fitmort_child_simp_krig)
 LRT(fitmort_child_gen_krig_re, fitmort_child_gen_krig)
 
@@ -230,8 +267,11 @@ materncorr_gen_krig_re <- plot_matern_corr_proj(fitmort_child_gen_krig_re,
 
 ```
 
+---
 
 ## Generalized krig with interaction
+
+The interaction model allows the treatment effect to vary linearly with spatial location by including `isTreated_child × lat` and `isTreated_child × lon` terms. This is the primary model for testing spatial heterogeneity in the ATE: a significant interaction indicates that the treatment effect differs systematically across the study area (e.g., stronger in the north vs. south). The Matérn RE continues to capture non-linear residual spatial correlation.
 
 ### Fit model
 
@@ -255,7 +295,7 @@ if(refit_models_flag) {
     control.HLfit = list(NbThreads = avail_thr)
   )
   toc()
-  
+
   saveRDS(fitmort_child_gen_krig_int,
           here("data", "fitmort_child_gen_krig_int.rds"))
 } else {
@@ -275,7 +315,7 @@ LRT(fitmort_child_gen_krig_int, fitmort_child_gen_krig)
 
 ```
 
-LRT and AIC indicate that the model with the interaction between treatment label and latitude and longitude fits better than the one without interaction. 
+LRT and AIC indicate that the model with the interaction between treatment label and latitude and longitude fits better than the one without interaction.
 
 ### Model results
 
@@ -291,13 +331,17 @@ materncorr_gen_krig_int <- plot_matern_corr_proj(fitmort_child_gen_krig_int,
 
 ```
 
+---
+
 ## Generalized krige with MORDOR indicator and interaction
+
+This model adds a binary indicator (`mordorstate`) for the three districts (Boboye, Falmey, Loga) that overlapped with the MORDOR azithromycin trial, which may have depressed background mortality through prior mass drug administration. Including `mordorstate` tests whether baseline mortality in those districts is systematically lower (or higher) after accounting for spatial correlation and treatment.
 
 ### Fit model
 
 Model fitting took 284.076 sec (just under 5 minutes) with 11 threads.
 
-```{r}
+```{r fit mordor model}
 
 if(refit_models_flag) {
 
@@ -308,7 +352,7 @@ if(refit_models_flag) {
       Matern(1 | lon + lat) +
       isTreated_child +
       mordorstate +
-      isTreated_child * lat + 
+      isTreated_child * lat +
       isTreated_child * lon +
       # (1|site_code) +
       offset(log(pt_year_1to59)),
@@ -350,10 +394,15 @@ materncorr_gen_krig_mordor <- plot_matern_corr_proj(fitmort_child_gen_krig_mordo
 
 ```
 
+---
+
 # Model predictions
+
+Predictions are generated at every grid point in `boxgrid` for both treatment arms under each model, then differenced to produce spatial ATE maps. The MORDOR model is **excluded** from this step because `mordorstate` is a district-level binary covariate with no natural value at arbitrary grid locations inside and outside those districts — assigning it would require an additional spatial join that is not implemented here.
 
 ```{r predictions from all models}
 
+# fitmort_child_gen_krig_mordor excluded: mordorstate not defined for arbitrary grid locations
 models_list <- list(
   simp_krig = fitmort_child_simp_krig,
   gen_krig = fitmort_child_gen_krig,
@@ -373,6 +422,8 @@ preds_long <- bind_rows(preds_mort, .id = "model")
 
 ### ATE estimation
 
+The spatial ATE at each grid point is the difference in predicted mortality rates between the Treatment and Control arms (`predTreatment - predControl`). A negative ATE means the treatment arm has lower predicted mortality — a beneficial effect. This object is the primary input for downstream mapping and inference scripts.
+
 ```{r ate estimate}
 
 preds_wide <- preds_long %>%
@@ -386,12 +437,18 @@ saveRDS(preds_wide, here("data", "preds_ATE.rds"))
 
 ### Matern corr plots
 
-```{r}
+Comparing Matérn correlation functions across all four models. The range parameter (distance at which correlation drops to ~0.05) indicates the spatial scale of residual mortality clustering after conditioning on model covariates. Shorter range in more complex models suggests that additional fixed effects (lat/lon trend, interaction) are absorbing large-scale spatial structure.
+
+```{r matern corr plots}
 materncorr_simp_krig + materncorr_gen_krig + materncorr_gen_krig_int + materncorr_gen_krig_re
 
-ggsave(here("results", "figs" ,"matern_corrs.png"), 
+ggsave(here("results", "figs" ,"matern_corrs.png"),
     bg = "white", width = 10, height = 9)
 ```
+
+### AIC and LRT summary tables
+
+Consolidated model comparison. AIC differences > 2 indicate a meaningful improvement; LRT p-values test whether the more complex model fits significantly better than its nested baseline.
 
 ```{r aic and lrt tables}
 aic_table <- data.frame(
@@ -406,7 +463,7 @@ aic_table <- data.frame(
 )
 
 lrt_table <- data.frame(
-  Comparison = c("Gen Krige vs Simple Krige", "Gen Krige + Interaction vs Gen Krige", "Gen Krige + MORDOR vs Gen Krige"),
+  Comparison = c("Gen Krige vs Simple Krige", "Gen Krige + Interaction vs Gen Krige", "Gen Krige + MORDOR vs Gen Krige + Interaction"),
   LRT_statistic = c(
     LRT(fitmort_child_gen_krig, fitmort_child_simp_krig)$basicLRT$chi2_LR,
     LRT(fitmort_child_gen_krig_int, fitmort_child_gen_krig)$basicLRT$chi2_LR,
@@ -415,11 +472,10 @@ lrt_table <- data.frame(
   p_value = c(
     LRT(fitmort_child_gen_krig, fitmort_child_simp_krig)$basicLRT$p_value,
     LRT(fitmort_child_gen_krig_int, fitmort_child_gen_krig)$basicLRT$p_value,
-    LRT(fitmort_child_gen_krig_mordor, fitmort_child_gen_krig)$basicLRT$p_value
+    LRT(fitmort_child_gen_krig_mordor, fitmort_child_gen_krig_int)$basicLRT$p_value
   )
 )
 
 saveRDS(aic_table, here("data", "model_aic_table.rds"))
 saveRDS(lrt_table, here("data", "model_lrt_table.rds"))
 ```
-

@@ -53,24 +53,45 @@ knitr::opts_chunk$set(echo = TRUE)
 rm(list = ls())
 ```
 
+## Overview
+
+This document quantifies spatial uncertainty in the ATE by simulating predicted mortality counts from two fitted spaMM models (`fitmort_child_gen_krig` and `fitmort_child_gen_krig_int`) and computing the posterior probability that the treatment effect is beneficial at each grid location.
+
+The workflow:
+
+1. Construct a prediction dataset covering all grid locations × both treatment arms.
+2. Simulate `nsim_input` draws from each model's predictive distribution using `type = "predVar"`, which incorporates both fixed-effect (linear predictor) uncertainty and Poisson dispersion.
+3. For each simulation and grid point, compute the simulated ATE (`pred_Treatment - pred_Control`).
+4. Estimate the posterior probability of a beneficial ATE as the proportion of simulations where this difference is negative (lower mortality under treatment).
+
 ```{r load data, warning=F, message=F}
 
-source(here::here("0-config.R"))
+source(here::here("analysis", "0-config.R"))
 
-re_simulate <- FALSE
+re_simulate <- FALSE # Set TRUE to re-run simulations (slow: ~13 min per model)
 
 b_boxgrid <- readRDS(here("data", "boxgrid.rds"))
 
+# Load the two models used for posterior simulation:
+# gen_krig: generalized kriging without treatment×location interaction
+# gen_krig_int: generalized kriging with treatment×lat and treatment×lon interactions
 fitmort_child_gen_krig_int <- readRDS(here("data", "fitmort_child_gen_krig_int.rds"))
 fitmort_child_gen_krig <- readRDS(here("data", "fitmort_child_gen_krig.rds"))
 ```
 
-Simulating responses from fitted models using `type = "predVar"` to get both fixed effect and dispersion variances, to capture uncertainty in predictions for the poisson models. We use these simulations to calculate the posterior probability that the ATE is beneficial (i.e. that the predicted mortality rate under treatment is lower than under control) at each grid point.
+---
 
-Simulations took 789.3 sec (13.2 min) for the generalized kriging model without interaction and 765.641 sec (12.8 min) for the model with interaction. 
+## Simulate predictive responses
+
+Prediction data (`newdat`) is constructed by crossing both treatment arm labels with all grid locations. Each row represents a hypothetical observation at a grid centroid under one treatment arm. `pt_year_1to59 = 1000` is the standard offset used throughout this analysis (predictions are on the per-1,000-person-years scale). `site_code` is not included because neither model contains a `site_code` random effect.
+
+Simulations use `type = "predVar"` with `variances = list(linPred = TRUE, disp = TRUE)` to sample from the full predictive distribution: uncertainty in the linear predictor (spatial random effect + fixed effects) plus Poisson count dispersion. The number of simulations is controlled by `nsim_input` (set in `0-config.R`).
+
+Simulations took 789.3 sec (13.2 min) for the generalized kriging model without interaction and 765.641 sec (12.8 min) for the model with interaction.
 
 ```{r simulate responses}
 
+# Cross-join grid locations with both treatment arms to get one row per location × arm
 newdat <- cross_join(
   tibble(isTreated_child = c("Treatment", "Control")),
   b_boxgrid
@@ -78,11 +99,12 @@ newdat <- cross_join(
   st_as_sf() %>%
   mutate(lon = sf::st_coordinates(.)[,1],
          lat = sf::st_coordinates(.)[,2],
-         pt_year_1to59 = 1000,
+         pt_year_1to59 = 1000,   # offset: predictions on per-1000-person-years scale
          isTreated_child = factor(isTreated_child)) %>%
   st_drop_geometry()
 
-# Using type = "predVar" 
+# Simulate from predictive distribution including both linear predictor
+# uncertainty (linPred=TRUE) and Poisson count dispersion (disp=TRUE)
 
 if(re_simulate){
 
@@ -111,14 +133,26 @@ if(re_simulate){
   saveRDS(simulated_responses_gen_krig_int, here("data", "simulated_responses_gen_krig_int.rds"))
 
 } else {
-  simulated_responses_gen_krig <- readRDS(here("data", "simulated_responses_gen_krig.rds")) 
+  simulated_responses_gen_krig <- readRDS(here("data", "simulated_responses_gen_krig.rds"))
   simulated_responses_gen_krig_int <- readRDS(here("data", "simulated_responses_gen_krig_int.rds"))
 }
 
 ```
 
+---
+
+## Post-process simulations
+
+`sim2tib()` converts the raw simulation matrix (rows = grid locations × arms, columns = simulations) into a long-format tibble with one row per location × arm × simulation, then pivots to wide form so Treatment and Control predictions are in separate columns for each simulation draw.
+
+`ate_resp = pred_Treatment - pred_Control` is the simulated ATE at each location and simulation. For a mortality outcome, **negative values indicate a beneficial treatment effect** (fewer deaths under treatment).
+
 ```{r post process simulations}
 
+# sim2tib: converts a spaMM simulation matrix to a tidy long-format tibble
+# sim_responses : matrix output of spaMM::simulate() — rows = newdat rows, cols = simulations
+# newdat        : the prediction dataset used in simulate() (must be same row order)
+# modelname     : character label added to the output for faceting/grouping
 sim2tib <- function(sim_responses, newdat, modelname = NA_character_){
   # convert matrix to tibble and name sim columns
   sim_tibs <- as_tibble(
@@ -152,24 +186,32 @@ full_pred_long <- rbind(
   sim2tib(simulated_responses_gen_krig_int, newdat, "gen_krig_int")
 )
 
+# Pivot wide: one row per location × simulation, Treatment and Control as separate columns
 full_pred <- full_pred_long %>%
-  pivot_wider(id_cols = c(lon, lat, sim_n, model), 
+  pivot_wider(id_cols = c(lon, lat, sim_n, model),
   names_from = isTreated_child, names_prefix = "pred_",
   values_from = pred)
 
+# Simulated ATE: negative = beneficial (lower mortality under treatment)
 full_pred <- full_pred %>%
   mutate(ate_resp = pred_Treatment - pred_Control)
 
 saveRDS(full_pred, here("data", "full_pred_sim.rds"))
 ```
 
-```{r}
+---
+
+## Posterior probability of beneficial ATE
+
+For each grid location, the posterior probability of a beneficial treatment effect is the proportion of simulations where `ate_resp < 0` (treatment arm has lower predicted mortality than control). Values near 1 indicate strong evidence of benefit; values near 0.5 indicate uncertainty; values near 0 suggest potential harm.
+
+```{r posterior probability}
 
 post_prob <- full_pred %>%
   group_by(lon, lat, model) %>%
-  summarise(neg_ate = sum(ifelse(ate_resp < 0, 1, 0)),
+  summarise(neg_ate = sum(ifelse(ate_resp < 0, 1, 0)),  # count of simulations with beneficial ATE
   total_ate = n(),
-  prob = neg_ate/total_ate,
+  prob = neg_ate/total_ate,  # posterior probability of beneficial ATE
   .groups = "drop")
 
 post_prob_map <- post_prob %>%
@@ -178,6 +220,14 @@ post_prob_map <- post_prob %>%
 saveRDS(post_prob_map, here("data", "post_prob_dat.rds"))
 
 ```
+
+---
+
+## Simulation diagnostics
+
+### Distribution of simulated ATE
+
+Summary statistics and boxplots of `ate_resp` across all grid points and simulations, and the distribution of posterior probabilities across grid locations. The median `prob` near 0.5 would indicate overall uncertainty; systematic shift toward 1 would indicate consistent spatial evidence of benefit.
 
 ```{r calculate sim summ metrics}
 
@@ -189,6 +239,10 @@ ggplot(data = post_prob, aes(color = model, group = model)) +
   geom_boxplot(aes(x = prob, y = model))
 
 ```
+
+### Simulated ATE distribution by model
+
+Full distribution of simulated ATEs across all grid locations, comparing models with and without the treatment × location interaction. The panel without outliers shows the bulk of the distribution more clearly.
 
 ```{r plot sim dist}
 sim_box <- ggplot(data = full_pred, aes(group = model, color = model, y = model)) +
@@ -207,6 +261,10 @@ sim_box | sim_box_no_ol +
   plot_annotation(title = "Summary across all simulations, all grid points")
 ```
 
+### Sample of individual simulation draws
+
+Ten randomly selected simulation draws, faceted by model. Each boxplot shows the distribution of simulated ATEs across grid locations for a single draw — this illustrates within-simulation spatial variation in the ATE.
+
 ```{r plot sample sim}
 sim_sub_idx <- sample(1:nsim_input, size = 10, replace = FALSE)
 sim_sub <- full_pred %>%
@@ -220,4 +278,3 @@ ggplot(data = sim_sub, aes(group = sim_n, color = model, y = factor(sim_n))) +
   ggtitle("10 random simulations")
 
 ```
-
