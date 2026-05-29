@@ -467,7 +467,7 @@ lrt_table <- data.frame(
   LRT_statistic = c(
     LRT(fitmort_child_gen_krig, fitmort_child_simp_krig)$basicLRT$chi2_LR,
     LRT(fitmort_child_gen_krig_int, fitmort_child_gen_krig)$basicLRT$chi2_LR,
-    LRT(fitmort_child_gen_krig_mordor, fitmort_child_gen_krig)$basicLRT$chi2_LR
+    LRT(fitmort_child_gen_krig_mordor, fitmort_child_gen_krig_int)$basicLRT$chi2_LR
   ),
   p_value = c(
     LRT(fitmort_child_gen_krig, fitmort_child_simp_krig)$basicLRT$p_value,

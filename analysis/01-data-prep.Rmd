@@ -63,23 +63,23 @@ grappe_mort <-
   grappe_phase_mort %>%
   group_by(region, district, site_code, grappe, adaptive_rand, tx) %>%
   summarise(
-    # started_phase_1to59 = sum(started_phase_1to59, na.rm = T),
-    pt_year_1to59 = sum(pt_year_1to59, na.rm = T),
-    n_deaths_1to59 = sum(n_deaths_1to59, na.rm = T),
-    # n_alive_1to59 = sum(n_alive_1to59, na.rm = T),
-    lost_1to59 = sum(lost_1to59, na.rm = T),
+    # started_phase_1to59 = sum(started_phase_1to59, na.rm = TRUE),
+    pt_year_1to59 = sum(pt_year_1to59, na.rm = TRUE),
+    n_deaths_1to59 = sum(n_deaths_1to59, na.rm = TRUE),
+    # n_alive_1to59 = sum(n_alive_1to59, na.rm = TRUE),
+    lost_1to59 = sum(lost_1to59, na.rm = TRUE),
 
-    # started_phase_1to11 = sum(started_phase_1to11, na.rm = T),
-    pt_year_1to11 = sum(pt_year_1to11, na.rm = T),
-    n_deaths_1to11 = sum(n_deaths_1to11, na.rm = T),
-    # n_alive_1to11 = sum(n_alive_1to11, na.rm = T),
-    lost_1to11 = sum(lost_1to11, na.rm = T),
+    # started_phase_1to11 = sum(started_phase_1to11, na.rm = TRUE),
+    pt_year_1to11 = sum(pt_year_1to11, na.rm = TRUE),
+    n_deaths_1to11 = sum(n_deaths_1to11, na.rm = TRUE),
+    # n_alive_1to11 = sum(n_alive_1to11, na.rm = TRUE),
+    lost_1to11 = sum(lost_1to11, na.rm = TRUE),
 
-    # started_phase_12to59 = sum(started_phase_12to59, na.rm = T),
-    pt_year_12to59 = sum(pt_year_12to59, na.rm = T),
-    n_deaths_12to59 = sum(n_deaths_12to59, na.rm = T),
-    # n_alive_12to59 = sum(n_alive_12to59, na.rm = T),
-    lost_12to59 = sum(lost_12to59, na.rm = T),
+    # started_phase_12to59 = sum(started_phase_12to59, na.rm = TRUE),
+    pt_year_12to59 = sum(pt_year_12to59, na.rm = TRUE),
+    n_deaths_12to59 = sum(n_deaths_12to59, na.rm = TRUE),
+    # n_alive_12to59 = sum(n_alive_12to59, na.rm = TRUE),
+    lost_12to59 = sum(lost_12to59, na.rm = TRUE),
 
     # Mortality rates computed within summarise() after summing — valid in dplyr >= 1.1
     deaths_per_1000_1to59 = n_deaths_1to59 * 1e3 / pt_year_1to59,
@@ -105,9 +105,8 @@ d_gps_latlon <- d_gps %>%
   dplyr::select(site_code, lat, lon, csi)
 
 grappe_mort <- grappe_mort %>%
-  left_join(d_gps_latlon, by=c("site_code")) %>%
-  relocate(lat, .after=grappe) %>%
-  relocate(lon, .after=grappe)
+  left_join(d_gps_latlon, by = "site_code") %>%
+  relocate(c(lat, lon), .after = grappe)
 
 ```
 
@@ -119,11 +118,12 @@ Two district names in the outcome data differ from those in the Niger ADM2 shape
 
 ```{r rename districts to match shapefile district names}
 
-# "Tibiri (Doutchi)" disambiguates from another Tibiri in Niger; the shapefile uses just "Tibiri"
-grappe_mort$district[grappe_mort$district == "Tibiri (Doutchi)"] <- "Tibiri"
-
-# Restore the accented form used in the shapefile
-grappe_mort$district[grappe_mort$district == "Illela"] <- "Illéla"
+grappe_mort <- grappe_mort %>%
+  mutate(district = case_when(
+    district == "Tibiri (Doutchi)" ~ "Tibiri",  # shapefile uses just "Tibiri"
+    district == "Illela"           ~ "Illéla",  # restore accented form used in shapefile
+    .default = district
+  ))
 ```
 
 ---
@@ -144,61 +144,51 @@ The data is then filtered to **Randomization 1 only**, which is the primary pre-
 # Recode tx labels to align with ms nomenclature
 grappe_mort <- grappe_mort %>%
   mutate(
-  tx = case_when(
-    tx == "1 - Azithro 1-59m" ~ "Child Azithro",
-    tx == "2 - Azithro 1-11m" ~ "Infant Azithro",
-    tx == "3 - Placebo 1-59m" ~ "Placebo"),
+    tx = case_when(
+      tx == "1 - Azithro 1-59m" ~ "Child Azithro",
+      tx == "2 - Azithro 1-11m" ~ "Infant Azithro",
+      tx == "3 - Placebo 1-59m" ~ "Placebo"),
 
-  # Primary analysis: "Child Azithro" vs. all others
-  isTreated_child = case_when(
-    tx == "Child Azithro" ~ "Treatment",
-    .default = "Control"
+    # Primary analysis: "Child Azithro" vs. all others
+    isTreated_child = case_when(
+      tx == "Child Azithro" ~ "Treatment",
+      .default = "Control"
     ),
 
-  # Secondary analysis: any azithromycin arm vs. placebo
-  isTreated_alltx = case_when(
-    tx == "Placebo" ~ "Control",
-    .default = "Treatment"
+    # Secondary analysis: any azithromycin arm vs. placebo
+    isTreated_alltx = case_when(
+      tx == "Placebo" ~ "Control",
+      .default = "Treatment"
     ),
 
-  tx = factor(tx,
-              levels = c("Child Azithro","Infant Azithro","Placebo")),
+    tx              = factor(tx,              levels = c("Child Azithro", "Infant Azithro", "Placebo")),
+    isTreated_child = factor(isTreated_child, levels = c("Control", "Treatment")),
+    isTreated_alltx = factor(isTreated_alltx, levels = c("Control", "Treatment")),
 
-  isTreated_child = factor(isTreated_child,
-                           levels = c("Control","Treatment")),
-
-  isTreated_alltx = factor(isTreated_alltx,
-                           levels = c("Control","Treatment"))
-
-
+    # shorten adaptive randomization labels
+    adaptive_rand = factor(adaptive_rand,
+                           levels = c("Random Allocation 1",
+                                      "Random Allocation 2",
+                                      "Random Allocation 3"),
+                           labels = c("Randomization 1",
+                                      "Randomization 2",
+                                      "Randomization 3")),
+    # constant covariate required by spaMM model formula
+    dummy = 1
   ) %>%
-  # shorten adaptive randomization labels
-  mutate(adaptive_rand = factor(adaptive_rand,
-                                levels = c("Random Allocation 1",
-                                           "Random Allocation 2",
-                                           "Random Allocation 3"),
-                                labels = c("Randomization 1",
-                                           "Randomization 2",
-                                           "Randomization 3")),
-         # constant covariate required by spaMM model formula
-         dummy = 1
-         ) %>%
   ungroup()
-
-# Ensure Control is the reference level for model contrasts
-grappe_mort$isTreated_child <- relevel(grappe_mort$isTreated_child, ref = "Control")
 
 # Filter to Randomization 1 (primary analysis cohort)
 grappe_mort_filt <- grappe_mort %>%
-  filter(adaptive_rand %in% c("Randomization 1"))
+  filter(adaptive_rand == "Randomization 1")
 
 # Verify treatment × arm counts
-grappe_mort_filt %>% group_by(tx,isTreated_child) %>% summarise(n=n())
-# df_all %>% group_by(tx,isTreated_alltx) %>% summarise(n=n())
+grappe_mort_filt %>% group_by(tx, isTreated_child) %>% summarise(n = n(), .groups = "drop")
+# df_all %>% group_by(tx, isTreated_alltx) %>% summarise(n = n(), .groups = "drop")
 
 # Verify treatment balance across districts
-grappe_mort_filt %>% group_by(district,isTreated_child) %>% summarise(n=n())
-# df_all %>% group_by(district,isTreated_alltx) %>% summarise(n=n())
+grappe_mort_filt %>% group_by(district, isTreated_child) %>% summarise(n = n(), .groups = "drop")
+# df_all %>% group_by(district, isTreated_alltx) %>% summarise(n = n(), .groups = "drop")
 
 ```
 
@@ -212,7 +202,7 @@ For descriptive purposes, we compute mean mortality rates by district and treatm
 
 dist_mort_summ <- grappe_mort_filt %>%
   group_by(district, isTreated_child) %>%
-  summarise(mean_deaths_per_1000_1to59 = mean(deaths_per_1000_1to59, na.rm=T),
+  summarise(mean_deaths_per_1000_1to59 = mean(deaths_per_1000_1to59, na.rm = TRUE),
             .groups = "drop") %>%
   pivot_wider(names_from = isTreated_child,
               values_from = mean_deaths_per_1000_1to59,
@@ -259,10 +249,6 @@ districts <- unique(grappe_mort_filt$district)
 
 # Inspect CRS of downloaded shapefile before transforming
 crs(niger_adm2)
-
-# Project full ADM2 shapefile to local projected CRS for distance-based operations
-niger_adm2_proj <- niger_adm2 %>%
-  st_transform(crs = proj_crs)
 
 # Subset to study districts only; st_make_valid() repairs any self-intersecting
 # polygon geometries that can cause downstream spatial operations to fail

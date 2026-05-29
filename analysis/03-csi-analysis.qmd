@@ -69,7 +69,7 @@ The document:
 5. Generates and maps a predicted mortality surface from the CSI-level models.
 
 ```{r Load packages and config}
-source(here::here("0-config.R"))
+source(here::here("analysis", "0-config.R"))
 source(here::here("analysis", "0-functions.R"))
 
 ```
@@ -280,9 +280,8 @@ AIC(fit_csi)
 AIC(fit_csi_gen)
 
 # LRT: note argument order — fit_csi is the simpler (fewer-parameter) model,
-# fit_csi_gen is the more complex. spaMM::LRT will compute the test correctly
-# regardless of argument order by comparing log-likelihoods.
-LRT(fit_csi, fit_csi_gen)
+# fit_csi_gen is the more complex. 
+LRT(fit_csi_gen, fit_csi)
 
 ```
 

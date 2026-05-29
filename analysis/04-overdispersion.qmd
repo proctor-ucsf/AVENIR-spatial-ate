@@ -40,7 +40,7 @@ Finally, a CSI-level spatial model is fit to estimate how much variance is lost 
 ```{r load-packages}
 #| label: load-packages
 
-source(here::here("0-config.R"))
+source(here::here("analysis", "0-config.R"))
 source(here::here("analysis", "0-functions.R"))
 
 ```
@@ -197,7 +197,7 @@ Note: this CSI model includes a `(1|district)` RE, unlike the models in `03-csi-
 
 if(refit_overdispersion_models_flag){
   tic("Fitting CSI-level model with Matern correlation and random effects for district")
-fit_csi <- fitme(
+fit_csi <- spaMM::fitme(
   n_deaths_1to59 ~ 1 +
     Matern(1 | lon + lat) +
     (1 | district) +

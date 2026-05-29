@@ -68,8 +68,6 @@ The workflow:
 
 source(here::here("analysis", "0-config.R"))
 
-re_simulate <- FALSE # Set TRUE to re-run simulations (slow: ~13 min per model)
-
 b_boxgrid <- readRDS(here("data", "boxgrid.rds"))
 
 # Load the two models used for posterior simulation:
@@ -143,43 +141,9 @@ if(re_simulate){
 
 ## Post-process simulations
 
-`sim2tib()` converts the raw simulation matrix (rows = grid locations × arms, columns = simulations) into a long-format tibble with one row per location × arm × simulation, then pivots to wide form so Treatment and Control predictions are in separate columns for each simulation draw.
-
 `ate_resp = pred_Treatment - pred_Control` is the simulated ATE at each location and simulation. For a mortality outcome, **negative values indicate a beneficial treatment effect** (fewer deaths under treatment).
 
 ```{r post process simulations}
-
-# sim2tib: converts a spaMM simulation matrix to a tidy long-format tibble
-# sim_responses : matrix output of spaMM::simulate() — rows = newdat rows, cols = simulations
-# newdat        : the prediction dataset used in simulate() (must be same row order)
-# modelname     : character label added to the output for faceting/grouping
-sim2tib <- function(sim_responses, newdat, modelname = NA_character_){
-  # convert matrix to tibble and name sim columns
-  sim_tibs <- as_tibble(
-    sim_responses,
-    .name_repair = ~ paste0("sim_", seq_along(.))
-  )
-
-  # bind the coordinates / covariates (keep ordering)
-  combined <- bind_cols(
-    newdat %>% dplyr::select(lon, lat, isTreated_child),
-    sim_tibs
-  )
-
-  # pivot to long form
-  long_preds <- combined %>%
-    pivot_longer(
-      cols = starts_with("sim_"),
-      names_to = "sim",
-      values_to = "pred"
-    ) %>%
-    mutate(
-      sim_n = as.integer(sub("^sim_", "", sim))
-    ) %>%
-    dplyr::select(lon, lat, isTreated_child, sim_n, pred) %>%
-    mutate(model = modelname)
-
-}
 
 full_pred_long <- rbind(
   sim2tib(simulated_responses_gen_krig, newdat, "gen_krig"),

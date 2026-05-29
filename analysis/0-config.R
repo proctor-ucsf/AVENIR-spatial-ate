@@ -30,8 +30,8 @@ library(viridis)
 
 final_data <- "~/Library/CloudStorage/Box-Box/AVENIR/Data/Mortality/rounds_1to5/final/"
 
-figure_path = paste0(here::here(), "/results/figs/")
-table_path = paste0(here::here(), "/results/tables/")
+figure_path <- paste0(here::here(), "/results/figs/")
+table_path <- paste0(here::here(), "/results/tables/")
 
 # Set up ----
 
@@ -53,3 +53,5 @@ refit_models_flag <- FALSE # Set to TRUE to refit models, which can take a long 
 refit_csi_models_flag <- FALSE
 refit_overdispersion_models_flag <- FALSE
 
+## Flags to control if posterior probability simulations are re-run in script 2B
+re_simulate <- FALSE # Set TRUE to re-run simulations (slow: ~13 min per model)

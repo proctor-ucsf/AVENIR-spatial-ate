@@ -1,18 +1,33 @@
-## 0-functions-analysis.R
+#--------------------------------------------
+#
+# AVENIR-spatial-ate-code-check/analysis/0-functions.R
+#
+# Custom helper functions for the AVENIR spatial ATE analysis.
+#
+#--------------------------------------------
 
 #--------------------------------------
 # plot_matern_corr_proj()
 #
-# plot and save the Matern spatial correlation
-# as a function of distance, using estimated
-# nu and rho parameters from a fitted
-# geostatistical model of class HLfit (spaMM)
+# Plot and save the Matérn spatial correlation as a function of distance,
+# using the estimated nu and rho parameters from a fitted geostatistical
+# model. Bins pairwise distances at 25 m resolution before plotting to
+# reduce overplotting; the plot is also saved to disk as a .png.
 #
-# spamm_model_fit  : fitted spaMM HLfit model object;
-#                    must contain "lon" and "lat" columns in $data
-# filenameval      : output filename stem (no extension); saved under
-#                    the global `figure_path` directory as a .png
-# modelname        : optional label printed in the top-left of the plot
+# Arguments:
+# - spamm_model_fit: fitted spaMM HLfit object; must contain "lon" and
+#                    "lat" columns in $data (UTM-projected metres)
+# - filenameval:     output filename stem (no extension); saved under the
+#                    global `figure_path` directory as a .png
+# - modelname:       character label printed in the top-left of the plot
+#
+# Requirements:
+# - Depends on global: figure_path (defined in 0-config.R)
+# - Packages: ggplot2, spaMM, dplyr, tibble
+#
+# Returns:
+# - A ggplot object of the Matérn correlation vs. distance (invisible side
+#   effect: .png saved to figure_path)
 #--------------------------------------
 
 plot_matern_corr_proj <- function(
@@ -34,7 +49,10 @@ plot_matern_corr_proj <- function(
   # estimate the correlation between each location
   matern_vec <- spaMM::MaternCorr(d = d_vec_m, nu = est_nu, rho = est_rho)
 
-  # store in a data frame for plotting
+  # NOTE: label_text is unused — annotations below use bquote() for math formatting instead
+  # label_text <- sprintf("nu = %0.3f\nrho = %0.3f\nrange = %0.2f km", est_nu, est_rho, range_km)
+
+  # bin pairwise distances at 25 m resolution to reduce overplotting
   d_matern_cor <- tibble(
     distm = d_vec_m,
     distkm = distm / 1000,
@@ -55,21 +73,15 @@ plot_matern_corr_proj <- function(
     ) %>%
     arrange(distkm)
 
-  # NOTE: label_text is unused — annotations below use bquote() for math formatting instead
-  # label_text <- sprintf("nu = %0.3f\nrho = %0.3f\nrange = %0.2f km", est_nu, est_rho, range_km)
-
   # plot the correlation function
-  plot_materncor <- ggplot(data = d_matern_cor %>% filter(distkm <= 50)) +
-    # geom_point(aes(x=distms,y=distkm)) +
+  plot_materncor <- ggplot(data = d_matern_cor %>% dplyr::filter(distkm <= 50)) +
     geom_point(
       aes(x = distkm, y = materncor),
       color = "black",
-      alpha = 1,
       size = 0.1
     ) +
-    # geom_vline(xintercept= 3 ,color="gray60", lwd=0.1) +
     scale_y_continuous(breaks = seq(0, 1, by = 0.2)) +
-    scale_x_continuous(breaks = c(0, seq(10, 50, by = 10))) +
+    scale_x_continuous(breaks = seq(0, 50, by = 10)) +
     coord_cartesian(xlim = c(0, 50), ylim = c(0, 1)) +
     labs(x = "distance (km)", y = "Matern correlation") +
     annotate(
@@ -139,20 +151,27 @@ plot_matern_corr_proj <- function(
 
 #--------------------------------------
 # get_grid_preds()
-# updated 3/10/2026
 #
-# get predicted mean response from a spaMM::fitme() geospatial
-# model at new locations defined by a spatial grid
-# NOTE: variance prediction (predVar) is available but currently
-#       commented out — see get_predVar() call below
+# Get predicted mean mortality rate from a spaMM::fitme() geostatistical
+# model at new locations defined by a spatial grid. Predictions are on the
+# response scale (deaths per 1000 person-years) using a fixed offset of 1000.
+# NOTE: variance prediction (predVar) is available but currently commented
+#       out — see the get_predVar() call in the function body.
 #
-# input_grid       : grid of prediction locations, class = sf (points)
-# spamm_model_fit  : spaMM geospatial model fit object, class = HLfit
-# tx_group         : treatment arm label assigned to all grid cells;
-#                    one of "Treatment" or "Control" (character)
-#                    site_code and pt_year_1to59 are set as dummy values
-#                    ("0" and 1000 per 1000 person-years) for prediction
-# depends on global: proj_crs (CRS for output sf object)
+# Arguments:
+# - input_grid:      sf points object; grid of prediction locations
+# - spamm_model_fit: spaMM HLfit object; fitted geostatistical model
+# - tx_group:        character; treatment arm label assigned to all grid cells,
+#                    one of "Treatment" (default) or "Control". site_code is
+#                    set to "0" (dummy) and pt_year_1to59 to 1000 for prediction.
+#
+# Requirements:
+# - Depends on global: proj_crs (CRS for output sf object, defined in 0-config.R)
+# - Packages: sf, dplyr, spaMM
+#
+# Returns:
+# - An sf points dataframe with the same geometry as input_grid, plus columns
+#   `pred` (numeric, predicted mortality rate) and `isTreated_child` (tx_group)
 #--------------------------------------
 
 get_grid_preds <- function(
@@ -160,20 +179,17 @@ get_grid_preds <- function(
   spamm_model_fit,
   tx_group = "Treatment"
 ) {
-  # convert grid into a data.frame with lon/lat variables
+  # site_code is a dummy value (not in model); offset is per 1000 person-years
   newd <- input_grid %>%
     st_centroid() %>%
-    # st_transform(crs = proj_crs) %>%
     mutate(
       lon = sf::st_coordinates(.)[, 1],
       lat = sf::st_coordinates(.)[, 2],
       isTreated_child = as.factor(tx_group),
-      site_code = "0", #dummy
+      site_code = "0",
       pt_year_1to59 = 1000
-    ) %>% #per 1000 person-years
+    ) %>%
     st_drop_geometry()
-
-  # get predictions (response)
 
   temp_preds <- predict(
     object = spamm_model_fit,
@@ -186,10 +202,8 @@ get_grid_preds <- function(
   #                                    newdata = newd,
   #                                    which = "predVar")
 
-  # attach predictions to the original grid (sf object); pred_var omitted
+  # attach predictions to the original grid; mutate() preserves sf geometry and CRS
   ret <- input_grid %>%
-    as.data.frame() %>%
-    st_as_sf(crs = proj_crs) %>%
     mutate(
       pred = as.numeric(temp_preds),
       # pred_var = as.numeric(temp_predVar),
@@ -202,14 +216,19 @@ get_grid_preds <- function(
 #--------------------------------------
 # get_grid_preds_both_tx()
 #
-# wrapper around get_grid_preds() that runs predictions
-# for both treatment arms ("Control" and "Treatment") and
-# returns a single long-format sf dataframe with an
-# isTreated_child column distinguishing the two groups
+# Wrapper around get_grid_preds() that runs predictions for both treatment
+# arms ("Control" and "Treatment") and returns a single long-format sf
+# dataframe with an isTreated_child column distinguishing the two groups.
 #
-# input_grid       : grid of prediction locations, class = sf (points)
-# spamm_model_fit  : spaMM geospatial model fit object, class = HLfit
-# returns          : row-bound sf dataframe (2 * nrow(input_grid) rows)
+# Arguments:
+# - input_grid:      sf points object; grid of prediction locations
+# - spamm_model_fit: spaMM HLfit object; fitted geostatistical model
+#
+# Requirements:
+# - Depends on: get_grid_preds()
+#
+# Returns:
+# - Row-bound sf dataframe with 2 * nrow(input_grid) rows; one set per arm
 #--------------------------------------
 
 get_grid_preds_both_tx <- function(input_grid, spamm_model_fit) {
@@ -225,7 +244,7 @@ get_grid_preds_both_tx <- function(input_grid, spamm_model_fit) {
     tx_group = "Treatment"
   )
 
-  preds_long <- rbind(preds_tx0, preds_tx1)
+  preds_long <- bind_rows(preds_tx0, preds_tx1)
 
   return(preds_long)
 }
@@ -234,22 +253,28 @@ get_grid_preds_both_tx <- function(input_grid, spamm_model_fit) {
 # Geographic pair matching in large-scale cluster randomized trials
 # Functions from file https://osf.io/eqcvh
 
+#--------------------------------------
 # points_to_raster()
 #
-# convert predicted surface of points
-# to a raster to make it a regular
-# set of tiles (rather than points),
-# this function takes as input
-# an object of class sf dataframe
-# in particular, the results of the function
-# above, get_grid_preds()
+# Convert a predicted surface of point observations into a regular raster
+# grid. Adapted from Ben Arnold's geographic pair-matching repo (osf.io/cxb5e).
+# NOTE: uses the legacy `raster` package; see make_raster_map() for the
+#       terra equivalent.
 #
-# @x,y,z    : longitude, latitude, and the value to rasterize (numeric vectors)
-# @mask1    : optional; mask the raster by this spatial object (if NULL, skipped)
-# @mask2    : optional; apply a second mask (if NULL, skipped)
-# @crop1    : optional; crop the raster to the extent of this object (if NULL, skipped)
-# @crs_inp  : CRS for the output raster; defaults to global `global_crs`
-# NOTE: uses the legacy `raster` package; see make_raster_map() for the terra equivalent
+# Arguments:
+# - x, y, z: numeric vectors; longitude, latitude, and the value to rasterize
+# - mask1:   optional sf/Spatial object; mask the raster (if NULL, skipped)
+# - mask2:   optional; apply a second mask (if NULL, skipped)
+# - crop1:   optional; crop the raster to this object's extent (if NULL, skipped)
+# - crs_inp: CRS for the output raster; defaults to global `global_crs`
+#
+# Requirements:
+# - Depends on global: global_crs (defined in 0-config.R)
+# - Packages: raster
+#
+# Returns:
+# - A raster object masked and cropped as specified
+#--------------------------------------
 
 points_to_raster <- function(
   x,
@@ -260,13 +285,11 @@ points_to_raster <- function(
   crop1 = NULL,
   crs_inp = global_crs
 ) {
-  # make raster from points
   pred_raster <- raster::rasterFromXYZ(
     xyz = data.frame(x = x, y = y, z = z),
     crs = crs_inp
   )
 
-  # mask and crop raster if specified
   if (!is.null(mask1)) {
     pred_raster <- mask(x = pred_raster, mask = mask1)
   }
@@ -283,17 +306,23 @@ points_to_raster <- function(
 #--------------------------------------
 # make_raster_map()
 #
-# convert an sf points dataframe into a terra SpatRaster projected
-# to WGS84 (global_crs); intended as a terra-based alternative to
-# points_to_raster() for use with the prediction output of get_grid_preds()
+# Convert an sf points dataframe into a terra SpatRaster projected to WGS84.
+# Terra-based alternative to points_to_raster() for use with get_grid_preds()
+# output.
 #
-# df         : sf points dataframe containing the column named by `colname`
-# proj_crs   : CRS of the input data; defaults to global `proj_crs`
-#              NOTE: parameter name shadows the global — intentional
-# global_crs : target CRS for output raster; defaults to global `global_crs`
-#              NOTE: parameter name shadows the global — intentional
-# colname    : name of the column in df to rasterize (default: "pred")
-# returns    : terra SpatRaster reprojected to global_crs
+# Arguments:
+# - df:         sf points dataframe containing the column named by `colname`
+# - proj_crs:   integer or CRS; CRS of the input data (default: global `proj_crs`).
+#               NOTE: parameter name shadows the global — intentional.
+# - global_crs: integer or CRS; target CRS for output raster (default: global
+#               `global_crs`). NOTE: parameter name shadows the global — intentional.
+# - colname:    character; name of the column in df to rasterize (default: "pred")
+#
+# Requirements:
+# - Packages: terra, sf, dplyr
+#
+# Returns:
+# - A terra SpatRaster reprojected to global_crs
 #--------------------------------------
 
 make_raster_map <- function(
@@ -302,7 +331,6 @@ make_raster_map <- function(
   global_crs = global_crs,
   colname = "pred"
 ) {
-  # extract coordinates
   df2 <- df %>%
     mutate(
       x = sf::st_coordinates(.)[, 1],
@@ -310,11 +338,9 @@ make_raster_map <- function(
     ) %>%
     st_drop_geometry()
 
-  # rasterize
   r_proj <- terra::rast(df2[, c("x", "y", colname)], type = "xyz")
   terra::crs(r_proj) <- sf::st_crs(proj_crs)$wkt
 
-  # project
   r_global <- terra::project(
     r_proj,
     sf::st_crs(global_crs)$wkt,
@@ -322,4 +348,54 @@ make_raster_map <- function(
   )
 
   return(r_global)
+}
+
+#--------------------------------------
+# sim2tib()
+#
+# Convert the matrix output of spaMM::simulate() into a tidy long-format
+# tibble with one row per grid location × treatment arm × simulation draw.
+# Used in 02B to post-process posterior predictive simulations before
+# computing the spatial ATE and its posterior probability.
+#
+# Arguments:
+# - sim_responses: matrix; output of spaMM::simulate() with rows = newdat
+#                  rows and columns = simulation draws
+# - newdat:        data.frame; the prediction dataset passed to simulate()
+#                  (must be in the same row order as sim_responses)
+# - modelname:     character; label added to the output for faceting/grouping
+#                  (default: NA_character_)
+#
+# Requirements:
+# - Packages: dplyr, tidyr, tibble
+#
+# Returns:
+# - A tibble with columns: lon, lat, isTreated_child, sim_n (integer),
+#   pred (simulated count), model (modelname)
+#--------------------------------------
+
+sim2tib <- function(sim_responses, newdat, modelname = NA_character_) {
+  sim_tibs <- as_tibble(
+    sim_responses,
+    .name_repair = ~ paste0("sim_", seq_along(.))
+  )
+
+  combined <- bind_cols(
+    newdat %>% dplyr::select(lon, lat, isTreated_child),
+    sim_tibs
+  )
+
+  long_preds <- combined %>%
+    pivot_longer(
+      cols = starts_with("sim_"),
+      names_to = "sim",
+      values_to = "pred"
+    ) %>%
+    mutate(
+      sim_n = as.integer(sub("^sim_", "", sim))
+    ) %>%
+    dplyr::select(lon, lat, isTreated_child, sim_n, pred) %>%
+    mutate(model = modelname)
+
+  return(long_preds)
 }
