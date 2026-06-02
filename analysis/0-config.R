@@ -31,7 +31,6 @@ library(viridis)
 final_data <- "~/Library/CloudStorage/Box-Box/AVENIR/Data/Mortality/rounds_1to5/final/"
 
 figure_path <- paste0(here::here(), "/results/figs/")
-table_path <- paste0(here::here(), "/results/tables/")
 
 # Set up ----
 
