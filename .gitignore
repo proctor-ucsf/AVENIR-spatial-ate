@@ -4,6 +4,9 @@ data/*
 # Ignore folders
 results/
 data/
+manuscript/
+notes
+slide-deck
 
 # Ignore everything starting with an underscore
 _*
@@ -41,7 +44,9 @@ _*/**
 vignettes/*.html
 vignettes/*.pdf
 *.html
+*/*.html
 *.pdf
+*/*.pdf
 
 # OAuth2 token, see https://github.com/hadley/httr/releases/tag/v0.3
 .httr-oauth
@@ -69,3 +74,4 @@ rsconnect/
 
 # Mac system files
 *.DS_Store
+.positai
