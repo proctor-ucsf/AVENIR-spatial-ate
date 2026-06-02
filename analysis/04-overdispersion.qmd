@@ -9,6 +9,7 @@ format:
     code-fold: true
     code-summary: "Show code"
     df-print: paged
+    self-contained: true
 execute:
   cache: true
   warning: false

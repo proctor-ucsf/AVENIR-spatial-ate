@@ -1,8 +1,19 @@
 ---
-title: "02-context-map"
-author: "Ariktha Srivathsan"
-date: "2024-10-29"
-format: html
+title: "06b-primary-results-maps"
+date: today
+# author: "Ariktha Srivathsan"
+format:
+  html:
+    toc: true
+    toc-location: right
+    code-fold: true
+    code-summary: "Show code"
+    df-print: paged
+    self-contained: true
+execute:
+  cache: true
+  warning: false
+  message: false
 ---
 
 ```{r setup, include=FALSE}
