@@ -2,7 +2,7 @@
 title: "02-context-map"
 author: "Ariktha Srivathsan"
 date: "2024-10-29"
-output: html_document
+format: html
 ---
 
 ```{r setup, include=FALSE}
@@ -259,7 +259,7 @@ fig2 <- data_mort_control +
   plot_annotation(tag_levels = "A") &
   theme(plot.margin = margin(0.5, 0.7, 0.5, 0.7, "cm"))
 
-ggsave(here("results", "manuscript", "fig2-primary_maps.png"), 
-       plot = fig2, bg = "white", width = 12, height = 11)
+ggsave(here("results", "manuscript", "fig2-primary_maps.png"),
+       plot = fig2, bg = "white", width = 12, height = 11, dpi = 300)
  
 ```

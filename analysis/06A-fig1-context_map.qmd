@@ -2,11 +2,13 @@
 title: "06A-context-map"
 author: "Ariktha Srivathsan"
 date: "2024-10-29"
-output: html_document
+format: html
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+
+rm(list = ls())
 ```
 
 ```{r Load packages and config}
@@ -69,7 +71,7 @@ plot_niger_admin <- ggplot() +
     labs(x="",y="") +
     ylim(c(11, 23)) +
   xlim(c(0, 16)) +
-    theme_minimal() +
+    theme_minimal(base_size = 14) +
     theme(
         panel.grid.major = element_blank(),
         panel.grid = element_blank(),
@@ -79,7 +81,7 @@ plot_niger_admin <- ggplot() +
         axis.line = element_blank(),
         plot.margin = margin(0,0,0,0, "pt")
         )
-    
+
 plot_niger_admin
 
 ```
@@ -90,8 +92,6 @@ plot_niger_admin
 dosso_lab_line <- data.frame(x1=4.47,x2=4.1,y1=12.55,y2=12.7)
 tahoua_lab_line <-  data.frame(x1=5.9,x2=5.5,y1=17.9,y2=17.5)
 
-pcols <- brewer_pal(palette = "YlOrRd")(9)[c(5,7,9)]
-    
 # detailed zoom view, including grappes
 plot_grappe_map <- ggplot() +
     # admin boundaries
@@ -121,7 +121,7 @@ plot_grappe_map <- ggplot() +
         ) +
     labs(x="Longitude",y="Latitude") +
     guides(color=guide_legend(reverse = FALSE, override.aes = list(size=4)))  +
-    theme_minimal() +
+    theme_minimal(base_size = 14) +
     theme(
         legend.position = "bottom"
     )
@@ -152,6 +152,8 @@ ggsave(here("results", "manuscript", "fig1-context-map.png"),
        device = "png",
        width = 175,
        height = 160,
-       units = "mm")
+       units = "mm",
+       dpi = 300,
+       bg = "white")
 ```
 
