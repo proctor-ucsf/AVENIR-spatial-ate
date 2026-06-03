@@ -282,7 +282,7 @@ AIC(fit_csi_gen)
 
 # LRT: note argument order — fit_csi is the simpler (fewer-parameter) model,
 # fit_csi_gen is the more complex. 
-LRT(fit_csi_gen, fit_csi)
+spaMM::LRT(fit_csi_gen, fit_csi)
 
 ```
 
