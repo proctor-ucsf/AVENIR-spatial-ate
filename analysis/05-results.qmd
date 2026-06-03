@@ -63,7 +63,7 @@ rm(list = ls())
 #| message: false
 #| results: hide
 
-source(here::here("0-config.R"))
+source(here::here("analysis", "0-config.R"))
 source(here::here("analysis", "0-functions.R"))
 
 df_all <- readRDS(here("data","grappe_mortality_data.rds"))
