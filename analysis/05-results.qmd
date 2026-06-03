@@ -68,18 +68,7 @@ source(here::here("analysis", "0-functions.R"))
 
 df_all <- readRDS(here("data","grappe_mortality_data.rds"))
 
-districts <- df_all %>% distinct(district) %>% pull(district)
-grappes <- df_all %>% distinct(grappe) %>% pull(grappe)
-
-df_proj <- df_all %>%
-  ungroup() %>%
-  st_as_sf(coords = c("lon", "lat"), crs = global_crs) %>%
-  st_transform(crs = proj_crs) %>%
-  mutate(lon = sf::st_coordinates(.)[,1],
-         lat = sf::st_coordinates(.)[,2])
-
-dist_summ <- readRDS(here("data", "district_mortality_means.rds")) %>%
-  filter(district %in% districts)
+dist_summ <- readRDS(here("data", "district_mortality_means.rds"))
 
 ate_preds <- readRDS(here("data", "preds_ATE.rds")) 
 post_prob_raw <- readRDS(here("data", "post_prob_dat.rds"))
@@ -87,7 +76,13 @@ post_prob_raw <- readRDS(here("data", "post_prob_dat.rds"))
 aics <- readRDS(here("data", "model_aic_table.rds"))
 lrts <- readRDS(here("data", "model_lrt_table.rds"))
 
+csi_dat <- readRDS(here("data", "csi_dat.rds"))
 csi_preds <- readRDS(here("data", "csi_preds_mort.rds"))
+
+fit_simp_krig    <- readRDS(here("data", "fitmort_child_simp_krig.rds"))
+fit_gen_krig     <- readRDS(here("data", "fitmort_child_gen_krig.rds"))
+fit_gen_krig_int <- readRDS(here("data", "fitmort_child_gen_krig_int.rds"))
+fit_csi_gen_krig <- readRDS(here("data", "fit_csi_gen_krig.rds"))
 
 niger_adm1 <- st_read(dsn = here("data", "untouched", "ner_admin_boundaries", "ner_admin1.shp"))
 niger_adm2 <- st_read(dsn = here("data", "untouched", "ner_admin_boundaries", "ner_admin2.shp"))
@@ -98,15 +93,30 @@ niger_adm2_sub_proj <- niger_adm2_sub %>%
 ```
 
 ```{r}
+#| label: data-preprocessing
+#| include: true
+
+districts <- df_all %>% distinct(district) %>% pull(district)
+
+# Multiple grappes can have the same name and be in different districts, so we can't use grappe as a unique identifier for merging with the spatial data. Use site_code instead.
+# grappes <- df_all %>% distinct(grappe) %>% pull(grappe) 
+
+df_proj <- df_all %>%
+  ungroup() %>%
+  st_as_sf(coords = c("lon", "lat"), crs = global_crs) %>%
+  st_transform(crs = proj_crs) %>%
+  mutate(lon = sf::st_coordinates(.)[,1],
+         lat = sf::st_coordinates(.)[,2])
+
+dist_summ <- dist_summ %>%
+  dplyr::filter(district %in% districts)
+
+```
+
+
+```{r}
 #| label: precompute-stats
-#| include: false
-
-csi_dat <- readRDS(here("data", "csi_dat.rds"))
-
-fit_simp_krig    <- readRDS(here("data", "fitmort_child_simp_krig.rds"))
-fit_gen_krig     <- readRDS(here("data", "fitmort_child_gen_krig.rds"))
-fit_gen_krig_int <- readRDS(here("data", "fitmort_child_gen_krig_int.rds"))
-fit_csi_gen_krig <- readRDS(here("data", "fit_csi_gen_krig.rds"))
+#| include: true
 
 # sample composition
 n_grappes_total     <- nrow(df_all)
@@ -174,27 +184,6 @@ csi_max_deaths <- max(csi_dat$n_deaths_1to59)
 csi_med_pt     <- round(median(csi_dat$pt_year_1to59))
 csi_min_pt     <- round(min(csi_dat$pt_year_1to59))
 csi_max_pt     <- round(max(csi_dat$pt_year_1to59))
-```
-
-```{r}
-#| label: base-map
-
-niger_adm2 <- niger_adm2 %>%
-  filter(adm1_name == "Dosso") %>%
-  st_make_valid()
-
-base_map <- ggplot() +
-  geom_sf(data = niger_adm2, fill = NA, color = "black", size = 0.25) +
-  theme_minimal(base_size = 14) +
-  annotation_scale() +
-  scale_x_continuous(name = "Longitude") +
-  scale_y_continuous(name = "Latitude") +
-  theme(
-    legend.position = "bottom",
-    legend.background = element_rect(fill = "white", color = NA),
-    legend.title = element_text(hjust = 1, vjust = 0.5),
-    legend.text = element_text(hjust = 1, vjust = 0.5)
-  )
 ```
 
 # Trial data and outcomes
@@ -278,6 +267,27 @@ arm_hist3 <- ggplot(data = df_all, aes(x = deaths_per_1000_1to59, fill = isTreat
 ```
 
 ## Maps of treatment assignment, follow-up and mortality outcomes
+
+```{r}
+#| label: base-map
+
+niger_adm2 <- niger_adm2 %>%
+  filter(adm1_name == "Dosso") %>%
+  st_make_valid()
+
+base_map <- ggplot() +
+  geom_sf(data = niger_adm2, fill = NA, color = "black", size = 0.25) +
+  theme_minimal(base_size = 14) +
+  annotation_scale() +
+  scale_x_continuous(name = "Longitude") +
+  scale_y_continuous(name = "Latitude") +
+  theme(
+    legend.position = "bottom",
+    legend.background = element_rect(fill = "white", color = NA),
+    legend.title = element_text(hjust = 1, vjust = 0.5),
+    legend.text = element_text(hjust = 1, vjust = 0.5)
+  )
+```
 
 ```{r}
 #| label: maps-obs-data
