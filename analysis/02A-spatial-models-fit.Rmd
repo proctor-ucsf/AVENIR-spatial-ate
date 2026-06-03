@@ -105,7 +105,7 @@ The baseline model includes a treatment indicator and a Matérn spatial random e
 
 ### Fit model
 
-Model fitting took 374.293 sec (just over 6 minutes) with 11 threads.
+Model fitting took 411.549 sec (just under 7 minutes) with 11 threads.
 
 ```{r fit simple kriging model}
 # fit spatial models for mortality rate with binary tx vars,
@@ -156,7 +156,7 @@ The generalized kriging model extends the simple kriging model by adding linear 
 
 ### Fit model
 
-Model fitting took 274.927 sec (under 5 minutes) with 11 threads.
+Model fitting took 292.683 sec (under 5 minutes) with 11 threads.
 
 ```{r fit gen kriging model}
 
@@ -221,7 +221,7 @@ The AIC and LRT comparisons for all three models accumulated so far (simple, gen
 
 > **Note:** This model took substantially longer to fit (~72 minutes) than the others due to the additional random effect. The `site_code` RE was commented out in the previous models as a simplification.
 
-Model fitting took 4332.422 sec (just over 72 minutes) with 11 threads.
+Model fitting took 4374.418 sec (just over 72 minutes) with 11 threads.
 
 ```{r fit gen kriging model w RE for site code}
 
@@ -275,7 +275,7 @@ The interaction model allows the treatment effect to vary linearly with spatial 
 
 ### Fit model
 
-Model fitting took 335.312 sec (just over 5 minutes) with 11 threads.
+Model fitting took 343.212 sec (just over 5 minutes) with 11 threads.
 
 ```{r fit interaction model}
 
@@ -339,7 +339,7 @@ This model adds a binary indicator (`mordorstate`) for the three districts (Bobo
 
 ### Fit model
 
-Model fitting took 284.076 sec (just under 5 minutes) with 11 threads.
+Model fitting took 340.226 sec (under 6 minutes) with 11 threads.
 
 ```{r fit mordor model}
 

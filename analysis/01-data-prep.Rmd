@@ -1,6 +1,6 @@
 ---
 title: "01A-data-prep-mort"
-author: "Mia Navarro"
+author: "Ariktha Srivathsan, Mia Navarro"
 date: "2024-09-29"
 output: html_document
 ---
@@ -27,7 +27,7 @@ This script prepares grappe-level mortality data for the AVENIR spatial average 
 ### Configure environment. Load data.
 ```{r config and load data, warning=F}
 
-source(here::here("0-config.R"))
+source(here::here("analysis", "0-config.R"))
 
 # GPS coordinates for each grappe (cluster); median lat/lon across households
 d_gps <-
