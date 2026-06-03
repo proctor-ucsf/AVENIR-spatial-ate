@@ -29,7 +29,7 @@ library(tidyverse)
 library(sf)
 sf_use_s2(FALSE)
 
-source(here::here("0-config.R"))
+source(here::here("analysis", "0-config.R"))
 source(here::here("analysis", "0-functions.R"))
 ```
 
