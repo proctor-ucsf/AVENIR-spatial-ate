@@ -98,6 +98,85 @@ niger_adm2_sub_proj <- niger_adm2_sub %>%
 ```
 
 ```{r}
+#| label: precompute-stats
+#| include: false
+
+csi_dat <- readRDS(here("data", "csi_dat.rds"))
+
+fit_simp_krig    <- readRDS(here("data", "fitmort_child_simp_krig.rds"))
+fit_gen_krig     <- readRDS(here("data", "fitmort_child_gen_krig.rds"))
+fit_gen_krig_int <- readRDS(here("data", "fitmort_child_gen_krig_int.rds"))
+fit_csi_gen_krig <- readRDS(here("data", "fit_csi_gen_krig.rds"))
+
+# sample composition
+n_grappes_total     <- nrow(df_all)
+n_grappes_child_az  <- sum(df_all$tx == "Child Azithro")
+n_grappes_infant_az <- sum(df_all$tx == "Infant Azithro")
+n_grappes_placebo   <- sum(df_all$tx == "Placebo")
+n_grappes_treatment <- sum(df_all$isTreated_child == "Treatment")
+n_grappes_control   <- sum(df_all$isTreated_child == "Control")
+
+n_csis              <- nrow(csi_dat)
+grappes_per_csi_vec <- df_all %>% dplyr::count(csi) %>% pull(n)
+grappe_per_csi_med  <- median(grappes_per_csi_vec)
+grappe_per_csi_min  <- min(grappes_per_csi_vec)
+grappe_per_csi_max  <- max(grappes_per_csi_vec)
+
+# person-time and deaths
+total_pt         <- sum(df_all$pt_year_1to59)
+pt_treatment     <- sum(df_all$pt_year_1to59[df_all$isTreated_child == "Treatment"])
+pt_control       <- sum(df_all$pt_year_1to59[df_all$isTreated_child == "Control"])
+total_deaths     <- sum(df_all$n_deaths_1to59)
+deaths_treatment <- sum(df_all$n_deaths_1to59[df_all$isTreated_child == "Treatment"])
+deaths_control   <- sum(df_all$n_deaths_1to59[df_all$isTreated_child == "Control"])
+overall_rate     <- total_deaths / total_pt * 1000
+rate_treatment   <- deaths_treatment / pt_treatment * 1000
+rate_control     <- deaths_control / pt_control * 1000
+overall_ate      <- rate_treatment - rate_control
+
+# department-level lookup vectors (district name → value)
+dept_grappes   <- df_all   %>% dplyr::count(district, name = "n_grappes")    %>% tibble::deframe()
+dept_ate       <- dist_summ %>% dplyr::select(district, ATE)                 %>% tibble::deframe()
+dept_mort_ctrl <- dist_summ %>% dplyr::select(district, MortRateControl)     %>% tibble::deframe()
+dept_mort_trt  <- dist_summ %>% dplyr::select(district, MortRateTreatment)   %>% tibble::deframe()
+
+# Matern parameters
+.rho_to_km <- function(fit) 1 / (1000 * fit$CorrEst_and_RanFix$corrPars$`1`$rho)
+.get_nu    <- function(fit) fit$CorrEst_and_RanFix$corrPars$`1`$nu
+
+range_simp_km    <- .rho_to_km(fit_simp_krig)
+range_gen_km     <- .rho_to_km(fit_gen_krig)
+range_gen_int_km <- .rho_to_km(fit_gen_krig_int)
+range_csi_km     <- .rho_to_km(fit_csi_gen_krig)
+
+nu_simp_krig    <- .get_nu(fit_simp_krig)
+nu_gen_krig     <- .get_nu(fit_gen_krig)
+nu_gen_krig_int <- .get_nu(fit_gen_krig_int)
+nu_csi_gen_krig <- .get_nu(fit_csi_gen_krig)
+
+lambda_gen_int <- fit_gen_krig_int$lambda[["lon + lat"]]
+
+# model selection stats from pre-computed tables
+aic_simp    <- aics %>% dplyr::filter(grepl("Simple",            Model)) %>% dplyr::pull(AIC)
+aic_gen     <- aics %>% dplyr::filter(Model == "Generalized Kriging")    %>% dplyr::pull(AIC)
+aic_gen_int <- aics %>% dplyr::filter(grepl("Interaction",       Model)) %>% dplyr::pull(AIC)
+aic_gen_re  <- aics %>% dplyr::filter(grepl("Cluster",           Model)) %>% dplyr::pull(AIC)
+
+lrt_gen_vs_simp_stat <- lrts %>% dplyr::filter(grepl("Simple",      Comparison)) %>% dplyr::pull(LRT_statistic)
+lrt_gen_vs_simp_p    <- lrts %>% dplyr::filter(grepl("Simple",      Comparison)) %>% dplyr::pull(p_value)
+lrt_int_vs_gen_stat  <- lrts %>% dplyr::filter(grepl("Interaction", Comparison)) %>% dplyr::pull(LRT_statistic)
+lrt_int_vs_gen_p     <- lrts %>% dplyr::filter(grepl("Interaction", Comparison)) %>% dplyr::pull(p_value)
+
+# CSI stats
+csi_med_deaths <- median(csi_dat$n_deaths_1to59)
+csi_min_deaths <- min(csi_dat$n_deaths_1to59)
+csi_max_deaths <- max(csi_dat$n_deaths_1to59)
+csi_med_pt     <- round(median(csi_dat$pt_year_1to59))
+csi_min_pt     <- round(min(csi_dat$pt_year_1to59))
+csi_max_pt     <- round(max(csi_dat$pt_year_1to59))
+```
+
+```{r}
 #| label: base-map
 
 niger_adm2 <- niger_adm2 %>%
@@ -119,6 +198,10 @@ base_map <- ggplot() +
 ```
 
 # Trial data and outcomes
+
+The analytic sample comprised `r n_grappes_total`^★^ grappes: `r n_grappes_child_az`^★^ in the azithromycin 1–59 months arm, `r n_grappes_infant_az`^★^ in the azithromycin infants arm, and `r n_grappes_placebo`^★^ in the placebo arm. After pooling the infant azithromycin and placebo arms into a single control group, `r n_grappes_treatment`^★^ grappes were assigned to the treatment group and `r n_grappes_control`^★^ to the control group. Grappes were aggregated to `r n_csis`^★^ CSIs (median `r grappe_per_csi_med`^★^ grappes per CSI; range `r grappe_per_csi_min`–`r grappe_per_csi_max`^★^).
+
+Total follow-up was `r scales::comma(round(total_pt))`^★^ child-years (`r scales::comma(round(pt_treatment))`^★^ treatment; `r scales::comma(round(pt_control))`^★^ control). There were `r scales::comma(total_deaths)`^★^ deaths overall (`r deaths_treatment`^★^ treatment; `r deaths_control`^★^ control), yielding an overall mortality rate of `r round(overall_rate, 1)`^★^ deaths per 1,000 person-years (`r round(rate_treatment, 1)`^★^ treatment; `r round(rate_control, 1)`^★^ control). The crude rate difference (treatment minus control) was `r round(overall_ate, 1)`^★^ deaths per 1,000 person-years.
 
 ## Histograms of person-time and mortality outcomes
 
@@ -282,6 +365,8 @@ base_map +
 
 ```
 
+The `r length(dept_grappes)`^★^ departments in the study area had between `r min(dept_grappes)`^★^ (Falmey) and `r max(dept_grappes)`^★^ (Dosso) grappes each (Boboye: `r dept_grappes[["Boboye"]]`^★^; Dioundiou: `r dept_grappes[["Dioundiou"]]`^★^; Dogondoutchi: `r dept_grappes[["Dogondoutchi"]]`^★^; Dosso: `r dept_grappes[["Dosso"]]`^★^; Falmey: `r dept_grappes[["Falmey"]]`^★^; Gaya: `r dept_grappes[["Gaya"]]`^★^; Loga: `r dept_grappes[["Loga"]]`^★^; Tibiri: `r dept_grappes[["Tibiri"]]`^★^).
+
 ### Test of heterogeneity in mortality rates across departments
 
 ```{r}
@@ -310,7 +395,7 @@ dist_summ %>%
 
 Mortality rates are in deaths per 1000 person-years among children aged 1-59 months. ATE = mean mortality rate in treatment group - mean mortality rate in control group, by department. Negative ATEs are favorable.
 
-The ATE estimates vary meaningfully across departments, with most showing reductions in mortality under treatment. The magnitude of the effect ranges, indicating heterogeneity in intervention effectiveness. Notably, Boboye is the only department with a positive ATE, which warrants further investigation.
+The ATE estimates vary meaningfully across departments, with most showing reductions in mortality under treatment. ATEs ranged from `r round(min(dept_ate), 1)`^★^ (Gaya; control rate `r round(dept_mort_ctrl[["Gaya"]], 1)`^★^, treatment rate `r round(dept_mort_trt[["Gaya"]], 1)`^★^ deaths per 1,000 person-years) to `r round(max(dept_ate), 1)`^★^ deaths per 1,000 person-years (Boboye; control rate `r round(dept_mort_ctrl[["Boboye"]], 1)`^★^, treatment rate `r round(dept_mort_trt[["Boboye"]], 1)`^★^), indicating heterogeneity in intervention effectiveness. Notably, Boboye is the only department with a positive ATE (`r round(dept_ate[["Boboye"]], 1)`^★^ deaths per 1,000 person-years), which warrants further investigation.
 
 ### Maps of mortality rates and ATE by department
 
@@ -443,9 +528,9 @@ lrts %>%
 
 ![](images/matern_corrs-2.png)
 
-From the above correlation plots, we see that the simple kriging model has a much longer range and slower decay than the generalized kriging models. This is likely because the larger spatial range in the simple kriging model is trying to account for spatial variation that could be explained by the lat/lon covariates in the generalized kriging models. Based on a LRT and AIC values, the generalized kriging models all outperformed the simple kriging model.
+From the above correlation plots, we see that the simple kriging model has a much longer range (`r round(range_simp_km, 1)`^★^ km) and slower decay than the generalized kriging models (range: `r round(range_gen_km, 1)`^★^ km for the base generalized kriging model). This is likely because the larger spatial range in the simple kriging model is trying to account for spatial variation that could be explained by the lat/lon covariates in the generalized kriging models. Based on a LRT (χ² = `r round(lrt_gen_vs_simp_stat, 2)`^★^, p = `r formatC(lrt_gen_vs_simp_p, format = "f", digits = 3)`^★^) and AIC values (simple kriging: `r round(aic_simp, 1)`^★^; generalized kriging: `r round(aic_gen, 1)`^★^), the generalized kriging models all outperformed the simple kriging model.
 
-Based on LRT and AIC values, the generalized kriging model with interaction was preferred. The similarity in correlation structures across the generalized models suggests that adding interaction terms or random effects does not substantially change the scale of spatial dependence, but instead refines how spatial variation is partitioned between fixed effects and residual spatial structure.
+Based on LRT (χ² = `r round(lrt_int_vs_gen_stat, 2)`^★^, p = `r formatC(lrt_int_vs_gen_p, format = "f", digits = 3)`^★^) and AIC values (generalized + interaction: `r round(aic_gen_int, 1)`^★^; generalized only: `r round(aic_gen, 1)`^★^; generalized + RE: `r round(aic_gen_re, 1)`^★^), the generalized kriging model with interaction was preferred. The estimated spatial range for the selected model was `r round(range_gen_int_km, 1)`^★^ km (Matérn ν = `r round(nu_gen_krig_int, 3)`^★^, λ = `r round(lambda_gen_int, 3)`^★^). The similarity in correlation structures across the generalized models suggests that adding interaction terms or random effects does not substantially change the scale of spatial dependence, but instead refines how spatial variation is partitioned between fixed effects and residual spatial structure.
 
 *NOTE* The "range" in these plots is just the inverse of the rho parameter in the matern correlation. We could use alternative definitions of range that might be more interpretable, such as the distance at which correlation drops to 0.1, for example.
 
@@ -720,7 +805,7 @@ This was estimated using a simulation-based approach where we drew samples from 
 
 # CSI-level analysis
 
-We also fit spatial models at the CSI level, which has less spatial granularity than the grappe-level data but may still capture some spatial correlation. Since the randomization was at the grappe level, we cannot include a term for the treatment indicator in the CSI-level models, but we can still fit spatial models to predict mortality rates across the study area and compare the spatial correlation structure to the grappe-level models, akin to how it will be done in future programmatic surveillance analyses.
+We also fit spatial models at the CSI level, which has less spatial granularity than the grappe-level data but may still capture some spatial correlation. The `r n_csis`^★^ CSIs had a median of `r csi_med_deaths`^★^ deaths per CSI (range: `r csi_min_deaths`–`r csi_max_deaths`^★^) and a median of `r scales::comma(csi_med_pt)`^★^ person-years per CSI (range: `r scales::comma(csi_min_pt)`–`r scales::comma(csi_max_pt)`^★^). Since the randomization was at the grappe level, we cannot include a term for the treatment indicator in the CSI-level models, but we can still fit spatial models to predict mortality rates across the study area and compare the spatial correlation structure to the grappe-level models, akin to how it will be done in future programmatic surveillance analyses.
 
 ![](images/matern_corrs_csi.png)
 
@@ -790,7 +875,7 @@ width = 8, height = 6, units = "in")
 
 ```
 
-When comparing this csi-level aggregate analysis to the grappe-level analysis, we see that the csi-level models have a larger Matern correlation range (14.38 km for the generalized kriging model) compared to the grappe-level models (range of 11.27 km for the generalized kriging model and 11.37 km when we include an interaction with treatment). This suggests that there is more spatial correlation in the grappe-level data than in the csi-level data, which makes sense given that the grappe-level data has more spatial granularity and may capture more local spatial patterns.
+When comparing this csi-level aggregate analysis to the grappe-level analysis, we see that the csi-level models have a larger Matern correlation range (`r round(range_csi_km, 2)`^★^ km for the generalized kriging model) compared to the grappe-level models (range of `r round(range_gen_km, 2)`^★^ km for the generalized kriging model and `r round(range_gen_int_km, 2)`^★^ km when we include an interaction with treatment). This suggests that there is more spatial correlation in the grappe-level data than in the csi-level data, which makes sense given that the grappe-level data has more spatial granularity and may capture more local spatial patterns.
 
 Despite the loss of spatial resolution, the CSI-level analysis preserves the broad spatial gradients in mortality. However, the increased correlation range suggests that aggregation smooths over local variability, effectively inflating the apparent spatial scale of dependence. This implies that CSI-level surveillance may be adequate for identifying large-scale patterns but may miss localized hotspots or heterogeneity in treatment effects that are detectable at the grappe level.
 
