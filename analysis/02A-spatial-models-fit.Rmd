@@ -394,6 +394,129 @@ materncorr_gen_krig_mordor <- plot_matern_corr_proj(fitmort_child_gen_krig_mordo
 
 ```
 
+## 2 Matern fields
+
+```{r fit double matern model, eval=FALSE}
+
+df_proj <- df_proj %>%
+  mutate(isTreated_child_num = ifelse(isTreated_child == "Treatment", 1, 0))
+
+if(refit_models_flag) {
+  tic("fit spaMM model for double matern")
+  fitmort_child_doub_matern <- spaMM::fitme(
+    n_deaths_1to59 ~
+      1 + lat + lon +
+      Matern(1 | lon + lat) +
+      Matern(0 + isTreated_child_num | lon + lat) +
+      isTreated_child +
+      isTreated_child * lat + isTreated_child * lon +
+      # (1|site_code) +
+      offset(log(pt_year_1to59)),
+    data = df_proj,
+    family = poisson(link = "log"),
+    control.HLfit = list(NbThreads = avail_thr)
+  )
+  toc()
+
+  saveRDS(fitmort_child_doub_matern,
+          here("data", "fitmort_child_doub_matern.rds"))
+} else {
+  fitmort_child_doub_matern <- readRDS(here("data", "fitmort_child_doub_matern.rds"))
+}
+
+```
+
+```{r results of the matern by tx status, eval=FALSE}
+
+summary(fitmort_child_doub_matern)
+
+fitmort_child_doub_matern <- plot_matern_corr_proj(fitmort_child_doub_matern,
+                                                 "avenir-materncorr-fitmort_child_doub_matern",
+                                                 modelname = "Matern by tx status")
+
+fitmort_child_doub_matern
+
+```
+
+## Matern by district
+
+```{r fit matern by district model}
+
+if(refit_models_flag) {
+  tic("fit spaMM model for matern by district")
+  fitmort_child_matern_dist <- spaMM::fitme(
+    n_deaths_1to59 ~
+      1 + lat + lon +
+      Matern(1 | lon + lat %in% district) +
+      isTreated_child +
+      isTreated_child * lat + isTreated_child * lon +
+      # (1|site_code) +
+      offset(log(pt_year_1to59)),
+    data = df_proj,
+    family = poisson(link = "log"),
+    control.HLfit = list(NbThreads = avail_thr)
+  )
+  toc()
+
+  saveRDS(fitmort_child_matern_dist,
+          here("data", "fitmort_child_matern_dist.rds"))
+} else {
+  fitmort_child_matern_dist <- readRDS(here("data", "fitmort_child_matern_dist.rds"))
+}
+
+```
+
+```{r results of the matern by district model}
+
+summary(fitmort_child_matern_dist)
+
+materncorr_gen_krig_matern_dist <- plot_matern_corr_proj(fitmort_child_matern_dist,
+                                                 "avenir-materncorr-fitmort_child_matern_dist",
+                                                 modelname = "Matern in district")
+
+materncorr_gen_krig_matern_dist
+
+```
+
+```{r fit district FE model}
+
+if(refit_models_flag) {
+  tic("fit spaMM model for district FE")
+  fitmort_child_dist_FE <- spaMM::fitme(
+    n_deaths_1to59 ~
+      1 + lat + lon +
+      Matern(1 | lon + lat) +
+      factor(district) +
+      isTreated_child +
+      isTreated_child * lat + isTreated_child * lon +
+      # (1|site_code) +
+      offset(log(pt_year_1to59)),
+    data = df_proj,
+    family = poisson(link = "log"),
+    control.HLfit = list(NbThreads = avail_thr)
+  )
+  toc()
+
+  saveRDS(fitmort_child_dist_FE,
+          here("data", "fitmort_child_dist_FE.rds"))
+} else {
+  fitmort_child_dist_FE <- readRDS(here("data", "fitmort_child_dist_FE.rds"))
+}
+
+```
+
+```{r results of the district FE model}
+
+summary(fitmort_child_dist_FE)
+
+materncorr_gen_krig_dist_FE <- plot_matern_corr_proj(fitmort_child_dist_FE,
+                                                 "avenir-materncorr-fitmort_child_dist_FE",
+                                                 modelname = "district FE")
+
+materncorr_gen_krig_dist_FE
+
+```
+
 ---
 
 # Model predictions
@@ -407,7 +530,10 @@ models_list <- list(
   simp_krig = fitmort_child_simp_krig,
   gen_krig = fitmort_child_gen_krig,
   gen_krig_re = fitmort_child_gen_krig_re,
-  gen_krig_int = fitmort_child_gen_krig_int
+  gen_krig_int = fitmort_child_gen_krig_int,
+  matern_dist = fitmort_child_matern_dist,
+  # doub_matern = fitmort_child_doub_matern,
+  dist_FE = fitmort_child_dist_FE
 )
 
 tic("Get predictions from all models for both treatment groups")
@@ -429,7 +555,8 @@ The spatial ATE at each grid point is the difference in predicted mortality rate
 preds_wide <- preds_long %>%
   # dplyr::select(-pred_var) %>%
   pivot_wider(id_cols = c(model, geometry), names_from = isTreated_child, values_from = pred, names_prefix = "pred") %>%
-  mutate(ATE = predTreatment - predControl)
+  mutate(ATE = predTreatment - predControl,
+         rate_ratio = predTreatment / predControl)
 
 saveRDS(preds_wide, here("data", "preds_ATE.rds"))
 
