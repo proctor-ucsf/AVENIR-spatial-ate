@@ -68,7 +68,7 @@ source(here::here("analysis", "0-functions.R"))
 
 df_all <- readRDS(here("data","grappe_mortality_data.rds"))
 
-dist_summ <- readRDS(here("data", "district_mortality_means.rds"))
+dist_summ <- readRDS(here("data", "district_ATE_means.rds"))
 
 ate_preds <- readRDS(here("data", "preds_ATE.rds")) 
 post_prob_raw <- readRDS(here("data", "post_prob_dat.rds"))
@@ -82,6 +82,8 @@ csi_preds <- readRDS(here("data", "csi_preds_mort.rds"))
 fit_simp_krig    <- readRDS(here("data", "fitmort_child_simp_krig.rds"))
 fit_gen_krig     <- readRDS(here("data", "fitmort_child_gen_krig.rds"))
 fit_gen_krig_int <- readRDS(here("data", "fitmort_child_gen_krig_int.rds"))
+
+fit_csi_simp_krig    <- readRDS(here("data", "fit_csi_simp_krig.rds"))
 fit_csi_gen_krig <- readRDS(here("data", "fit_csi_gen_krig.rds"))
 
 niger_adm1 <- st_read(dsn = here("data", "untouched", "ner_admin_boundaries", "ner_admin1.shp"))
@@ -147,21 +149,29 @@ overall_ate      <- rate_treatment - rate_control
 # department-level lookup vectors (district name → value)
 dept_grappes   <- df_all   %>% dplyr::count(district, name = "n_grappes")    %>% tibble::deframe()
 dept_ate       <- dist_summ %>% dplyr::select(district, ATE)                 %>% tibble::deframe()
-dept_mort_ctrl <- dist_summ %>% dplyr::select(district, MortRateControl)     %>% tibble::deframe()
-dept_mort_trt  <- dist_summ %>% dplyr::select(district, MortRateTreatment)   %>% tibble::deframe()
+dept_mort_ctrl <- dist_summ %>% dplyr::select(district, MortRate_Control)     %>% tibble::deframe()
+dept_mort_trt  <- dist_summ %>% dplyr::select(district, MortRate_Treatment)   %>% tibble::deframe()
 
 # Matern parameters
 .rho_to_km <- function(fit) 1 / (1000 * fit$CorrEst_and_RanFix$corrPars$`1`$rho)
+.get_rho   <- function(fit) fit$CorrEst_and_RanFix$corrPars$`1`$rho
 .get_nu    <- function(fit) fit$CorrEst_and_RanFix$corrPars$`1`$nu
+
+rho_csi_simp <- .get_rho(fit_csi_simp_krig)
+rho_csi_gen  <- .get_rho(fit_csi_gen_krig)
 
 range_simp_km    <- .rho_to_km(fit_simp_krig)
 range_gen_km     <- .rho_to_km(fit_gen_krig)
 range_gen_int_km <- .rho_to_km(fit_gen_krig_int)
-range_csi_km     <- .rho_to_km(fit_csi_gen_krig)
+
+range_csi_simp_km    <- .rho_to_km(fit_csi_simp_krig)
+range_csi_gen_km     <- .rho_to_km(fit_csi_gen_krig)
 
 nu_simp_krig    <- .get_nu(fit_simp_krig)
 nu_gen_krig     <- .get_nu(fit_gen_krig)
 nu_gen_krig_int <- .get_nu(fit_gen_krig_int)
+
+nu_csi_simp_krig <- .get_nu(fit_csi_simp_krig)
 nu_csi_gen_krig <- .get_nu(fit_csi_gen_krig)
 
 lambda_gen_int <- fit_gen_krig_int$lambda[["lon + lat"]]
@@ -172,10 +182,15 @@ aic_gen     <- aics %>% dplyr::filter(Model == "Generalized Kriging")    %>% dpl
 aic_gen_int <- aics %>% dplyr::filter(grepl("Interaction",       Model)) %>% dplyr::pull(AIC)
 aic_gen_re  <- aics %>% dplyr::filter(grepl("Cluster",           Model)) %>% dplyr::pull(AIC)
 
+aic_csi_simp <- AIC(fit_csi_simp_krig)[1]
+aic_csi_gen  <- AIC(fit_csi_gen_krig)[1]
+
 lrt_gen_vs_simp_stat <- lrts %>% dplyr::filter(grepl("Simple",      Comparison)) %>% dplyr::pull(LRT_statistic)
 lrt_gen_vs_simp_p    <- lrts %>% dplyr::filter(grepl("Simple",      Comparison)) %>% dplyr::pull(p_value)
 lrt_int_vs_gen_stat  <- lrts %>% dplyr::filter(grepl("Interaction", Comparison)) %>% dplyr::pull(LRT_statistic)
 lrt_int_vs_gen_p     <- lrts %>% dplyr::filter(grepl("Interaction", Comparison)) %>% dplyr::pull(p_value)
+
+lrt_csi <- LRT(fit_csi_gen_krig, fit_csi_simp_krig)$basicLRT
 
 # CSI stats
 csi_med_deaths <- median(csi_dat$n_deaths_1to59)
@@ -365,7 +380,7 @@ mort_par | mort_dot +
 
 ## department-level summaries of mortality outcomes and ATE
 
-```{r department names}
+```{r}
 #| label: department-names-map
 
 base_map +
@@ -394,11 +409,12 @@ lmtest::lrtest(state_poi_mod, global_poi_mod)
 
 ### Table of ATE estimates by department
 
-```{r table department effects}
+```{r}
 #| label: department-ate-table
 
 dist_summ %>%
   arrange(ATE) %>%
+  dplyr::select(district, ends_with("_Treatment"), ends_with("_Control"), ATE_CI) %>%
   knitr::kable(digits = 2)
 
 ```
@@ -406,6 +422,22 @@ dist_summ %>%
 Mortality rates are in deaths per 1000 person-years among children aged 1-59 months. ATE = mean mortality rate in treatment group - mean mortality rate in control group, by department. Negative ATEs are favorable.
 
 The ATE estimates vary meaningfully across departments, with most showing reductions in mortality under treatment. ATEs ranged from `r round(min(dept_ate), 1)`^★^ (Gaya; control rate `r round(dept_mort_ctrl[["Gaya"]], 1)`^★^, treatment rate `r round(dept_mort_trt[["Gaya"]], 1)`^★^ deaths per 1,000 person-years) to `r round(max(dept_ate), 1)`^★^ deaths per 1,000 person-years (Boboye; control rate `r round(dept_mort_ctrl[["Boboye"]], 1)`^★^, treatment rate `r round(dept_mort_trt[["Boboye"]], 1)`^★^), indicating heterogeneity in intervention effectiveness. Notably, Boboye is the only department with a positive ATE (`r round(dept_ate[["Boboye"]], 1)`^★^ deaths per 1,000 person-years), which warrants further investigation.
+
+```{r}
+#| label: ate-ci-plot
+
+dist_summ %>%
+  arrange(desc(ATE)) %>%
+  ggplot(aes(y = reorder(district, desc(ATE_mean)), x = ATE_mean)) +
+  geom_point() +
+  geom_errorbar(aes(xmin = ATE_CI_low, xmax = ATE_CI_high), width = 0.2) +
+  geom_vline(aes(xintercept = 0), linetype = "dashed", color = "red") +
+  labs(y = "Department", x = "Average Treatment Effect (deaths per 1000 py)") +
+  theme_minimal() +
+  theme(axis.title.y = element_blank())
+
+```
+
 
 ### Maps of mortality rates and ATE by department
 
@@ -418,16 +450,16 @@ niger_adm2_sub <- niger_adm2_sub %>%
   left_join(dist_summ, by = c("adm2_name" = "district"))
 
 data_mort_control <- base_map +
-  geom_sf(data = niger_adm2_sub, aes(fill = MortRateControl), color = NA, size = 0.25) +
+  geom_sf(data = niger_adm2_sub, aes(fill = MortRate_Control), color = NA, size = 0.25) +
   scale_fill_viridis(option = "D", name = "mort rate\ncontrol", limits = c(0, 35), breaks = seq(0, 35, 5), na.value = NA)
 
 data_mort_treat <- base_map +
-  geom_sf(data = niger_adm2_sub, aes(fill = MortRateTreatment),
+  geom_sf(data = niger_adm2_sub, aes(fill = MortRate_Treatment),
                       color = NA, size = 0.25) +
   scale_fill_viridis(option = "D", name = "mort rate\ntreatment", limits = c(0, 35), breaks = seq(0, 35, 5), na.value = NA)
 
 data_mort_ate <- base_map +
-  geom_sf(data = niger_adm2_sub, aes(fill = ATE), color = NA, size = 0.25) +
+  geom_sf(data = niger_adm2_sub, aes(fill = ATE_mean), color = NA, size = 0.25) +
   scale_fill_gradient2(name = "ATE", low = muted("dodgerblue"), mid = "white", high = muted("red"), midpoint = 0, limits = c(-7, 2), breaks = seq(-7, 2, 1), na.value = NA)
 
 data_mort_control | data_mort_treat | data_mort_ate
@@ -482,7 +514,7 @@ boboye_n_deaths_per1000 <- boboye_map +
   scale_color_viridis_c(name = "# deaths/1000", option = "mako", direction = -1) +
   guides(size = "none")
 
-boboye_tx_assign | boboye_person_time | boboye_n_deaths | boboye_n_deaths_per1000
+boboye_tx_assign | boboye_n_deaths | boboye_n_deaths_per1000
 
 ```
 
