@@ -7,6 +7,164 @@
 #--------------------------------------------
 
 #--------------------------------------
+# run_boot()
+#
+# Stratified bootstrap scaffold. Resamples data within each district stratum
+# with replacement, applies a caller-supplied summary function to each bootstrap
+# dataset, and returns the list of per-replicate results. Execution is
+# parallelised with parallel::mclapply().
+#
+# Arguments:
+# - data:      data.frame; the grappe-level dataset to resample. Must contain
+#              a "district" column used to define strata.
+# - districts: character vector; unique district names that define the strata
+# - n_boot:    integer; number of bootstrap replicates
+# - mc_cores:  integer; number of cores passed to parallel::mclapply()
+# - iter_fn:   function(boot_data) -> any; applied to each resampled dataset.
+#              Must return a consistently-shaped object across all replicates.
+#
+# Details:
+# - Resampling is stratified: within each district, rows are sampled with
+#   replacement at the same size as the observed stratum, preserving
+#   district-level sample sizes across replicates.
+# - iter_fn receives the full resampled data.frame, not row indices.
+#
+# Requirements:
+# - Packages: parallel, purrr, dplyr
+#
+# Returns:
+# - A list of length n_boot; each element is the return value of iter_fn()
+#--------------------------------------
+
+run_boot <- function(data, districts, n_boot, mc_cores, iter_fn) {
+  parallel::mclapply(seq_len(n_boot), function(i) {
+    boot_data <- purrr::map_dfr(districts, function(d) {
+      d_dat <- dplyr::filter(data, district == d)
+      d_dat[sample(nrow(d_dat), size = nrow(d_dat), replace = TRUE), ]
+    })
+    iter_fn(boot_data)
+  }, mc.cores = mc_cores)
+}
+
+
+#--------------------------------------
+# boot_mort_rates()
+#
+# Bootstrap district-level and pooled mortality rates (deaths per 1000
+# person-years), stratified by a caller-specified grouping variable. A thin
+# wrapper around run_boot() that fixes the mortality-rate summary function
+# used throughout the AVENIR analysis.
+#
+# Arguments:
+# - data:      data.frame; grappe-level data containing n_deaths_1to59,
+#              pt_year_1to59, district, and the column named by group_var
+# - districts: character vector; unique district names (strata for resampling)
+# - n_boot:    integer; number of bootstrap replicates
+# - mc_cores:  integer; number of cores passed to run_boot()
+# - group_var: character; name of the grouping column — either
+#              "isTreated_child" (treatment vs. control) or "tx"
+#              (three-arm randomization label)
+#
+# Requirements:
+# - Depends on: run_boot()
+# - Packages: dplyr, tidyr, purrr
+#
+# Returns:
+# - A list of length n_boot; each element is a data.frame with columns
+#   district, MortRate, and <group_var>, with one row per district x
+#   group combination plus an "Overall" pooled row
+#--------------------------------------
+
+boot_mort_rates <- function(data, districts, n_boot, mc_cores, group_var) {
+  run_boot(data, districts, n_boot, mc_cores, function(boot_data) {
+    district_rows <- boot_data %>%
+      group_by(district, .data[[group_var]]) %>%
+      summarise(
+        n_deaths_1to59 = sum(n_deaths_1to59, na.rm = TRUE),
+        pt_year_1to59  = sum(pt_year_1to59,  na.rm = TRUE),
+        MortRate       = n_deaths_1to59 * 1e3 / pt_year_1to59,
+        .groups        = "drop"
+      ) %>%
+      dplyr::select(district, MortRate, all_of(group_var))
+    
+    overall_row <- boot_data %>%
+      group_by(.data[[group_var]]) %>%
+      summarise(
+        n_deaths_1to59 = sum(n_deaths_1to59, na.rm = TRUE),
+        pt_year_1to59  = sum(pt_year_1to59,  na.rm = TRUE),
+        MortRate       = n_deaths_1to59 * 1e3 / pt_year_1to59,
+        .groups        = "drop"
+      ) %>%
+      mutate(district = "Overall") %>%
+      dplyr::select(district, MortRate, all_of(group_var))
+    
+    bind_rows(district_rows, overall_row)
+  })
+}
+
+
+#--------------------------------------
+# boot_ate()
+#
+# Bootstrap district-level and pooled average treatment effects (ATE) as the
+# difference in pooled mortality rates (Treatment - Control, deaths per 1000
+# person-years). Stratified resampling is performed within districts; the
+# treatment indicator is fixed to isTreated_child.
+#
+# Arguments:
+# - data:      data.frame; grappe-level data containing n_deaths_1to59,
+#              pt_year_1to59, district, and isTreated_child
+# - districts: character vector; unique district names (strata for resampling)
+# - n_boot:    integer; number of bootstrap replicates
+# - mc_cores:  integer; number of cores passed to run_boot()
+#
+# Requirements:
+# - Depends on: run_boot()
+# - Packages: dplyr, tidyr
+#
+# Returns:
+# - A list of length n_boot; each element is a data.frame with columns
+#   district and ATE, with one row per district plus an "Overall" pooled row
+#--------------------------------------
+
+boot_ate <- function(data, districts, n_boot, mc_cores) {
+  run_boot(data, districts, n_boot, mc_cores, function(boot_data) {
+    district_rows <- boot_data %>%
+      group_by(district, isTreated_child) %>%
+      summarise(
+        n_deaths_1to59 = sum(n_deaths_1to59, na.rm = TRUE),
+        pt_year_1to59  = sum(pt_year_1to59,  na.rm = TRUE),
+        MortRate       = n_deaths_1to59 * 1e3 / pt_year_1to59,
+        .groups        = "drop"
+      ) %>%
+      pivot_wider(
+        names_from  = isTreated_child,
+        values_from = c(n_deaths_1to59, pt_year_1to59, MortRate)
+      ) %>%
+      mutate(ATE = MortRate_Treatment - MortRate_Control) %>%
+      dplyr::select(district, ATE)
+    
+    overall_row <- boot_data %>%
+      group_by(isTreated_child) %>%
+      summarise(
+        n_deaths_1to59 = sum(n_deaths_1to59, na.rm = TRUE),
+        pt_year_1to59  = sum(pt_year_1to59,  na.rm = TRUE),
+        MortRate       = n_deaths_1to59 * 1e3 / pt_year_1to59,
+        .groups        = "drop"
+      ) %>%
+      pivot_wider(
+        names_from  = isTreated_child,
+        values_from = c(n_deaths_1to59, pt_year_1to59, MortRate)
+      ) %>%
+      mutate(district = "Overall", ATE = MortRate_Treatment - MortRate_Control) %>%
+      dplyr::select(district, ATE)
+    
+    bind_rows(district_rows, overall_row)
+  })
+}
+
+
+#--------------------------------------
 # plot_matern_corr_proj()
 #
 # Plot and save the Matérn spatial correlation as a function of distance,
