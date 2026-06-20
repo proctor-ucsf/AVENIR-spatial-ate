@@ -1,0 +1,24 @@
+---
+title: "Overview"
+---
+
+## About this document
+
+This book compiles the full analysis pipeline for the AVENIR spatial average treatment effect (ATE) project. It estimates spatially continuous under-5 mortality rates and treatment effects across the AVENIR trial area in Niger, using geostatistical models fit to grappe-level mortality data.
+
+## Pipeline structure
+
+| Chapter | Script | Description |
+|---------|--------|-------------|
+| 1 | `01-data-prep` | Data ingest, cleaning, and construction of the grappe-level analytic dataset and prediction grid |
+| 2 | `02A-spatial-models-fit` | Fit spatial mixed models (spaMM) to mortality counts; generate spatially continuous predictions |
+| 3 | `02B-posterior-prob-sim` | Posterior probability simulation: probability the ATE is beneficial at each location |
+| 4 | `03-csi-analysis` | CSI-level analysis of spatial heterogeneity in the ATE |
+| 5 | `04-overdispersion` | Variance decomposition across administrative scales |
+| 6 | `05-results` | Summary of primary results |
+| 7 | `06A-fig1-context_map` | Manuscript Figure 1: study area context map |
+| 8 | `06B-fig2-primary_maps` | Manuscript Figure 2: primary spatial maps |
+
+## Reproducing this analysis
+
+Run `run-all.R` from the project root to execute the full pipeline in order. See `0-config.R` for paths, flags, and tunable parameters (including `refit_models_flag` for the slow spaMM fitting step in Chapter 2).
