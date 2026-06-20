@@ -41,7 +41,7 @@ districts <- df_all %>% distinct(district) %>% pull(district)
 niger_adm2_sub <- readRDS(here("data", "niger_adm2_sub.rds"))
 
 # Panels A and B
-dist_summ <- readRDS(here("data", "district_mortality_means.rds")) %>%
+dist_summ <- readRDS(here("data", "district_ATE_means.rds")) %>%
   filter(district %in% districts)
 
 # Panels C and D
@@ -99,6 +99,7 @@ mod_post_prob <- post_prob_raw %>%
 mod_post_prob_rast <- make_raster_map(mod_post_prob, proj_crs, global_crs, "prob")
 mod_post_prob_df <- as.data.frame(mod_post_prob_rast, xy = TRUE, na.rm = FALSE)
 
+
 ```
 
 ```{r base map}
@@ -107,21 +108,31 @@ base_map <- ggplot() +
   geom_sf(data = niger_adm2_sub, fill = NA, color = "black", size = 0.25) +
   theme_minimal(base_size = 14) +
   annotation_scale() +
+  annotation_north_arrow(location = "bl", which_north = "true", 
+                         height = unit(0.7, "cm"), width = unit(0.7, "cm"),
+                         pad_y = unit(0.7, "cm"), 
+                         style = north_arrow_fancy_orienteering(line_width = 0.5, 
+                                                                fill = c("white", "grey40"),
+                                                                text_col = "grey40",
+                                                                line_col = "grey40")) +
   scale_x_continuous(name = "Longitude") +
   scale_y_continuous(name = "Latitude") +
   theme(
     legend.position = "bottom",
     legend.background = element_rect(fill = "white", color = NA),
     legend.title = element_text(hjust = 1, vjust = 0.5),
-    legend.text = element_text(hjust = 1, vjust = 0.5)
+    legend.text = element_text(hjust = 1, vjust = 0.5),
+    axis.text = element_text(size = 8)
   )
+
+base_map
 
 ```
 
 ```{r Panel A}
 
 data_mort_control <- base_map +
-  geom_sf(data = niger_adm2_sub, aes(fill = MortRateControl), color = NA, size = 0.25) +
+  geom_sf(data = niger_adm2_sub, aes(fill = MortRate_Control), color = NA, size = 0.25) +
   scale_fill_viridis_c(limits = c(0, 35),
                       na.value = NA,
                       breaks = seq(0,30,by=10),
@@ -142,7 +153,7 @@ data_mort_control
 ```{r Panel B}
 
 data_ate <- base_map +
-  geom_sf(data = niger_adm2_sub, aes(fill = ATE), color = NA, size = 0.25) +
+  geom_sf(data = niger_adm2_sub, aes(fill = ATE_mean), color = NA, size = 0.25) +
   scale_fill_gradient2(low = muted("dodgerblue"), 
                         mid = "white", 
                         high = muted("red"), 
@@ -242,6 +253,7 @@ mod_post_prob_map <- base_map +
   scale_fill_paletteer_c("grDevices::PinkYl",
                       limits = c(0.3, 1),
                       na.value = NA,
+                      direction = -1,
                       # breaks = seq(0,10,by=2),
                       guide = guide_colorbar(title="Simulated posterior probability\n(mortality ATE < 0)",  
                                           title.position = "top",
@@ -267,10 +279,12 @@ fig2 <- data_mort_control +
   data_ate +
   model_ate +
   mod_post_prob_map +
-  plot_annotation(tag_levels = "A") &
+  plot_annotation(tag_levels = "A", tag_suffix = ")") &
   theme(plot.margin = margin(0.5, 0.7, 0.5, 0.7, "cm"))
 
+fig2
+
 ggsave(here("results", "manuscript", "fig2-primary_maps.png"),
-       plot = fig2, bg = "white", width = 12, height = 11, dpi = 300)
+       plot = fig2, bg = "white", width = 10.5, height = 10, dpi = 300)
  
 ```
