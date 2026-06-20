@@ -196,19 +196,237 @@ grappe_mort_filt %>% group_by(district, isTreated_child) %>% summarise(n = n(), 
 
 ### Compute district-level mean mortality rates and ATE
 
-For descriptive purposes, we compute mean mortality rates by district and treatment arm, then take their difference as a naive district-level ATE estimate. This is used for mapping and summary tables, not for the primary causal inference.
+For descriptive purposes, we compute mean mortality rates by district and treatment arm, then take their difference as a naive district-level ATE estimate. This is used for mapping and summary tables, not for the primary inference.
 
-```{r add district level means}
+```{r add district level ATE by treatment group}
 
-dist_mort_summ <- grappe_mort_filt %>%
+set.seed(42)
+n_boot <- 10000
+
+districts <- unique(grappe_mort_filt$district)
+
+boot_ates <- parallel::mclapply(seq_len(n_boot), function(i) {
+  boot_data <- purrr::map_dfr(districts, function(d) {
+    d_dat <- grappe_mort_filt %>% dplyr::filter(district == d)
+    d_dat[sample(nrow(d_dat), size = nrow(d_dat), replace = TRUE), ]
+  })
+
+  # District-level ATEs
+  district_rows <- boot_data %>%
+    group_by(district, isTreated_child) %>%
+    summarise(
+      n_deaths_1to59 = sum(n_deaths_1to59, na.rm = TRUE),
+      pt_year_1to59  = sum(pt_year_1to59,  na.rm = TRUE),
+      MortRate       = n_deaths_1to59 * 1e3 / pt_year_1to59,
+      .groups        = "drop"
+    ) %>%
+    pivot_wider(
+      names_from  = isTreated_child,
+      values_from = c(n_deaths_1to59, pt_year_1to59, MortRate)
+    ) %>%
+    mutate(ATE = MortRate_Treatment - MortRate_Control) %>%
+    dplyr::select(district, ATE)
+
+  # Overall pooled-rate ATE (PY-weighted across all districts)
+  overall_row <- boot_data %>%
+    group_by(isTreated_child) %>%
+    summarise(
+      n_deaths_1to59 = sum(n_deaths_1to59, na.rm = TRUE),
+      pt_year_1to59  = sum(pt_year_1to59,  na.rm = TRUE),
+      MortRate       = n_deaths_1to59 * 1e3 / pt_year_1to59,
+      .groups        = "drop"
+    ) %>%
+    pivot_wider(
+      names_from  = isTreated_child,
+      values_from = c(n_deaths_1to59, pt_year_1to59, MortRate)
+    ) %>%
+    mutate(district = "Overall", ATE = MortRate_Treatment - MortRate_Control) %>%
+    dplyr::select(district, ATE)
+
+  bind_rows(district_rows, overall_row)
+}, mc.cores = avail_thr)
+
+boot_ates_df <- purrr::map_dfr(boot_ates, identity, .id = "replicate")
+
+dist_ate_summ <- grappe_mort_filt %>%
   group_by(district, isTreated_child) %>%
-  summarise(mean_deaths_per_1000_1to59 = mean(deaths_per_1000_1to59, na.rm = TRUE),
+  summarise(n = n(),
+            n_deaths_1to59 = sum(n_deaths_1to59, na.rm = TRUE),
+            pt_year_1to59 = sum(pt_year_1to59, na.rm = TRUE),
+            MortRate = n_deaths_1to59 * 1e3 / pt_year_1to59,
             .groups = "drop") %>%
   pivot_wider(names_from = isTreated_child,
-              values_from = mean_deaths_per_1000_1to59,
-              names_prefix = "MortRate") %>%
+              values_from = c(n, n_deaths_1to59, pt_year_1to59, MortRate)) %>%
   # ATE = simple difference in mean mortality rates (Treatment − Control)
-  mutate(ATE = MortRateTreatment - MortRateControl)
+  mutate(ATE = MortRate_Treatment - MortRate_Control)
+
+# Observed overall pooled estimate
+overall_ate_obs <- grappe_mort_filt %>%
+  group_by(isTreated_child) %>%
+  summarise(
+    n              = n(),
+    n_deaths_1to59 = sum(n_deaths_1to59, na.rm = TRUE),
+    pt_year_1to59  = sum(pt_year_1to59, na.rm = TRUE),
+    MortRate       = n_deaths_1to59 * 1e3 / pt_year_1to59,
+    .groups        = "drop"
+  ) %>%
+  pivot_wider(names_from = isTreated_child,
+              values_from = c(n, n_deaths_1to59, pt_year_1to59, MortRate)) %>%
+  mutate(district = "Overall", ATE = MortRate_Treatment - MortRate_Control)
+
+dist_ate_summ <- bind_rows(dist_ate_summ, overall_ate_obs)
+
+dist_ate_summ <- dist_ate_summ %>%
+  left_join(
+    boot_ates_df %>%
+      group_by(district) %>%
+      summarise(
+        ATE_mean    = mean(ATE, na.rm = TRUE),
+        ATE_CI_low  = quantile(ATE, 0.025, na.rm = TRUE),
+        ATE_CI_high = quantile(ATE, 0.975, na.rm = TRUE),
+        .groups = "drop"
+      ),
+    by = "district"
+  ) %>%
+  mutate(ATE_CI = paste0(round(ATE, 2), " (95% CI: ", round(ATE_CI_low, 2), " to ", round(ATE_CI_high, 2), ")"))
+
+```
+
+```{r add district level mortality by treatment group}
+
+boot_mort_tx <- parallel::mclapply(seq_len(n_boot), function(i) {
+  boot_data <- purrr::map_dfr(districts, function(d) {
+    d_dat <- grappe_mort_filt %>% dplyr::filter(district == d)
+    d_dat[sample(nrow(d_dat), size = nrow(d_dat), replace = TRUE), ]
+  })
+  
+  district_rows <- boot_data %>%
+    group_by(district, isTreated_child) %>%
+    summarise(
+      n_deaths_1to59 = sum(n_deaths_1to59, na.rm = TRUE),
+      pt_year_1to59  = sum(pt_year_1to59,  na.rm = TRUE),
+      MortRate       = n_deaths_1to59 * 1e3 / pt_year_1to59,
+      .groups        = "drop"
+    ) %>%
+    dplyr::select(district, MortRate, isTreated_child)
+  
+  overall_row <- boot_data %>%
+    group_by(isTreated_child) %>%
+    summarise(
+      n_deaths_1to59 = sum(n_deaths_1to59, na.rm = TRUE),
+      pt_year_1to59  = sum(pt_year_1to59,  na.rm = TRUE),
+      MortRate       = n_deaths_1to59 * 1e3 / pt_year_1to59,
+      .groups        = "drop"
+    ) %>%
+    mutate(district = "Overall") %>%
+    dplyr::select(district, MortRate, isTreated_child)
+  
+  bind_rows(district_rows, overall_row)
+  
+}, mc.cores = avail_thr)
+
+boot_mort_tx_df <- purrr::map_dfr(boot_mort_tx, identity, .id = "replicate") %>%
+      group_by(district, isTreated_child) %>%
+      summarise(
+        MortRate_mean    = mean(MortRate, na.rm = TRUE),
+        MortRate_CI_low  = quantile(MortRate, 0.025, na.rm = TRUE),
+        MortRate_CI_high = quantile(MortRate, 0.975, na.rm = TRUE),
+        .groups = "drop"
+      )
+
+overall_mort_tx_obs <- grappe_mort_filt %>%
+  group_by(isTreated_child) %>%
+  summarise(
+    n              = n(),
+    n_deaths_1to59 = sum(n_deaths_1to59, na.rm = TRUE),
+    pt_year_1to59  = sum(pt_year_1to59,  na.rm = TRUE),
+    MortRate       = n_deaths_1to59 * 1e3 / pt_year_1to59,
+    .groups        = "drop"
+  ) %>%
+  mutate(district = "Overall")
+
+dist_tx_summ <- grappe_mort_filt %>%
+  group_by(district, isTreated_child) %>%
+  summarise(n = n(),
+            n_deaths_1to59 = sum(n_deaths_1to59, na.rm = TRUE),
+            pt_year_1to59 = sum(pt_year_1to59, na.rm = TRUE),
+            MortRate = n_deaths_1to59 * 1e3 / pt_year_1to59,
+            .groups = "drop") %>%
+  bind_rows(overall_mort_tx_obs) %>%
+  left_join(
+    boot_mort_tx_df,
+    by = c("district", "isTreated_child")
+  ) %>%
+  mutate(MortRate_CI = paste0(round(MortRate, 2), " (95% CI: ", round(MortRate_CI_low, 2), " to ", round(MortRate_CI_high, 2), ")"))
+
+```
+
+```{r add district level mortality by randomization group}
+
+boot_mort_rand <- parallel::mclapply(seq_len(n_boot), function(i) {
+  boot_data <- purrr::map_dfr(districts, function(d) {
+    d_dat <- grappe_mort_filt %>% dplyr::filter(district == d)
+    d_dat[sample(nrow(d_dat), size = nrow(d_dat), replace = TRUE), ]
+  })
+    
+  district_rows <- boot_data %>%
+    group_by(district, tx) %>%
+    summarise(
+      n_deaths_1to59 = sum(n_deaths_1to59, na.rm = TRUE),
+      pt_year_1to59  = sum(pt_year_1to59,  na.rm = TRUE),
+      MortRate       = n_deaths_1to59 * 1e3 / pt_year_1to59,
+      .groups        = "drop"
+    ) %>%
+    dplyr::select(district, MortRate, tx)
+  
+  overall_row <- boot_data %>%
+    group_by(tx) %>%
+    summarise(
+      n_deaths_1to59 = sum(n_deaths_1to59, na.rm = TRUE),
+      pt_year_1to59  = sum(pt_year_1to59,  na.rm = TRUE),
+      MortRate       = n_deaths_1to59 * 1e3 / pt_year_1to59,
+      .groups        = "drop"
+    ) %>%
+    mutate(district = "Overall") %>%
+    dplyr::select(district, MortRate, tx)
+  
+  bind_rows(district_rows, overall_row)
+  
+}, mc.cores = avail_thr)
+
+boot_mort_rand_df <- purrr::map_dfr(boot_mort_rand, identity, .id = "replicate") %>%
+      group_by(district, tx) %>%
+      summarise(
+        MortRate_mean    = mean(MortRate, na.rm = TRUE),
+        MortRate_CI_low  = quantile(MortRate, 0.025, na.rm = TRUE),
+        MortRate_CI_high = quantile(MortRate, 0.975, na.rm = TRUE),
+        .groups = "drop"
+      )
+
+overall_mort_rand_obs <- grappe_mort_filt %>%
+  group_by(tx) %>%
+  summarise(
+    n              = n(),
+    n_deaths_1to59 = sum(n_deaths_1to59, na.rm = TRUE),
+    pt_year_1to59  = sum(pt_year_1to59,  na.rm = TRUE),
+    MortRate       = n_deaths_1to59 * 1e3 / pt_year_1to59,
+    .groups        = "drop"
+  ) %>%
+  mutate(district = "Overall")
+
+dist_rand_summ <- grappe_mort_filt %>%
+  group_by(district, tx) %>%
+  summarise(n = n(),
+            n_deaths_1to59 = sum(n_deaths_1to59, na.rm = TRUE),
+            pt_year_1to59 = sum(pt_year_1to59, na.rm = TRUE),
+            MortRate = n_deaths_1to59 * 1e3 / pt_year_1to59,
+            .groups = "drop") %>%
+  bind_rows(overall_mort_rand_obs) %>%
+  left_join(
+    boot_mort_rand_df,
+    by = c("district", "tx")
+  ) %>%
+  mutate(MortRate_CI = paste0(round(MortRate, 2), " (95% CI: ", round(MortRate_CI_low, 2), " to ", round(MortRate_CI_high, 2), ")"))
 
 ```
 
@@ -225,7 +443,11 @@ Three objects are saved:
 ```{r save data}
 
 saveRDS(grappe_mort_filt, here("data", "grappe_mortality_data.rds"))
-saveRDS(dist_mort_summ, here("data", "district_mortality_means.rds"))
+
+saveRDS(dist_ate_summ, here("data", "district_ATE_means.rds"))
+
+saveRDS(dist_tx_summ, here("data", "district_mortality_means_by_treatment_group.rds"))
+saveRDS(dist_rand_summ, here("data", "district_mortality_means_by_randomization_arm.rds"))
 
 # Save data not filtered for randomization 1 for figure 1
 saveRDS(grappe_mort, here("data", "grappe_mortality_data_all_rands.rds"))
