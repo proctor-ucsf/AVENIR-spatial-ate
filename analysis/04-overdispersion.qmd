@@ -38,7 +38,7 @@ Two complementary approaches are used:
 
 Finally, a CSI-level spatial model is fit to estimate how much variance is lost (absorbed at the district level) when data are aggregated from grappe to CSI.
 
-```{r load-packages}
+```{r}
 #| label: load-packages
 
 source(here::here("analysis", "0-config.R"))
@@ -46,7 +46,7 @@ source(here::here("analysis", "0-functions.R"))
 
 ```
 
-```{r load-data}
+```{r}
 #| label: load-data
 
 # Load grappe-level mortality data
@@ -63,7 +63,7 @@ csi_dat <- readRDS(here("data", "csi_dat.rds"))
 
 Coordinates are projected to UTM Zone 31N for distance-based spatial operations. Grappes with zero person-years (`pt_year_1to59 == 0`) are excluded to avoid degenerate Poisson offsets (`log(0) = -Inf`); these were retained in `02A` but are filtered here.
 
-```{r prep-data}
+```{r}
 #| label: prep data
 
 # Project coordinates to UTM so distances are in meters, not degrees
@@ -78,6 +78,141 @@ df_proj <- df_all %>%
 
 ```
 
+## ICC
+
+2 Poisson GLMMs (`lme4::glmer`) with random intercepts, but **no Matérn spatial effect** are fit:
+1. clustering only by district (`district`) to estimate the proportion of variance attributable to between-district difference
+2. clustering by CSI-within-district (`district/csi`) and district
+
+
+```{r}
+#| label: icc
+
+sigma_sq_e    <- pi^2 / 3  # latent-variable Poisson approximation
+
+# ICC for district-level clustering
+
+icc_mod_dist <- glmer(
+  n_deaths_1to59 ~ isTreated_child +
+    (1 | district) +
+    offset(log(pt_year_1to59)),
+  data = df_proj,
+  family = poisson(link = "log")
+)
+
+vc_dist <- VarCorr(icc_mod_dist)
+sigma_sq_dist <- vc_dist[["district"]][[1]]
+
+icc_dist <- sigma_sq_dist / (sigma_sq_dist + sigma_sq_e)
+icc_dist
+
+# ICC for CSI-within-district clustering
+
+icc_mod_csi <- glmer(
+  n_deaths_1to59 ~ isTreated_child +
+    (1 | district/csi) +
+    offset(log(pt_year_1to59)),
+  data = df_proj,
+  family = poisson(link = "log")
+)
+
+vc_csi <- VarCorr(icc_mod_csi)
+sigma_sq_csi_d <- vc_csi[["district"]][[1]]
+sigma_sq_csi   <- vc_csi[["csi:district"]][[1]]
+icc2_csi_dist  <- sigma_sq_csi / (sigma_sq_csi_d + sigma_sq_csi + sigma_sq_e)
+
+icc2_csi_dist
+
+```
+
+```{r}
+#| label: icc-ci
+
+# Statistic function for the district ICC
+icc_dist_fn <- function(fit) {
+  vc     <- VarCorr(fit)
+  s2_d   <- vc[["district"]][[1]]
+  s2_d / (s2_d + sigma_sq_e)
+}
+
+# Statistic function for the CSI-within-district ICC
+icc2_csi_fn <- function(fit) {
+  vc   <- VarCorr(fit)
+  s2_d <- vc[["district"]][[1]]
+  s2_c <- vc[["csi:district"]][[1]]
+  s2_c / (s2_d + s2_c + sigma_sq_e)
+}
+
+# ── Parallelised bootMer wrapper ──────────────────────────────────────────────
+#
+# bootMer() does not expose a direct mclapply path, so we split the B
+# replicates across n_cores workers and rbind the per-worker boot objects.
+# Each worker runs a fresh seed derived from the global seed so results
+# are reproducible but not identical across workers.
+
+run_boot_parallel <- function(model, stat_fn, B = 1000, n_cores = n_cores) {
+
+  b_per_core <- ceiling(B / n_cores)
+
+  boot_list <- mclapply(
+    seq_len(n_cores),
+    function(i) {
+      set.seed(42 + i)
+      bootMer(
+        model,
+        FUN       = stat_fn,
+        nsim      = b_per_core,
+        use.u     = FALSE,        # marginal (population-level) bootstrap
+        type      = "parametric",
+        parallel  = "no"          # parallelism handled by mclapply above
+      )
+    },
+    mc.cores = n_cores
+  )
+
+  # Combine: pool the t replicate vectors from each worker
+  combined_t <- do.call(c, lapply(boot_list, function(b) b$t))
+
+  # Reuse the first worker's boot object as a shell; replace t and R
+  shell        <- boot_list[[1]]
+  shell$t      <- matrix(combined_t[seq_len(B)], ncol = 1)
+  shell$R      <- B
+  shell
+}
+
+# ── Run bootstraps ────────────────────────────────────────────────────────────
+
+message("Bootstrapping district ICC (B = 1000) ...")
+boot_dist <- run_boot_parallel(icc_mod_dist, icc_dist_fn, B = 1000, n_cores = avail_thr)
+
+message("Bootstrapping CSI-within-district ICC (B = 1000) ...")
+boot_csi  <- run_boot_parallel(icc_mod_csi,  icc2_csi_fn, B = 1000, n_cores = avail_thr)
+
+# ── Percentile CIs ────────────────────────────────────────────────────────────
+
+ci_dist <- quantile(boot_dist$t, probs = c(0.025, 0.975), na.rm = TRUE)
+ci_csi  <- quantile(boot_csi$t,  probs = c(0.025, 0.975), na.rm = TRUE)
+
+# ── Summary ───────────────────────────────────────────────────────────────────
+
+icc_results <- tibble::tibble(
+  estimand       = c("ICC (district)", "ICC (CSI within district)"),
+  point_estimate = c(icc_dist, icc2_csi_dist),
+  ci_lower_95    = c(ci_dist[[1]], ci_csi[[1]]),
+  ci_upper_95    = c(ci_dist[[2]], ci_csi[[2]])
+)
+
+print(icc_results, digits = 3)
+
+# ── Save ──────────────────────────────────────────────────────────────────────
+
+saveRDS(icc_results, here("data", "icc_results.rds"))
+saveRDS(boot_dist,   here("data", "boot_dist.rds"))
+saveRDS(boot_csi,    here("data", "boot_csi.rds"))
+
+```
+
+
 ---
 
 ## Pure hierarchical model (variance decomposition without spatial RE)
@@ -86,9 +221,9 @@ A Poisson GLMM (`lme4::glmer`) with nested random intercepts for CSI-within-dist
 
 Limitations of this model:
 - Spatial autocorrelation is ignored, so residuals may be correlated.
-- With one observation per grappe, a grappe-level RE would be unidentifiable (perfectly confounded with the residual), so the lowest level is CSI.
+- With one observation per grappe, a grappe-level RE would be unidentifiable, so the lowest level is CSI.
 
-```{r hierarchical-variance-partition}
+```{r}
 #| label: hierarchical-variance-partition
 
 # Pure hierarchical model (no Matern) to get unconfounded variance components
@@ -114,7 +249,7 @@ summary(fit_hier)
 
 ```
 
-```{r hierarchical-variance-components}
+```{r}
 #| label: hierarchical-variance-components
 
 # Extract variance components from the nested GLMM
@@ -138,7 +273,7 @@ A spaMM model that includes both a Matérn spatial RE (fine-scale spatial correl
 - `lambda[2]`: between-CSI variance (within district) — remaining heterogeneity across health facilities
 - `lambda[3]`: between-district variance — systematic differences across the study's administrative districts
 
-```{r fit-model}
+```{r}
 #| label: fit model
 
 if (refit_overdispersion_models_flag) {
@@ -165,7 +300,7 @@ summary(fit_nested)
 
 ```
 
-```{r variance-components}
+```{r}
 #| label: variance-components
 
 # extract the variance components from the model
@@ -215,7 +350,7 @@ fit_csi <- readRDS(here("data", "var_part_csi_model.rds"))
 
 ```
 
-```{r csi-variance-components}
+```{r}
 #| label: csi variance components
 
 # lambda[1] = Matern spatial variance at CSI level
