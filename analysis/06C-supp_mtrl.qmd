@@ -1,0 +1,214 @@
+---
+title: "06c-supp-mtrl"
+date: today
+# author: "Ariktha Srivathsan"
+format:
+  html:
+    toc: true
+    toc-location: right
+    code-fold: true
+    code-summary: "Show code"
+    df-print: paged
+    self-contained: true
+execute:
+  cache: true
+  warning: false
+  message: false
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+rm(list = ls())
+```
+
+```{r Load packages and config}
+
+library(here)
+library(tidyverse)
+library(sf)
+sf_use_s2(FALSE)
+
+source(here::here("analysis", "0-config.R"))
+source(here::here("analysis", "0-functions.R"))
+```
+
+```{r Load data}
+
+dist_summ <- readRDS(here("data", "district_ATE_means.rds"))
+
+dist_rand_summ <- readRDS(here("data", "district_mortality_means_by_randomization_arm.rds"))
+dist_tx_summ <- readRDS(here("data", "district_mortality_means_by_treatment_group.rds"))
+
+niger_adm2_sub <- readRDS(here("data", "niger_adm2_sub.rds"))
+niger_adm2_sub <- niger_adm2_sub %>%
+  left_join(dist_summ, by = c("adm2_name" = "district"))
+
+ate_preds <- readRDS(here("data", "preds_ATE.rds")) 
+
+```
+
+```{r Supp table 1}
+
+dist_summ %>%
+  arrange(ATE) %>%
+  dplyr::select(district, ends_with("_Treatment"), ends_with("_Control"), ATE_CI) %>%
+  knitr::kable(digits = 2)
+
+```
+
+
+```{r Supp fig 1}
+
+districts <- dist_summ %>%
+  arrange(desc(ATE)) %>%
+  pull(district) %>%
+  (\(x) c("Overall", x[x != "Overall"]))()
+
+ctrl_mort <- dist_tx_summ %>%
+  dplyr::filter(isTreated_child == "Control") %>%
+  dplyr::select(district, MortRate_mean) %>%
+  rename(ctrl_mort = MortRate_mean)
+
+mort_ci_dat <- bind_rows(
+  dist_rand_summ,
+  dist_tx_summ %>% rename(tx = isTreated_child)
+) %>%
+  left_join(ctrl_mort, by = "district") %>%
+  dplyr::filter(tx != "Child Azithro") %>%
+  mutate(tx = case_when(
+    tx == "Infant Azithro" ~ "Control: Infant Azithro",
+    tx == "Placebo" ~ "Control: Placebo",
+    tx == "Control" ~ "**Control**",
+    tx == "Treatment" ~ "**Treatment**",
+    TRUE ~ NA_character_
+  ),
+  tx = factor(tx, 
+              levels = c("Control: Infant Azithro", "Control: Placebo", "**Control**", "**Treatment**"),
+              ordered = TRUE),
+  district = factor(district, levels = districts, ordered = TRUE)
+  )
+
+ggplot(data = mort_ci_dat, aes(y = tx, x = MortRate, group = tx, color = tx)) +
+  geom_vline(aes(xintercept = ctrl_mort), linetype = "dashed", color = "#8B174DFF", size = 0.3) +
+  geom_point() +
+  geom_errorbar(aes(xmin = MortRate_CI_low, xmax = MortRate_CI_high), 
+                width = 0.2) +
+  scale_color_manual(values = c("Control: Infant Azithro" = "#DA9FB8FF", 
+                                "Control: Placebo" = "#C1447EFF", 
+                                "**Control**" = "#8B174DFF", 
+                                "**Treatment**" = "#6E8537FF")) +
+  labs(y = "Department", x = "Mortality rate (deaths per 1000 py)") +
+  xlim(c(0, 30)) +
+  theme_bw(base_size = 12) +
+  theme(axis.title.y = element_blank(),
+    axis.text.y   = ggtext::element_markdown(lineheight = 1)) +
+  facet_wrap(~ district, nrow = 3) +
+  guides(color = "none")
+
+ggsave(
+  last_plot(),
+  filename = here("results", "manuscript", "supp_fig1-district_mortality_rates.png"),
+  width = 6,
+  height = 4,
+  units = "in",
+  dpi = 300
+)
+
+```
+
+
+```{r Supp Fig 2}
+
+dist_summ %>%
+  arrange(desc(ATE)) %>%
+  mutate(dist_txt = paste0("**", district, "**<br>", ATE_CI),
+    dist_txt = factor(dist_txt, levels = dist_txt),
+    dist_txt = fct_relevel(dist_txt, paste0("**Overall**<br>", ATE_CI[district == "Overall"]), after = Inf)) %>%
+  ggplot(aes(y = dist_txt, x = ATE)) +
+  geom_point() +
+  geom_errorbar(aes(xmin = ATE_CI_low, xmax = ATE_CI_high), width = 0.2) +
+  geom_vline(aes(xintercept = 0), linetype = "dashed", color = "red") +
+  labs(y = "Department", x = "Average Treatment Effect (deaths per 1000 py)") +
+  theme_bw(base_size = 12) +
+  theme(axis.title.y = element_blank(),
+    axis.text.y = ggtext::element_markdown(lineheight = 1)) +
+  scale_y_discrete(limits = rev)
+
+ggsave(
+  last_plot(),
+  filename = here("results", "manuscript", "supp_fig2-district_ATEs.png"),
+  width = 5.5,
+  height = 4.5,
+  units = "in",
+  dpi = 300
+)
+
+```
+
+```{r Supp Fig 3 prep}
+
+mod_rr_pred <- ate_preds %>%
+    dplyr::filter(model == "gen_krig_int") %>%
+    dplyr::select(geometry, rate_ratio)
+
+mod_rr_pred_rast <- make_raster_map(mod_rr_pred, proj_crs, global_crs, "rate_ratio")
+mod_rr_pred_df <- as.data.frame(mod_rr_pred_rast, xy = TRUE, na.rm = FALSE)
+
+```
+
+```{r Supp Fig 3}
+
+base_map <- ggplot() +
+  geom_sf(data = niger_adm2_sub, fill = NA, color = "black", size = 0.25) +
+  theme_minimal(base_size = 14) +
+  annotation_scale() +
+  annotation_north_arrow(location = "bl", which_north = "true", 
+                         height = unit(0.7, "cm"), width = unit(0.7, "cm"),
+                         pad_y = unit(0.7, "cm"), 
+                         style = north_arrow_fancy_orienteering(line_width = 0.5, 
+                                                                fill = c("white", "grey40"),
+                                                                text_col = "grey40",
+                                                                line_col = "grey40")) +
+  scale_x_continuous(name = "Longitude") +
+  scale_y_continuous(name = "Latitude") +
+  theme(
+    legend.position = "bottom",
+    legend.background = element_rect(fill = "white", color = NA),
+    legend.title = element_text(hjust = 1, vjust = 0.5),
+    legend.text = element_text(hjust = 1, vjust = 0.5)
+  )
+
+model_rr <- base_map +
+    geom_raster(data = mod_rr_pred_df, aes(x = x, y = y, fill = rate_ratio), na.rm = TRUE) +
+    geom_sf(data = niger_adm2_sub, fill = NA, color = "grey20", size = 0.15) +
+    scale_fill_gradient2(low = muted("#009392FF"), 
+                            mid = "white", 
+                            high = muted("#D0587EFF"), 
+                         transform = "log",
+                            midpoint = 1, 
+                            limits = c(0.5, 1.5),
+                            na.value = NA,
+                            breaks = seq(0.5, 1.5, by = 0.25),
+                            guide=guide_colorbar(title="Modeled mortality rate ratio", 
+                                            title.position = "top",
+                                            title.hjust = 0.5,
+                                            label.position = "bottom",
+                                            label.hjust = 0.5,
+                                            barheight=unit(10,"pt"),
+                                            barwidth=unit(200,"pt"),
+                                            ticks.colour = "white",
+                                            ticks.linewidth = 1,
+                                            frame.colour = "white"))
+
+model_rr
+
+ggsave(filename = here("results", "manuscript", "supp_fig3-modeled_ATE_rate_ratios.png"),
+       plot = model_rr,
+       width = 4,
+       height = 4.5,
+       units = "in",
+       dpi = 300)
+
+```
+
