@@ -344,6 +344,7 @@ get_grid_preds <- function(
       lon = sf::st_coordinates(.)[, 1],
       lat = sf::st_coordinates(.)[, 2],
       isTreated_child = as.factor(tx_group),
+      district = district,
       site_code = "0",
       pt_year_1to59 = 1000
     ) %>%
