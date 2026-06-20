@@ -10,6 +10,7 @@
 library(dplyr)
 library(ggpubr)
 library(ggspatial)
+library(ggtext)
 library(here)
 library(lme4)
 library(paletteer)

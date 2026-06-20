@@ -75,3 +75,6 @@ rsconnect/
 # Mac system files
 *.DS_Store
 .positai
+
+/.quarto/
+**/*.quarto_ipynb
