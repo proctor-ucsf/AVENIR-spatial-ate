@@ -1,0 +1,591 @@
+---
+title: "Examine if the ATE in AVENIR is significantly different for MORDOR districts vs non-MORDOR districts"
+# author: "Ariktha Srivathsan"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    df_print: paged
+    toc: true
+    toc_float: true
+    code_folding: hide
+editor:
+  markdown:
+    wrap: 72
+execute:
+  cache: true
+  warning: false
+---
+
+<style type="text/css">
+
+body{ /* Normal  */
+      font-size: 16px;
+  }
+td {  /* Table  */
+  font-size: 15px;
+}
+h1.title {
+  font-size: 26px;
+  color: Black;
+}
+h1 { /* Header 1 */
+  font-size: 20px;
+  color: Black;
+}
+h2 { /* Header 2 */
+  font-size: 20px;
+  color: Black;
+}
+h3 { /* Header 3 */
+  font-size: 18px;
+  color: Black;
+}
+code.r{ /* Code block */
+    font-size: 12px;
+}
+pre { /* Code block - determines code spacing between lines */
+    font-size: 14px;
+}
+</style>
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+rm(list = ls())
+```
+
+```{r load data, warning=F, message=T}
+
+print(getwd())
+print(here::here())
+
+source(here::here("analysis", "0-config.R"))
+source(here::here("analysis", "0-functions.R"))
+
+library(fuzzyjoin)
+library(stringi)
+library(units)
+
+max_string_dist <- 0.15    # Jaro-Winkler distance (0-1); higher = more permissive
+distance_cutoff_km <- 1    # max distance for two records to count as the same village
+
+
+mordor_grappe <- rbind(readRDS(here("data", "untouched", "from-mordor", "morb_gps.rds")),
+                       readRDS(here("data", "untouched", "from-mordor", "main_gps.rds")))
+
+df_all <- readRDS(here("data","grappe_mortality_data.rds")) %>%
+  # mordorstate: TRUE for districts (Boboye, Falmey, Loga) that overlapped
+  # with the MORDOR mass azithromycin trial in Niger. Included as a covariate
+  # to test whether MORDOR districts have systematically different baseline mortality.
+  mutate(mordorstate = ifelse(district %in% c("Boboye", "Falmey", "Loga"), TRUE, FALSE))
+
+# Project coordinates to UTM so distances are in meters, not degrees
+
+df_proj <- df_all %>%
+  ungroup() %>%
+  st_as_sf(coords = c("lon", "lat"), crs = global_crs) %>%
+  st_transform(crs = proj_crs) %>% # UTM zone 31N, for Niger
+  mutate(lon = sf::st_coordinates(.)[,1],
+         lat = sf::st_coordinates(.)[,2])
+
+
+boxgrid <- readRDS(here("data", "boxgrid.rds"))
+
+```
+
+```{r}
+#| label: "fuzzy-match-villages-functions"
+
+# clean_village_name()
+#
+# Normalizes a village name for fuzzy matching: strips accents/diacritics,
+# lowercases, drops punctuation, and collapses whitespace.
+#
+# Arguments:
+# - x: character vector of raw village names
+#
+# Requirements:
+# - Packages: stringi, stringr
+#
+# Returns:
+# - character vector of cleaned names, same length as x
+clean_village_name <- function(x) {
+  x %>%
+    stri_trans_general("Latin-ASCII") %>%
+    str_to_lower() %>%
+    str_replace_all("[^a-z0-9\\s]", " ") %>%
+    str_squish()
+}
+
+# match_villages_by_name_and_distance()
+#
+# Matches two village lists across trials in two stages: first generates all
+# candidate name pairs within a maximum string-edit distance, then verifies
+# each candidate against the geographic distance between the two villages'
+# coordinates, computed in a projected CRS. Returns one row per candidate
+# pair rather than silently resolving to a single best guess, so ambiguous
+# or borderline cases can be reviewed before being finalized.
+#
+# Arguments:
+# - dat_x, dat_y: data frames, one row per village, each with a name column
+#   and lat/lon columns
+# - name_x, name_y: unquoted village-name column in dat_x / dat_y
+# - lat_x, lon_x, lat_y, lon_y: unquoted latitude/longitude columns (WGS84
+#   decimal degrees) in dat_x / dat_y
+# - projected_crs: EPSG code (integer) of a projected CRS appropriate to the
+#   study area; used only for the distance calculation
+# - max_string_dist: max Jaro-Winkler distance (0-1) to keep a name-candidate
+#   pair before spatial verification. Default 0.15.
+# - distance_cutoff_km: max distance (km) between coordinates for a pair to
+#   be considered the same village. Default 1.
+#
+# Details:
+# - Candidate generation casts a wide net on string distance so a genuine
+#   match with several character edits isn't excluded before it gets a
+#   chance to pass the spatial check.
+# - A village with exactly one candidate passing the distance cutoff on both
+#   sides is "matched". More than one is "ambiguous". A name-candidate that
+#   fails the distance cutoff is flagged separately
+#   ("name_candidate_failed_distance") rather than dropped. No candidate at
+#   all (from the full outer join) is "unmatched".
+#
+# Requirements:
+# - Packages: dplyr, stringr, fuzzyjoin, sf, units
+# - Depends on: clean_village_name()
+#
+# Returns:
+# - A tibble with one row per candidate pair: village_x, village_y,
+#   string_dist, distance_km, match_status
+match_villages_by_name_and_distance <- function(dat_x, dat_y,
+                                                id_x, id_y,
+                                                 name_x, name_y,
+                                                 lat_x, lon_x, lat_y, lon_y,
+                                                 projected_crs,
+                                                 max_string_dist = 0.15,
+                                                 distance_cutoff_km = 1) {
+
+  if (sf::st_is_longlat(sf::st_crs(projected_crs))) {
+    stop("projected_crs is a geographic CRS — distances must be computed in a projected CRS.")
+  }
+
+  name_x <- rlang::enquo(name_x); name_y <- rlang::enquo(name_y)
+  id_x   <- rlang::enquo(id_x);   id_y   <- rlang::enquo(id_y)
+  lat_x  <- rlang::enquo(lat_x);  lon_x  <- rlang::enquo(lon_x)
+  lat_y  <- rlang::enquo(lat_y);  lon_y  <- rlang::enquo(lon_y)
+
+  dat_x_prep <- dat_x %>%
+    transmute(
+      village_x = as.character(!!name_x),
+      id_x = as.character(!!id_x),
+      lat_x = !!lat_x,
+      lon_x = !!lon_x,
+      name_clean_x = clean_village_name(as.character(!!name_x))
+    )
+
+  dat_y_prep <- dat_y %>%
+    transmute(
+      village_y = as.character(!!name_y),
+      id_y = as.character(!!id_y),
+      lat_y = !!lat_y,
+      lon_y = !!lon_y,
+      name_clean_y = clean_village_name(as.character(!!name_y))
+    )
+
+  # Stage 1: fuzzy name candidates. mode = "full" keeps villages with no
+  # candidate at all (NA on the other side) rather than dropping them ----
+  candidates <- stringdist_join(
+    dat_x_prep, dat_y_prep,
+    by = c("name_clean_x" = "name_clean_y"),
+    method = "jw",
+    max_dist = max_string_dist,
+    distance_col = "string_dist",
+    mode = "full"
+  )
+
+  # Stage 2: geographic distance in a projected CRS, only where both sides
+  # have coordinates ----
+  has_both_coords <- !is.na(candidates$lat_x) & !is.na(candidates$lon_x) &
+    !is.na(candidates$lat_y) & !is.na(candidates$lon_y)
+
+  pts_x <- st_as_sf(candidates[has_both_coords, ], coords = c("lon_x", "lat_x"),
+                     crs = 4326, remove = FALSE) %>%
+    st_transform(projected_crs)
+
+  pts_y <- st_as_sf(candidates[has_both_coords, ], coords = c("lon_y", "lat_y"),
+                     crs = 4326, remove = FALSE) %>%
+    st_transform(projected_crs)
+
+  candidates$distance_km <- NA_real_
+  candidates$distance_km[has_both_coords] <- drop_units(
+    set_units(st_distance(pts_x, pts_y, by_element = TRUE), "km")
+  )
+
+  candidates <- candidates %>%
+    mutate(passes_distance = !is.na(distance_km) & distance_km <= distance_cutoff_km)
+
+  # Resolve match status per village, counting valid candidates from each side ----
+  match_counts_x <- candidates %>%
+    filter(!is.na(village_x)) %>%
+    group_by(id_x) %>%
+    summarise(n_valid_x = sum(passes_distance, na.rm = TRUE), .groups = "drop")
+
+  match_counts_y <- candidates %>%
+    filter(!is.na(village_y)) %>%
+    group_by(id_y) %>%
+    summarise(n_valid_y = sum(passes_distance, na.rm = TRUE), .groups = "drop")
+
+  candidates %>%
+    left_join(match_counts_x, by = "id_x") %>%
+    left_join(match_counts_y, by = "id_y") %>%
+    mutate(
+      match_status = case_when(
+        passes_distance & n_valid_x == 1 & n_valid_y == 1 ~ "matched",
+        passes_distance ~ "ambiguous",
+        is.na(id_x) | is.na(id_y) ~ "unmatched",
+        TRUE ~ "name_candidate_failed_distance"
+      )
+    ) %>%
+    dplyr::select(village_x, village_y, id_x, id_y, string_dist, distance_km, match_status)
+}
+
+# resolve_ambiguous_by_name_closeness()
+#
+# For each AVENIR village with more than one MORDOR village passing the
+# distance cutoff ("ambiguous" in match_villages_by_name_and_distance()'s
+# output), keeps only the MORDOR village whose cleaned name is closest by
+# Jaro-Winkler distance.
+#
+# Arguments:
+# - village_matches: tibble returned by match_villages_by_name_and_distance()
+#
+# Details:
+# - Only acts on rows where match_status == "ambiguous".
+# - Resolves per AVENIR village only. If two candidates for the same
+#   village_x tie exactly on string_dist, the tie can't be broken this way —
+#   those rows come back as still_tied.
+# - Resolving each AVENIR village independently doesn't guarantee a clean
+#   1:1 result: the same MORDOR village can end up as the closest-name pick
+#   for more than one AVENIR village. Those cases are flagged in
+#   residual_many_to_one rather than silently deduplicated.
+#
+# Requirements:
+# - Packages: dplyr
+#
+# Returns:
+# - A list with three tibbles: resolved, still_tied, residual_many_to_one
+#   (same columns as the input, minus match_status)
+resolve_ambiguous_by_name_closeness <- function(village_matches) {
+
+  ambiguous <- village_matches %>%
+    filter(match_status == "ambiguous")
+
+  if (nrow(ambiguous) == 0) {
+    empty <- village_matches[0, ] %>% dplyr::select(-match_status)
+    return(list(resolved = empty, still_tied = empty, residual_many_to_one = empty))
+  }
+
+  min_dist_per_x <- ambiguous %>%
+    group_by(id_x) %>%
+    mutate(
+      is_min = string_dist == min(string_dist),
+      n_min = sum(is_min)
+    ) %>%
+    ungroup()
+
+  resolved <- min_dist_per_x %>%
+    filter(is_min, n_min == 1) %>%
+    dplyr::select(-is_min, -n_min, -match_status)
+
+  still_tied <- min_dist_per_x %>%
+    filter(is_min, n_min > 1) %>%
+    dplyr::select(-is_min, -n_min, -match_status)
+
+  residual_many_to_one <- resolved %>%
+    group_by(id_y) %>%
+    filter(n() > 1) %>%
+    ungroup()
+
+  list(resolved = resolved, still_tied = still_tied, residual_many_to_one = residual_many_to_one)
+}
+
+# finalize_village_match_table()
+#
+# Collapses the candidate table from match_villages_by_name_and_distance(),
+# together with the resolved output of resolve_ambiguous_by_name_closeness(),
+# into one row per AVENIR village.
+#
+# Arguments:
+# - village_matches: tibble from match_villages_by_name_and_distance()
+# - resolved_ambiguous: the `resolved` tibble from
+#   resolve_ambiguous_by_name_closeness() — its rows are treated as matched
+# - nearest_dist: tibble with one row per AVENIR village, columns village_x
+#   and dist_nearest_mordor_km, giving the distance to the nearest MORDOR
+#   village regardless of match status
+#
+# Details:
+# - matched is TRUE if the AVENIR village has a "matched" row in
+#   village_matches, or a row in resolved_ambiguous. Everything else —
+#   "unmatched", "name_candidate_failed_distance", or an ambiguous pair
+#   resolve_ambiguous_by_name_closeness() could not resolve (still_tied,
+#   residual_many_to_one) — collapses to matched = FALSE. This table does
+#   not distinguish among those unresolved cases; go back to
+#   village_matches / the resolver's output for that detail.
+# - Assumes AVENIR village names are unique; duplicates will collapse.
+#
+# Requirements:
+# - Packages: dplyr
+#
+# Returns:
+# - A tibble with one row per AVENIR village: village_x, matched (logical),
+#   village_y, string_dist, distance_km, dist_nearest_mordor_km
+finalize_village_match_table <- function(village_matches, resolved_ambiguous, nearest_dist) {
+
+  found <- bind_rows(
+    village_matches %>%
+      filter(match_status == "matched") %>%
+      dplyr::select(village_x, village_y, id_x, id_y, string_dist, distance_km),
+    resolved_ambiguous %>%
+      dplyr::select(village_x, village_y, id_x, id_y, string_dist, distance_km)
+  ) %>%
+    mutate(matched = TRUE)
+
+  village_matches %>%
+    filter(!is.na(village_x)) %>%
+    distinct(id_x, village_x) %>%
+    left_join(found, by = c("id_x", "village_x")) %>%
+    mutate(matched = coalesce(matched, FALSE)) %>%
+    left_join(nearest_dist, by = c("id_x", "village_x")) %>%
+    dplyr::select(village_x, id_x, matched, village_y, id_y, string_dist, distance_km, dist_nearest_mordor_km)
+}
+
+```
+
+```{r}
+#| label: "fuzzy-match-villages"
+
+# Load data -----
+
+avenir_villages <- df_all %>%
+  dplyr::select(site_code, village_name = grappe, latitude = lat, longitude = lon)
+mordor_villages <- mordor_grappe %>%
+  dplyr::select(village_name = grappe, latitude, longitude)
+ 
+# Match -----
+ 
+village_matches <- match_villages_by_name_and_distance(
+  dat_x = avenir_villages, dat_y = mordor_villages,
+  name_x = village_name, name_y = village_name,
+  id_x = site_code, id_y = village_name,
+  lat_x = latitude, lon_x = longitude,
+  lat_y = latitude, lon_y = longitude,
+  projected_crs = proj_crs,
+  max_string_dist = max_string_dist,
+  distance_cutoff_km = distance_cutoff_km
+)
+
+village_matches %>% count(match_status) %>% print(n = Inf)
+
+# Resolve ambiguous pairs by closest name -----
+# Check still_tied and residual_many_to_one before trusting the FALSE label
+# those villages get in the final table below.
+
+ambiguous_resolution <- resolve_ambiguous_by_name_closeness(village_matches)
+# ambiguous_resolution$still_tied
+# ambiguous_resolution$residual_many_to_one
+
+# Nearest-MORDOR-village distance for every AVENIR village -----
+# Independent of the name match — every AVENIR village gets the distance to
+# whichever MORDOR village is geographically closest, in the same projected
+# CRS, regardless of whether a name match was found for it.
+
+avenir_pts <- st_as_sf(avenir_villages, coords = c("longitude", "latitude"),
+                        crs = 4326, remove = FALSE) %>%
+  st_transform(proj_crs)
+
+mordor_pts <- st_as_sf(mordor_villages, coords = c("longitude", "latitude"),
+                        crs = 4326, remove = FALSE) %>%
+  st_transform(proj_crs)
+
+nearest_mordor_idx <- st_nearest_feature(avenir_pts, mordor_pts)
+
+nearest_dist <- tibble(
+  id_x = avenir_villages$site_code,
+  village_x = avenir_villages$village_name,
+  dist_nearest_mordor_km = drop_units(set_units(
+    st_distance(avenir_pts, mordor_pts[nearest_mordor_idx, ], by_element = TRUE), "km"
+  ))
+)
+
+# Final table -----
+
+final_village_matches <- finalize_village_match_table(
+  village_matches, ambiguous_resolution$resolved, nearest_dist
+) %>%
+  dplyr::select(site_code = id_x, grappe = village_x, 
+                match_status = matched, match_mordor_grappe = village_y, match_string_dist = string_dist, match_distance_km = distance_km,
+                dist_nearest_mordor_km)
+
+df_all <- df_all %>%
+  left_join(final_village_matches, by = c("site_code", "grappe"))
+
+```
+
+## Methods
+
+- We match AVENIR and MORDOR village lists in two stages, since village names in the two source lists frequently differ by spelling, transliteration, or diacritics: fuzzy name matching, followed by spatial distance verification.
+- Candidate name pairs are generated using Jaro-Winkler string distance (`method = "jw"`), which tolerates minor spelling variation while remaining sensitive to a shared prefix. Candidates exceeding a string distance of `0.15` are excluded before spatial verification.
+- Each surviving candidate is verified against the geographic distance between coordinates, projected to UTM zone 32N (EPSG:32632) rather than computed in geographic coordinates (EPSG:4326). Candidates beyond `1` km are excluded.
+- AVENIR villages with exactly one candidate passing both thresholds are matched directly. Villages with more than one passing candidate are resolved to the closest-name candidate where that resolution is unambiguous (no exact string-distance tie, no collision with another AVENIR village's resolved match).
+- `site_code` (AVENIR) and `grappe` (MORDOR) serve as primary keys throughout, since village names are not unique within the AVENIR list.
+- Distance to the nearest MORDOR village (`dist_nearest_mordor_km`) is computed for every AVENIR village independently of match status, via nearest-feature lookup in the same projected CRS — unmatched villages still carry a meaningful distance rather than a missing value.
+
+## Descriptive statistics
+
+```{r}
+district_summary <- df_all %>%
+  group_by(district) %>%
+  summarise(
+    n_villages = n(),
+    n_matched = sum(match_status, na.rm = TRUE),
+    pct_matched = round(100 * n_matched / n_villages, 1),
+    median_dist_nearest_mordor_km = round(median(dist_nearest_mordor_km, na.rm = TRUE), 3),
+    total_pt_year_1to59 = round(sum(pt_year_1to59, na.rm = TRUE), 0),
+    total_deaths_1to59 = sum(n_deaths_1to59, na.rm = TRUE),
+    median_deaths_per_1000_1to59 = round(median(deaths_per_1000_1to59, na.rm = TRUE), 1),
+    # assumes isTreated_child's "treated" level is labeled "Treated" —
+    # confirm against levels(df_all$isTreated_child) if this looks off
+    pct_treated_child = round(100 * mean(isTreated_child == "Treatment", na.rm = TRUE), 1)
+  ) %>%
+  arrange(desc(pct_matched))
+
+district_summary %>%
+  knitr::kable(
+    col.names = c("District", "N villages", "N matched", "% matched",
+                  "Median dist. to nearest MORDOR (km)", "Total person-years (1–59mo)",
+                  "Total deaths (1–59mo)", "Median deaths/1000 (1–59mo)", "% treated (child)")
+  )
+```
+
+- Of `r nrow(df_all)` AVENIR villages, `r sum(df_all$match_status, na.rm = TRUE)`
+  (`r round(100 * sum(df_all$match_status, na.rm = TRUE) / nrow(df_all), 1)`%) matched
+  to a MORDOR village under these thresholds.
+- Among matched villages, the median distance between the matched pair is
+  `r round(median(df_all$match_distance_km, na.rm = TRUE), 3)` km
+  (IQR: `r round(quantile(df_all$match_distance_km, 0.25, na.rm = TRUE), 3)`–`r round(quantile(df_all$match_distance_km, 0.75, na.rm = TRUE), 3)` km).
+- Across all `r nrow(df_all)` AVENIR villages regardless of match status,
+  distance to the nearest MORDOR village has a median of
+  `r round(median(df_all$dist_nearest_mordor_km, na.rm = TRUE), 3)` km
+  (IQR: `r round(quantile(df_all$dist_nearest_mordor_km, 0.25, na.rm = TRUE), 3)`–`r round(quantile(df_all$dist_nearest_mordor_km, 0.75, na.rm = TRUE), 3)` km).
+- As expected, match rate varies by district, from
+  `r min(district_summary$pct_matched)`% in
+  `r district_summary$district[which.min(district_summary$pct_matched)]` to
+  `r max(district_summary$pct_matched)`% in
+  `r district_summary$district[which.max(district_summary$pct_matched)]`.
+- Median distance to the nearest MORDOR village likewise varies by district,
+  from `r min(district_summary$median_dist_nearest_mordor_km)` km in
+  `r district_summary$district[which.min(district_summary$median_dist_nearest_mordor_km)]`
+  to `r max(district_summary$median_dist_nearest_mordor_km)` km in
+  `r district_summary$district[which.max(district_summary$median_dist_nearest_mordor_km)]`
+  (Table @tbl-district-summary).
+- Mortality burden (1–59 months) is comparable between districts with
+  higher and lower match rates: median deaths per 1000 person-years ranges
+  from `r min(district_summary$median_deaths_per_1000_1to59)` to
+  `r max(district_summary$median_deaths_per_1000_1to59)` across districts,
+  with no consistent relationship to `pct_matched` — a spot check worth
+  revisiting once the `dist_nearest_mordor_km` fix is confirmed, since a
+  district-level correlation between match rate and mortality would suggest
+  the matching procedure is not missing at random with respect to outcome.
+  
+```{r}
+#| label: plot-mordor-village-matches
+
+ggplot(data = df_all, 
+       aes(group = district, color = district, 
+           x = dist_nearest_mordor_km, y = deaths_per_1000_1to59)) +
+  geom_point(alpha = 0.5) +
+  theme_minimal(base_size = 14) +
+  stat_cor(method = "pearson") +
+  labs(x = "Distance to nearest MORDOR village (km)",
+       y = "Deaths per 1000 person-years (1–59mo)",
+       color = "District") +
+  scale_color_brewer(palette = "Set1") +
+  theme(legend.position = "bottom")
+
+districts <- unique(df_all$district)
+
+temp <- df_all %>%
+  mutate(state_type = ifelse(mordorstate, "MORDOR", "non-MORDOR"))
+
+boot_mort_state <- boot_mort_rates(
+  data      = temp,
+  districts = NA,
+  n_boot    = 100,
+  mc_cores  = avail_thr,
+  group_var = "state_type"
+)
+
+boot_mort_state_df <- purrr::map_dfr(boot_mort_state, identity, .id = "replicate") %>%
+      group_by(district, state_type) %>%
+      summarise(
+        MortRate_mean    = mean(MortRate, na.rm = TRUE),
+        MortRate_CI_low  = quantile(MortRate, 0.025, na.rm = TRUE),
+        MortRate_CI_high = quantile(MortRate, 0.975, na.rm = TRUE),
+        .groups = "drop"
+      )
+
+```
+
+
+```{r}
+#| label: "fit-non-mordor-model"
+#| eval: false
+
+df_sub <- df_proj %>%
+  dplyr::filter(mordorstate == FALSE)
+
+# tic("fit spaMM model for child mortality with interaction")
+# non_mordor_model_fit <- spaMM::fitme(
+#   n_deaths_1to59 ~
+#     1 + lat + lon +
+#     Matern(1 | lon + lat) +
+#     isTreated_child +
+#     isTreated_child * lat + isTreated_child *
+#     lon +
+#     offset(log(pt_year_1to59)),
+#   data = df_sub,
+#   family = poisson(link = "log"),
+#   control.HLfit = list(NbThreads = avail_thr)
+# )
+# toc()
+# 
+# saveRDS(non_mordor_model_fit,
+#         here("data", "non_mordor_model_fit.rds"))
+
+non_mordor_model_fit <- readRDS(here("data", "non_mordor_model_fit.rds"))
+
+```
+
+```{r}
+#| label: "predict-non-mordor-model"
+#| eval: false
+
+non_mordor_pred <- get_grid_preds_both_tx(input_grid = boxgrid, spamm_model_fit = non_mordor_model_fit)
+
+non_mordor_pred_ctrl <- non_mordor_pred %>%
+    dplyr::filter(isTreated_child == "Control") %>%
+    dplyr::select(geometry, pred)
+
+mod_mort_pred_rast <- make_raster_map(non_mordor_pred_ctrl, proj_crs, global_crs, "pred")
+mod_mort_pred_df <- as.data.frame(mod_mort_pred_rast, xy = TRUE, na.rm = FALSE)
+
+mod_ate_pred <- ate_preds %>%
+    dplyr::filter(model == "gen_krig_int") %>%
+    dplyr::select(geometry, ATE)
+
+mod_ate_pred_rast <- make_raster_map(mod_ate_pred, proj_crs, global_crs, "ATE")
+mod_ate_pred_df <- as.data.frame(mod_ate_pred_rast, xy = TRUE, na.rm = FALSE)
+
+```
+
+
+

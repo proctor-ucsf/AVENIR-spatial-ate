@@ -396,7 +396,11 @@ materncorr_gen_krig_mordor <- plot_matern_corr_proj(fitmort_child_gen_krig_mordo
 
 ## 2 Matern fields
 
-```{r fit double matern model, eval=FALSE}
+This model allows the Matérn spatial correlation to differ between treatment arms, i.e., the residual spatial structure in mortality may be different in the treatment vs. control arms. This is a more flexible specification than the previous models, which assume a single Matérn correlation structure across both arms.
+
+Fitting too 9970.26 sec (2.77 hours) with 11 threads. 
+
+```{r fit double matern model}
 
 df_proj <- df_proj %>%
   mutate(isTreated_child_num = ifelse(isTreated_child == "Treatment", 1, 0))
@@ -426,15 +430,15 @@ if(refit_models_flag) {
 
 ```
 
-```{r results of the matern by tx status, eval=FALSE}
+```{r results of the matern by tx status}
 
 summary(fitmort_child_doub_matern)
 
-fitmort_child_doub_matern <- plot_matern_corr_proj(fitmort_child_doub_matern,
+materncorr_doub_matern <- plot_matern_corr_proj(fitmort_child_doub_matern,
                                                  "avenir-materncorr-fitmort_child_doub_matern",
                                                  modelname = "Matern by tx status")
 
-fitmort_child_doub_matern
+materncorr_doub_matern
 
 ```
 
@@ -531,8 +535,9 @@ models_list <- list(
   gen_krig = fitmort_child_gen_krig,
   gen_krig_re = fitmort_child_gen_krig_re,
   gen_krig_int = fitmort_child_gen_krig_int,
-  matern_dist = fitmort_child_matern_dist,
-  # doub_matern = fitmort_child_doub_matern,
+  gen_krig_mordor = fitmort_child_gen_krig_mordor,
+  # matern_dist = fitmort_child_matern_dist,
+  doub_matern = fitmort_child_doub_matern,
   dist_FE = fitmort_child_dist_FE
 )
 
@@ -567,10 +572,11 @@ saveRDS(preds_wide, here("data", "preds_ATE.rds"))
 Comparing Matérn correlation functions across all four models. The range parameter (distance at which correlation drops to ~0.05) indicates the spatial scale of residual mortality clustering after conditioning on model covariates. Shorter range in more complex models suggests that additional fixed effects (lat/lon trend, interaction) are absorbing large-scale spatial structure.
 
 ```{r matern corr plots}
-materncorr_simp_krig + materncorr_gen_krig + materncorr_gen_krig_int + materncorr_gen_krig_re
+materncorr_simp_krig + materncorr_gen_krig + materncorr_gen_krig_int + materncorr_gen_krig_re +
+  materncorr_gen_krig_mordor + materncorr_gen_krig_matern_dist + materncorr_gen_krig_dist_FE
 
 ggsave(here("results", "figs" ,"matern_corrs.png"),
-    bg = "white", width = 10, height = 9)
+    bg = "white", width = 12, height = 9)
 ```
 
 ### AIC and LRT summary tables
@@ -579,27 +585,39 @@ Consolidated model comparison. AIC differences > 2 indicate a meaningful improve
 
 ```{r aic and lrt tables}
 aic_table <- data.frame(
-  Model = c("Simple Kriging", "Generalized Kriging", "Gen Krige + Interaction", "Gen Krige + Cluster RE", "Gen Krige + MORDOR"),
+  Model = c("Simple Kriging", "Generalized Kriging", "Gen Krige + Interaction", "Gen Krige + Cluster RE", "Gen Krige + MORDOR", "Matern by district", "Matern by tx status", "District FE"),
   AIC = c(
     AIC(fitmort_child_simp_krig)[1],
     AIC(fitmort_child_gen_krig)[1],
     AIC(fitmort_child_gen_krig_int)[1],
     AIC(fitmort_child_gen_krig_re)[1],
-    AIC(fitmort_child_gen_krig_mordor)[1]
+    AIC(fitmort_child_gen_krig_mordor)[1],
+    AIC(fitmort_child_matern_dist)[1],
+    AIC(fitmort_child_doub_matern)[1],
+    AIC(fitmort_child_dist_FE)[1]
   )
 )
 
 lrt_table <- data.frame(
-  Comparison = c("Gen Krige vs Simple Krige", "Gen Krige + Interaction vs Gen Krige", "Gen Krige + MORDOR vs Gen Krige + Interaction"),
+  Comparison = c("Gen Krige vs Simple Krige", "Gen Krige + Interaction vs Gen Krige", 
+                 "Gen Krige + MORDOR vs Gen Krige + Interaction", 
+                 # "Matern by tx status vs Gen Krige + Interaction", "Matern by district vs Gen Krige + Interaction", 
+                 "District FE vs Gen Krige + Interaction"),
   LRT_statistic = c(
     LRT(fitmort_child_gen_krig, fitmort_child_simp_krig)$basicLRT$chi2_LR,
     LRT(fitmort_child_gen_krig_int, fitmort_child_gen_krig)$basicLRT$chi2_LR,
-    LRT(fitmort_child_gen_krig_mordor, fitmort_child_gen_krig_int)$basicLRT$chi2_LR
+    LRT(fitmort_child_gen_krig_mordor, fitmort_child_gen_krig_int)$basicLRT$chi2_LR,
+    # LRT(fitmort_child_doub_matern, fitmort_child_gen_krig_int)$basicLRT$chi2_LR,
+    # LRT(fitmort_child_matern_dist, fitmort_child_gen_krig_int)$basicLRT$chi2_LR,
+    LRT(fitmort_child_dist_FE, fitmort_child_gen_krig_int)$basicLRT$chi2_LR
   ),
   p_value = c(
     LRT(fitmort_child_gen_krig, fitmort_child_simp_krig)$basicLRT$p_value,
     LRT(fitmort_child_gen_krig_int, fitmort_child_gen_krig)$basicLRT$p_value,
-    LRT(fitmort_child_gen_krig_mordor, fitmort_child_gen_krig_int)$basicLRT$p_value
+    LRT(fitmort_child_gen_krig_mordor, fitmort_child_gen_krig_int)$basicLRT$p_value,
+    # LRT(fitmort_child_doub_matern, fitmort_child_gen_krig_int)$basicLRT$p_value,
+    # LRT(fitmort_child_matern_dist, fitmort_child_gen_krig_int)$basicLRT$p_value,
+    LRT(fitmort_child_dist_FE, fitmort_child_gen_krig_int)$basicLRT$p_value
   )
 )
 
