@@ -347,7 +347,8 @@ dist_rand_summ <- grappe_mort_filt %>%
     boot_mort_rand_df,
     by = c("district", "tx")
   ) %>%
-  mutate(MortRate_CI = paste0(round(MortRate, 2), " (95% CI: ", round(MortRate_CI_low, 2), " to ", round(MortRate_CI_high, 2), ")"))
+  # mutate(MortRate_CI = paste0(round(MortRate, 1), " (95% CI: ", round(MortRate_CI_low, 1), ",", round(MortRate_CI_high, 2), ")"))
+  mutate(MortRate_CI = sprintf("%.1f (95%% CI: %.1f, %.1f)", MortRate, MortRate_CI_low, MortRate_CI_high))
 
 ```
 
@@ -413,7 +414,8 @@ b_boxgrid <- st_make_grid(
   st_sf(geometry = .) %>%
   st_filter(niger_adm2_sub_proj) %>%  # drop points outside study districts
   st_join(niger_adm2_sub_proj %>% dplyr::select(adm2_name), join = st_within) %>%
-  rename(district = adm2_name)
+  rename(district = adm2_name) %>%
+  mutate(mordorstate = ifelse(district %in% c("Boboye", "Falmey", "Loga"), TRUE, FALSE))
 
 saveRDS(niger_adm2_sub, here("data", "niger_adm2_sub.rds"))
 saveRDS(b_boxgrid, here("data", "boxgrid.rds"))

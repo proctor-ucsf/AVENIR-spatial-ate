@@ -190,7 +190,7 @@ lrt_gen_vs_simp_p    <- lrts %>% dplyr::filter(grepl("Simple",      Comparison))
 lrt_int_vs_gen_stat  <- lrts %>% dplyr::filter(grepl("Interaction", Comparison)) %>% dplyr::pull(LRT_statistic)
 lrt_int_vs_gen_p     <- lrts %>% dplyr::filter(grepl("Interaction", Comparison)) %>% dplyr::pull(p_value)
 
-lrt_csi <- LRT(fit_csi_gen_krig, fit_csi_simp_krig)$basicLRT
+# lrt_csi <- spaMM::LRT(fit_csi_gen_krig, fit_csi_simp_krig)$basicLRT
 
 # CSI stats
 csi_med_deaths <- median(csi_dat$n_deaths_1to59)
@@ -395,7 +395,7 @@ The `r length(dept_grappes)`^★^ departments in the study area had between `r m
 ### Test of heterogeneity in mortality rates across departments
 
 ```{r}
-#| label: heterogeneity-test
+#| label: heterogeneity-test-mort
 
 global_poi_mod <- glm(n_deaths_1to59 ~ isTreated_child + offset(log(pt_year_1to59)),
                       data = subset(df_all, pt_year_1to59 > 0), family = poisson(link = "log"))
@@ -438,6 +438,20 @@ dist_summ %>%
 
 ```
 
+### Test of heterogeneity in ATE across departments
+
+```{r}
+#| label: heterogeneity-test-mort
+
+state_poi_mod <- glm(n_deaths_1to59 ~ isTreated_child + factor(district) + offset(log(pt_year_1to59)),
+                      data = subset(df_all, pt_year_1to59 > 0), family = poisson(link = "log"))
+
+tx_state_poi_mod <- glm(n_deaths_1to59 ~ isTreated_child * factor(district) + offset(log(pt_year_1to59)),
+                        data = subset(df_all, pt_year_1to59 > 0), family = poisson(link = "log"))
+
+lmtest::lrtest(tx_state_poi_mod, state_poi_mod)
+
+```
 
 ### Maps of mortality rates and ATE by department
 

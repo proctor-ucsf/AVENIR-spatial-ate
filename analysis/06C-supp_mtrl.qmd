@@ -50,8 +50,18 @@ ate_preds <- readRDS(here("data", "preds_ATE.rds"))
 
 ```{r Supp table 1}
 
+mort_ci_tbl <- dist_tx_summ %>%
+  mutate(MortRate_CI = sprintf("%.1f (95%% CI: %.1f, %.1f)", MortRate, MortRate_CI_low, MortRate_CI_high)) %>%
+  dplyr::select(district, isTreated_child, MortRate_CI) %>%
+  pivot_wider(names_from = isTreated_child, values_from = MortRate_CI, names_prefix = "MortRate_")
+
+dist_summ <- dist_summ %>%
+  mutate(ATE_CI = sprintf("%.1f (95%% CI: %.1f, %.1f)", ATE, ATE_CI_low, ATE_CI_high))
+
 dist_summ %>%
-  arrange(ATE) %>%
+  dplyr::select(-starts_with("MortRate")) %>%
+  left_join(mort_ci_tbl, by = "district") %>%
+  arrange(desc(ATE)) %>%
   dplyr::select(district, ends_with("_Treatment"), ends_with("_Control"), ATE_CI) %>%
   knitr::kable(digits = 2)
 
@@ -133,7 +143,8 @@ dist_summ %>%
   theme_bw(base_size = 12) +
   theme(axis.title.y = element_blank(),
     axis.text.y = ggtext::element_markdown(lineheight = 1)) +
-  scale_y_discrete(limits = rev)
+  scale_y_discrete(limits = rev) +
+  scale_x_continuous(breaks = seq(-10, 5, by = 5))
 
 ggsave(
   last_plot(),

@@ -45,6 +45,7 @@ niger_adm2 <- st_read(dsn = here("data", "untouched", "ner_admin_boundaries", "n
 ```{r Load data}
 
 df_all <- readRDS(here("data","grappe_mortality_data_all_rands.rds"))
+niger_adm2_sub <- readRDS(here("data", "niger_adm2_sub.rds"))
 
 # Project coordinates to UTM so distances are in meters, not degrees
 
@@ -67,18 +68,27 @@ niger_adm2 <- niger_adm2 %>%
 niger_dists_cr <- st_crop(niger_adm1, xmin = 0, xmax = 7,
                                     ymin = 11, ymax = 19)
 
+niger_adm1 <- niger_adm1 %>%
+  mutate(interest = ifelse(adm1_name %in% c("Dosso","Tahoua"), "Yes", "No"))
 
+dosso_union <- niger_adm2 %>%
+  filter(adm1_name == "Dosso") %>%
+  st_union()
+
+tahoua_union <- niger_adm2 %>%
+  filter(adm1_name == "Tahoua") %>%
+  st_union()
 ```
 
 ```{r Plot Niger departments map}
 
 plot_niger_admin <- ggplot() +
-    geom_sf(data=niger_adm1, color="black",lwd=0.5) +
+    geom_sf(data=niger_adm1, aes(fill = interest), color="black",lwd=0.5) +
     # geom_sf(data=niger_gadm0_sf, color="black",lwd=0.5) +
     coord_sf(crs = global_crs) +
-    geom_rect(aes(xmin = 0, xmax = 7, ymin = 11.5, ymax = 19), color = "black", fill = NA, lty = "dashed", inherit.aes = FALSE) +
+    geom_rect(aes(xmin = 2, xmax = 7, ymin = 11.5, ymax = 19), color = "black", fill = NA, lty = "dashed", inherit.aes = FALSE) +
     # add country labels
-    annotate("text",x=4,y=22, label = "Niger", fontface="bold",size=8) +
+    annotate("text",x=16,y=11, label = "Niger", fontface="bold",size=6, hjust = 1, vjust = 0) +
     labs(x="",y="") +
     ylim(c(11, 23)) +
   xlim(c(0, 16)) +
@@ -91,7 +101,8 @@ plot_niger_admin <- ggplot() +
         axis.title = element_blank(),
         axis.line = element_blank(),
         plot.margin = margin(0,0,0,0, "pt")
-        )
+        ) +
+  scale_fill_manual(values = c("Yes" = "grey70", "No" = "grey90"), guide = "none")
 
 plot_niger_admin
 
@@ -100,41 +111,44 @@ plot_niger_admin
 ```{r Plot grappes map}
 
 # annotation line
-dosso_lab_line <- data.frame(x1=4.47,x2=4.1,y1=12.55,y2=12.7)
+dosso_lab_line <- data.frame(x1=3.25,x2=3.4,y1=14.35,y2=13.9)
 tahoua_lab_line <-  data.frame(x1=5.9,x2=5.5,y1=17.9,y2=17.5)
 
 # detailed zoom view, including grappes
 plot_grappe_map <- ggplot() +
-    # admin boundaries
-    geom_sf(data=niger_adm1, fill="white", color="black",lwd=1) + 
     geom_sf(data=niger_adm2, fill="white", color="black",lwd=0.3) +
+    # admin boundaries
+    geom_sf(data=dosso_union, fill=NA, color="black",lwd=1) +
+    geom_sf(data=tahoua_union, fill=NA, color="black",lwd=1) +
     # cluster points
     geom_sf(data=d_sf, aes(color=adaptive_rand),size=0.1, alpha=0.9, pch=19) +
     coord_sf(crs = global_crs,
-             xlim = c(0, 7), ylim = c(11, 19),
+             xlim = c(2.3, 7.4), ylim = c(11.4, 18.9),
              expand = FALSE) +
     # scale_shape_manual(values=c(15,16,17)) +
     # scale_color_brewer(type="seq") +
     scale_colour_manual(values = c("#FFA400FF", "grey40", "grey70"),
                              breaks = c("Randomization 1", "Randomization 2", "Randomization 3"),
                              labels = c("24 months", "12 months", "6 months"),
-                             name = "Follow-up time") +
+                             name = "\nFollow-up time") +
     # admin labels
     annotate("text",x=6,y=18.2, label = "Tahoua", fontface = "bold", color = "gray80", size=8) + # x=5.2,y=16.2,
-    annotate("text",x=5.4,y=12.5, label = "Dosso", fontface = "bold", color = "gray80", size=8) +
+    annotate("text",x=3.15,y=14.65, label = "Dosso", fontface = "bold", color = "gray80", size=8,
+             vjust = 0.5) +
     geom_segment(data=dosso_lab_line, aes(x=x1, xend=x2, y=y1, yend=y2), color = "gray80", lwd=0.8, arrow=arrow(angle=30,length=unit(2,"mm"),ends="last",type="open")) +
     geom_segment(data=tahoua_lab_line, aes(x=x1, xend=x2, y=y1, yend=y2), color = "gray80", lwd=0.8, arrow=arrow(angle=30,length=unit(2,"mm"),ends="last",type="open"))  +
-    annotation_scale(location = "br", width_hint = 0.3, pad_y=unit(0.1,"cm")) +
-    annotation_north_arrow(location = "br", which_north = "true", 
+    annotation_scale(location = "bl", width_hint = 0.3, pad_y=unit(0.1,"cm")) +
+    annotation_north_arrow(location = "bl", which_north = "true", 
         pad_x = unit(0.05, "in"), pad_y = unit(0.2, "in"),
         height=unit(0.75,"cm"), width=unit(0.75,"cm"),
         style = north_arrow_fancy_orienteering
         ) +
     labs(x="Longitude",y="Latitude") +
-    guides(color=guide_legend(reverse = FALSE, override.aes = list(size=4)))  +
+    guides(color=guide_legend(reverse = FALSE, override.aes = list(size=4), direction = "vertical", nrow = 1))  +
     theme_minimal(base_size = 14) +
     theme(
-        legend.position = "bottom"
+        legend.position = "bottom",
+        legend.title = element_text(hjust = 0.5, size = 12)
     )
 
 plot_grappe_map
@@ -146,9 +160,10 @@ plot_grappe_map
 
 plot_map_with_inset <- plot_grappe_map + 
     inset_element(plot_niger_admin,
-                  left = unit(0.15, "npc"), top = unit(1.35, "npc"),
-                  bottom = unit(0.28, "npc"), right = unit(0.54, "npc"),
-                  ignore_tag = TRUE
+                  left = unit(0.42, "npc"), top = unit(0.4, "npc"),
+                  bottom = unit(0, "npc"), right = unit(0.74, "npc"),
+                  ignore_tag = TRUE,
+                  on_top = TRUE
     )
 
 # see patch for existing bug in patchwork for geom_sf
@@ -158,7 +173,7 @@ plot_map_with_inset$patches$layout$heights <- 1
 
 plot_map_with_inset
 
-ggsave(here("results", "manuscript", "fig1-context-map.png"),
+ggsave(here("results", "manuscript", "fig1-context-map-2.png"),
        plot_map_with_inset,
        device = "png",
        width = 175,
@@ -166,5 +181,94 @@ ggsave(here("results", "manuscript", "fig1-context-map.png"),
        units = "mm",
        dpi = 300,
        bg = "white")
+```
+
+```{r}
+
+niger_adm2 <- niger_adm2 %>%
+  filter(adm1_name == "Dosso") %>%
+  st_make_valid()
+
+district_labels <- tibble::tibble(
+  district = c("Boboye", "Loga", "Dogondoutchi", "Dosso",
+               "Tibiri", "Falmey", "Dioundiou", "Gaya"),
+  lon      = c(2.78, 3.45, 4.10, 3.30,
+               3.92, 2.65, 4, 3.45),
+  lat      = c(13.05, 13.66, 13.90, 12.90,
+               13.10, 12.30, 12.50, 12.10)
+)
+
+dioundiou_lab_line <- data.frame(x1 = 3.58, x2 = 3.7, y1 = 12.60, y2 = 12.50)
+falmey_lab_line <- data.frame(x1 = 2.85, x2 = 2.65, y1 = 12.55, y2 = 12.37)
+
+dosso_map <- ggplot() +
+  geom_sf(data = niger_adm2, color = "NA", size = 0.25, fill = "white") +
+  # geom_sf(data = subset(d_sf, region == "Dosso"), aes(color = adaptive_rand), size = 0.3, alpha = 0.9) +
+  geom_sf(data = niger_adm2, color = "black", size = 0.15, fill = "NA") +
+  geom_sf(data = dosso_union, color = "black", size = 0.5, fill = "NA") +
+  geom_text(data = district_labels, aes(x = lon, y = lat, label = district), size = 3, color = "black")+
+  # scale_colour_manual(values = c("#FFA400FF", "grey40", "grey70"),
+  #                            breaks = c("Randomization 1", "Randomization 2", "Randomization 3"),
+  #                            labels = c("24 months", "12 months", "6 months"),
+  #                            name = "Follow-up time") +
+  # scale_color_manual(breaks = c("Infant Azithro", "Placebo", "Child Azithro"),
+  #                    labels = c("**Control**: Infant Azithro", "**Control**: Placebo", "**Treatment**"),
+  #                    values = c("#DA9FB8FF", "#C1447EFF", "#6E8537FF")) +
+  theme_minimal(base_size = 14) +
+  annotate("text", x = 2.5, y = 14.5, hjust = 0, vjust = 1, size = 4, fontface = "bold", label = "Dosso\nregion") +
+  annotation_scale() +
+  annotation_north_arrow(location = "bl", which_north = "true", 
+                         pad_x = unit(0.05, "in"), pad_y = unit(0.2, "in"),
+                         height=unit(0.75,"cm"), width=unit(0.75,"cm"),
+                         style = north_arrow_fancy_orienteering) +
+  geom_segment(data = dioundiou_lab_line, aes(x = x1, xend = x2, y = y1, yend = y2), color = "gray20", lwd=0.2) +
+  geom_segment(data = falmey_lab_line, aes(x = x1, xend = x2, y = y1, yend = y2), color = "gray20", lwd=0.2) +
+  scale_x_continuous(name = "Longitude") +
+  scale_y_continuous(name = "Latitude") +
+  # theme(
+  #   legend.position = "bottom",
+  #   legend.background = element_rect(fill = "white", color = NA),
+  #   legend.title = element_text(hjust = 1, vjust = 0.5),
+  #   legend.text = element_text(hjust = 1, vjust = 0.5)
+  # ) +
+  guides(color = "none")
+
+dosso_map
+
+```
+
+```{r Plot final figure with inset}
+
+design <- "
+142
+143
+"
+
+alt_fig1 <- plot_grappe_map + 
+    inset_element(plot_niger_admin,
+                  left = unit(30, "mm"), top = unit(33, "mm"),
+                  bottom = unit(2, "mm"), right = unit(87, "mm"),
+                  ignore_tag = TRUE,
+                  on_top = TRUE
+    ) +
+  dosso_map + guide_area() + plot_spacer() +
+  plot_layout(widths = c(1.1, -0.2, 1),
+              heights = c(1, 0.15),
+              guides = "collect",
+              axes = "collect",
+              design = design) +
+  plot_annotation(tag_levels = "A")
+
+alt_fig1
+
+ggsave(here("results", "manuscript", "fig1-context-map-dosso.png"),
+       alt_fig1,
+       device = "png",
+       width = 210,
+       height = 140,
+       units = "mm",
+       dpi = 300,
+       bg = "white")
+
 ```
 

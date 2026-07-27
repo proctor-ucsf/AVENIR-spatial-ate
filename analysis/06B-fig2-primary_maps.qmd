@@ -132,7 +132,7 @@ base_map
 ```{r Panel A}
 
 data_mort_control <- base_map +
-  geom_sf(data = niger_adm2_sub, aes(fill = MortRate_Control), color = NA, size = 0.25) +
+  geom_sf(data = niger_adm2_sub, aes(fill = MortRate_Control), color = "white", size = 0.1) +
   scale_fill_viridis_c(limits = c(0, 35),
                       na.value = NA,
                       breaks = seq(0,30,by=10),
@@ -150,7 +150,7 @@ data_mort_control <- base_map +
 data_mort_control
 ```
 
-```{r Panel B}
+```{r Panel D}
 
 data_ate <- base_map +
   geom_sf(data = niger_adm2_sub, aes(fill = ATE_mean), color = NA, size = 0.25) +
@@ -175,11 +175,11 @@ data_ate <- base_map +
 data_ate
 ```
 
-```{r Panel C}
+```{r Panel B}
 
 model_mort_control <- base_map +
   geom_raster(data = mod_mort_pred_df, aes(x = x, y = y, fill = pred), na.rm = TRUE) +
-  geom_sf(data = niger_adm2_sub, fill = NA, color = "grey60", size = 0.25) +
+  geom_sf(data = niger_adm2_sub, fill = NA, color = "white", size = 0.1) +
   scale_fill_viridis_c(limits = c(0, 35),
                       na.value = NA,
                       breaks = seq(0,30,by=10),
@@ -196,7 +196,8 @@ model_mort_control <- base_map +
 
 model_mort_control
 ```
-```{r Panel D}
+
+```{r Panel E}
 
 model_ate <- base_map +
     geom_raster(data = mod_ate_pred_df, aes(x = x, y = y, fill = ATE), na.rm = TRUE) +
@@ -222,11 +223,11 @@ model_ate <- base_map +
 model_ate
 ```
 
-```{r Panel E}
+```{r Panel C}
 
 csi_model_mort <- base_map +
     geom_raster(data = mod_csi_mort_pred_df, aes(x = x, y = y, fill = pred), na.rm = TRUE) +
-    geom_sf(data = niger_adm2_sub, fill = NA, color = "grey60", size = 0.25) +
+    geom_sf(data = niger_adm2_sub, fill = NA, color = "white", size = 0.1) +
     scale_fill_viridis_c(limits = c(0, 35),
                         na.value = NA,
                         breaks = seq(0,30,by=10),
@@ -284,7 +285,7 @@ fig2 <- data_mort_control +
 
 fig2
 
-ggsave(here("results", "manuscript", "fig2-primary_maps.png"),
+ggsave(here("results", "manuscript", "fig2-primary_maps-white.png"),
        plot = fig2, bg = "white", width = 10.5, height = 10, dpi = 300)
  
 ```
