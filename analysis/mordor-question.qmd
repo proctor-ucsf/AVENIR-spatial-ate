@@ -511,27 +511,188 @@ ggplot(data = df_all,
   scale_color_brewer(palette = "Set1") +
   theme(legend.position = "bottom")
 
-districts <- unique(df_all$district)
-
 temp <- df_all %>%
   mutate(state_type = ifelse(mordorstate, "MORDOR", "non-MORDOR"))
 
 boot_mort_state <- boot_mort_rates(
   data      = temp,
-  districts = NA,
+  strat_var = NA,
   n_boot    = 100,
   mc_cores  = avail_thr,
   group_var = "state_type"
 )
 
-boot_mort_state_df <- purrr::map_dfr(boot_mort_state, identity, .id = "replicate") %>%
-      group_by(district, state_type) %>%
-      summarise(
-        MortRate_mean    = mean(MortRate, na.rm = TRUE),
-        MortRate_CI_low  = quantile(MortRate, 0.025, na.rm = TRUE),
-        MortRate_CI_high = quantile(MortRate, 0.975, na.rm = TRUE),
-        .groups = "drop"
-      )
+boot_mort_state_df <- summarise_boot(boot_mort_state, "MortRate")
+
+```
+
+## Mortality by treatment arm and MORDOR-village overlap
+
+Supplementary-figure-1-style forest plot of bootstrapped under-5 mortality
+rates (deaths per 1000 person-years, 1–59 mo) within the three MORDOR
+departments (Boboye, Falmey, Loga), split by treatment arm and by whether each
+AVENIR village overlapped a MORDOR trial village (matched within
+`r distance_cutoff_km` km). Villages overlapping MORDOR received mass
+azithromycin during MORDOR, so a colour difference here would flag residual
+MORDOR exposure as a possible confounder of the AVENIR arm contrast. Two pooled
+rows are shown: **Overall (MORDOR depts)** pools only Boboye/Falmey/Loga, while
+**Overall (all depts)** pools every AVENIR department (where nearly all villages
+fall in the "no overlap" group). Point labels give the number of villages
+(grappes) contributing to each estimate.
+
+```{r}
+#| label: mortality-by-mordor-overlap
+#| fig-width: 8
+#| fig-height: 5
+
+# Prep: combined arm x overlap key -----
+# The key is passed as group_var below, so the bootstrap both resamples within
+# (district x arm x overlap) and reports by it; it is split back apart after
+# summarising. Build it once on all AVENIR data, then subset to MORDOR depts.
+all_data <- df_all %>%
+  mutate(
+    match_grp = ifelse(match_status, "Overlaps MORDOR", "No MORDOR overlap"),
+    arm_match = paste(isTreated_child, match_grp, sep = "___")
+  )
+mordor_dist <- all_data %>% dplyr::filter(mordorstate)
+
+# Bootstrap two ways: per-department (+ pooled over MORDOR depts) and pooled -----
+# over all AVENIR depts. Each village count comes from the raw data, not the boot.
+set.seed(42)
+boot_mordor <- boot_mort_rates(mordor_dist, strat_var = "district",
+                               n_boot = 1000, mc_cores = avail_thr, group_var = "arm_match")
+boot_all    <- boot_mort_rates(all_data, strat_var = NA,
+                               n_boot = 1000, mc_cores = avail_thr, group_var = "arm_match")
+
+overall_mordor_lab <- "Overall\n(MORDOR depts)"
+overall_all_lab    <- "Overall\n(all depts)"
+
+boot_mordor_df <- summarise_boot(boot_mordor, "MortRate") %>%
+  mutate(district = ifelse(district == "Overall", overall_mordor_lab, district))
+boot_all_df <- summarise_boot(boot_all, "MortRate") %>%
+  mutate(district = overall_all_lab)
+
+# per-cell village counts, matching each plotted row's grouping
+counts <- bind_rows(
+  mordor_dist %>% count(district, arm_match),
+  mordor_dist %>% count(arm_match) %>% mutate(district = overall_mordor_lab),
+  all_data    %>% count(arm_match) %>% mutate(district = overall_all_lab)
+)
+
+match_levels <- c("Boboye", "Falmey", "Loga", overall_mordor_lab, overall_all_lab)
+
+boot_match_df <- bind_rows(boot_mordor_df, boot_all_df) %>%
+  left_join(counts, by = c("district", "arm_match")) %>%
+  tidyr::separate(arm_match, into = c("isTreated_child", "match_grp"), sep = "___") %>%
+  mutate(
+    district        = factor(district, levels = match_levels),
+    isTreated_child = factor(isTreated_child, levels = c("Control", "Treatment")),
+    match_grp       = factor(match_grp, levels = c("No MORDOR overlap", "Overlaps MORDOR"))
+  )
+
+# Plot: arm on the y-axis, overlap status by colour, faceted by department -----
+pd <- position_dodge(width = 0.6)
+
+mort_match_plot <- ggplot(
+  boot_match_df,
+  aes(x = MortRate_mean, y = isTreated_child, color = match_grp)
+) +
+  geom_point(position = pd, size = 2) +
+  geom_errorbar(
+    aes(xmin = MortRate_CI_low, xmax = MortRate_CI_high),
+    position = pd, width = 0.3
+  ) +
+  geom_text(aes(label = paste0("n=", n)), position = pd,
+            vjust = -0.9, size = 2.5, show.legend = FALSE) +
+  facet_wrap(~ district, nrow = 2) +
+  scale_color_manual(values = c(
+    "No MORDOR overlap" = "#6E8537FF",
+    "Overlaps MORDOR"   = "#8B174DFF"
+  )) +
+  labs(x = "Mortality rate (deaths per 1000 py, 1–59 mo)", y = NULL, color = NULL) +
+  theme_bw(base_size = 12) +
+  theme(legend.position = "bottom")
+
+mort_match_plot
+
+ggsave(
+  mort_match_plot,
+  filename = here("results", "figs", "mordor_mortality_by_match_status.png"),
+  width = 8, height = 5, units = "in", dpi = 300
+)
+
+```
+
+## Mortality by distance to nearest MORDOR village
+
+Rather than the binary overlap flag, this bins every AVENIR village by its
+distance to the nearest MORDOR village into quantile (quartile) bins and shows
+the bootstrapped mortality rate per bin and arm, pooled across all AVENIR
+departments. A gradient across bins would suggest a dose-response with MORDOR
+proximity; a flat profile argues against residual MORDOR exposure driving the
+AVENIR arm contrast.
+
+```{r}
+#| label: mortality-by-distance-to-mordor
+#| fig-width: 7
+#| fig-height: 5
+
+# Prep: quantile-binned distance to nearest MORDOR village -----
+n_bins <- 4
+dist_breaks <- quantile(all_data$dist_nearest_mordor_km,
+                        probs = seq(0, 1, length.out = n_bins + 1), na.rm = TRUE)
+
+dist_data <- all_data %>%
+  dplyr::filter(!is.na(dist_nearest_mordor_km)) %>%
+  mutate(
+    dist_bin = cut(dist_nearest_mordor_km, breaks = dist_breaks,
+                   include.lowest = TRUE, dig.lab = 2),
+    # combined arm x distance-bin key (same trick as above)
+    arm_bin = paste(isTreated_child, dist_bin, sep = "___")
+  )
+
+set.seed(42)
+boot_dist <- boot_mort_rates(dist_data, strat_var = NA,
+                             n_boot = 1000, mc_cores = avail_thr, group_var = "arm_bin")
+
+dist_counts <- dist_data %>% count(arm_bin)
+
+boot_dist_df <- summarise_boot(boot_dist, "MortRate") %>%
+  left_join(dist_counts, by = "arm_bin") %>%
+  tidyr::separate(arm_bin, into = c("isTreated_child", "dist_bin"), sep = "___") %>%
+  mutate(
+    isTreated_child = factor(isTreated_child, levels = c("Control", "Treatment")),
+    dist_bin        = factor(dist_bin, levels = levels(dist_data$dist_bin))
+  )
+
+# Plot: dose-response of mortality across distance bins, by arm -----
+pd <- position_dodge(width = 0.4)
+
+dist_plot <- ggplot(
+  boot_dist_df,
+  aes(x = dist_bin, y = MortRate_mean, color = isTreated_child, group = isTreated_child)
+) +
+  geom_line(position = pd) +
+  geom_point(position = pd, size = 2) +
+  geom_errorbar(
+    aes(ymin = MortRate_CI_low, ymax = MortRate_CI_high),
+    position = pd, width = 0.2
+  ) +
+  geom_text(aes(label = paste0("n=", n)), position = pd,
+            vjust = -0.9, size = 2.5, show.legend = FALSE) +
+  scale_color_manual(values = c("Control" = "#8B174DFF", "Treatment" = "#6E8537FF")) +
+  labs(x = "Distance to nearest MORDOR village (km, quartile bins)",
+       y = "Mortality rate (deaths per 1000 py, 1–59 mo)", color = NULL) +
+  theme_bw(base_size = 12) +
+  theme(legend.position = "bottom")
+
+dist_plot
+
+ggsave(
+  dist_plot,
+  filename = here("results", "figs", "mordor_mortality_by_distance.png"),
+  width = 7, height = 5, units = "in", dpi = 300
+)
 
 ```
 
