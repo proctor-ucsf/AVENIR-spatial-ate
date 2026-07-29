@@ -9,38 +9,42 @@
 #--------------------------------------
 # run_boot()
 #
-# Stratified bootstrap scaffold. Resamples data within each district stratum
-# with replacement, applies a caller-supplied summary function to each bootstrap
-# dataset, and returns the list of per-replicate results. Execution is
-# parallelised with parallel::mclapply().
+# Stratified bootstrap scaffold. Resamples rows with replacement within each
+# stratum defined by one or more columns, applies a caller-supplied summary
+# function to each bootstrap dataset, and returns the list of per-replicate
+# results. Execution is parallelised with parallel::mclapply().
 #
 # Arguments:
-# - data:      data.frame; the grappe-level dataset to resample. Must contain
-#              a "district" column used to define strata.
-# - districts: character vector; unique district names that define the strata
-# - n_boot:    integer; number of bootstrap replicates
-# - mc_cores:  integer; number of cores passed to parallel::mclapply()
-# - iter_fn:   function(boot_data) -> any; applied to each resampled dataset.
-#              Must return a consistently-shaped object across all replicates.
+# - data:        data.frame; the grappe-level dataset to resample. Must contain
+#                every column named in strata_vars.
+# - strata_vars: character vector; names of the column(s) in data that define
+#                the resampling strata. Rows are resampled within each observed
+#                combination of these columns (e.g. c("district", arm)).
+# - n_boot:      integer; number of bootstrap replicates
+# - mc_cores:    integer; number of cores passed to parallel::mclapply()
+# - iter_fn:     function(boot_data) -> any; applied to each resampled dataset.
+#                Must return a consistently-shaped object across all replicates.
 #
 # Details:
-# - Resampling is stratified: within each district, rows are sampled with
-#   replacement at the same size as the observed stratum, preserving
-#   district-level sample sizes across replicates.
+# - Resampling is stratified: within each observed combination of strata_vars,
+#   rows are sampled with replacement at the same size as the observed stratum,
+#   preserving per-stratum sample sizes across replicates. Empty combinations
+#   are dropped (split(drop = TRUE)).
 # - iter_fn receives the full resampled data.frame, not row indices.
 #
 # Requirements:
-# - Packages: parallel, purrr, dplyr
+# - Packages: parallel, purrr
 #
 # Returns:
 # - A list of length n_boot; each element is the return value of iter_fn()
 #--------------------------------------
 
-run_boot <- function(data, districts, n_boot, mc_cores, iter_fn) {
+run_boot <- function(data, strata_vars, n_boot, mc_cores, iter_fn) {
+  # split once (not per replicate); strata = observed combinations of strata_vars
+  strata <- split(data, data[strata_vars], drop = TRUE)
   parallel::mclapply(seq_len(n_boot), function(i) {
-    boot_data <- purrr::map_dfr(districts, function(d) {
-      d_dat <- dplyr::filter(data, district == d)
-      d_dat[sample(nrow(d_dat), size = nrow(d_dat), replace = TRUE), ]
+    boot_data <- purrr::map_dfr(strata, function(s) {
+      s[sample(nrow(s), size = nrow(s), replace = TRUE), ]
     })
     iter_fn(boot_data)
   }, mc.cores = mc_cores)
@@ -50,15 +54,24 @@ run_boot <- function(data, districts, n_boot, mc_cores, iter_fn) {
 #--------------------------------------
 # boot_mort_rates()
 #
-# Bootstrap district-level and pooled mortality rates (deaths per 1000
-# person-years), stratified by a caller-specified grouping variable. A thin
-# wrapper around run_boot() that fixes the mortality-rate summary function
-# used throughout the AVENIR analysis.
+# Bootstrap stratum-level and pooled mortality rates (deaths per 1000
+# person-years) for a caller-specified grouping variable. A thin wrapper
+# around run_boot() that fixes the mortality-rate summary function used
+# throughout the AVENIR analysis.
+#
+# Resampling note: the stratified bootstrap resamples grappes *within*
+# district x group_var (the AVENIR cluster-randomized design), holding the
+# observed per-district arm sizes fixed across replicates. `strat_var` controls
+# only how the estimates are broken out for reporting.
 #
 # Arguments:
 # - data:      data.frame; grappe-level data containing n_deaths_1to59,
 #              pt_year_1to59, district, and the column named by group_var
-# - districts: character vector; unique district names (strata for resampling)
+# - strat_var: character(1) or NA; name of a column in `data` to break the
+#              estimates out by (e.g. "district", "mordorstate"). If NA, only
+#              the overall pooled rate per group_var is estimated (no
+#              stratum-level rows). This is effectively an optional second
+#              grouping variable layered on top of group_var.
 # - n_boot:    integer; number of bootstrap replicates
 # - mc_cores:  integer; number of cores passed to run_boot()
 # - group_var: character; name of the grouping column — either
@@ -71,22 +84,17 @@ run_boot <- function(data, districts, n_boot, mc_cores, iter_fn) {
 #
 # Returns:
 # - A list of length n_boot; each element is a data.frame with columns
-#   district, MortRate, and <group_var>, with one row per district x
-#   group combination plus an "Overall" pooled row
+#   MortRate, <group_var>, and (unless strat_var is NA) <strat_var>. When
+#   strat_var is a column name, there is one row per stratum x group
+#   combination — the stratum values live in a column named after strat_var —
+#   plus an "Overall" pooled row. When strat_var is NA, only the pooled rate
+#   per group is returned (no stratum column).
 #--------------------------------------
 
-boot_mort_rates <- function(data, districts, n_boot, mc_cores, group_var) {
-  run_boot(data, districts, n_boot, mc_cores, function(boot_data) {
-    district_rows <- boot_data %>%
-      group_by(district, .data[[group_var]]) %>%
-      summarise(
-        n_deaths_1to59 = sum(n_deaths_1to59, na.rm = TRUE),
-        pt_year_1to59  = sum(pt_year_1to59,  na.rm = TRUE),
-        MortRate       = n_deaths_1to59 * 1e3 / pt_year_1to59,
-        .groups        = "drop"
-      ) %>%
-      dplyr::select(district, MortRate, all_of(group_var))
-    
+boot_mort_rates <- function(data, strat_var, n_boot, mc_cores, group_var) {
+  # Resample within district x group_var so per-district arm sizes are held
+  # fixed across replicates (avoids empty-arm draws that would give NaN rates).
+  run_boot(data, c("district", group_var), n_boot, mc_cores, function(boot_data) {
     overall_row <- boot_data %>%
       group_by(.data[[group_var]]) %>%
       summarise(
@@ -95,9 +103,28 @@ boot_mort_rates <- function(data, districts, n_boot, mc_cores, group_var) {
         MortRate       = n_deaths_1to59 * 1e3 / pt_year_1to59,
         .groups        = "drop"
       ) %>%
-      mutate(district = "Overall") %>%
-      dplyr::select(district, MortRate, all_of(group_var))
-    
+      dplyr::select(MortRate, all_of(group_var))
+
+    # NA strat_var: overall pooled rate per group only, no stratum-level rows
+    if (length(strat_var) != 1 || is.na(strat_var)) {
+      return(overall_row)
+    }
+
+    district_rows <- boot_data %>%
+      group_by(.data[[strat_var]], .data[[group_var]]) %>%
+      summarise(
+        n_deaths_1to59 = sum(n_deaths_1to59, na.rm = TRUE),
+        pt_year_1to59  = sum(pt_year_1to59,  na.rm = TRUE),
+        MortRate       = n_deaths_1to59 * 1e3 / pt_year_1to59,
+        .groups        = "drop"
+      ) %>%
+      dplyr::select(all_of(strat_var), MortRate, all_of(group_var))
+
+    # pooled row, labelled "Overall" in the stratum column
+    overall_row <- overall_row %>%
+      mutate(!!strat_var := "Overall") %>%
+      dplyr::select(all_of(strat_var), MortRate, all_of(group_var))
+
     bind_rows(district_rows, overall_row)
   })
 }
@@ -106,15 +133,20 @@ boot_mort_rates <- function(data, districts, n_boot, mc_cores, group_var) {
 #--------------------------------------
 # boot_ate()
 #
-# Bootstrap district-level and pooled average treatment effects (ATE) as the
+# Bootstrap stratum-level and pooled average treatment effects (ATE) as the
 # difference in pooled mortality rates (Treatment - Control, deaths per 1000
-# person-years). Stratified resampling is performed within districts; the
-# treatment indicator is fixed to isTreated_child.
+# person-years). The treatment indicator is fixed to isTreated_child.
+#
+# Resampling note: the stratified bootstrap resamples grappes *within*
+# district x isTreated_child, holding the observed per-district arm sizes fixed
+# across replicates. `strat_var` controls only the reporting breakdown.
 #
 # Arguments:
 # - data:      data.frame; grappe-level data containing n_deaths_1to59,
 #              pt_year_1to59, district, and isTreated_child
-# - districts: character vector; unique district names (strata for resampling)
+# - strat_var: character(1) or NA; name of a column in `data` to break the ATE
+#              out by (e.g. "district"). If NA, only the overall pooled ATE is
+#              estimated (no stratum-level rows).
 # - n_boot:    integer; number of bootstrap replicates
 # - mc_cores:  integer; number of cores passed to run_boot()
 #
@@ -123,27 +155,16 @@ boot_mort_rates <- function(data, districts, n_boot, mc_cores, group_var) {
 # - Packages: dplyr, tidyr
 #
 # Returns:
-# - A list of length n_boot; each element is a data.frame with columns
-#   district and ATE, with one row per district plus an "Overall" pooled row
+# - A list of length n_boot; each element is a data.frame with column ATE and
+#   (unless strat_var is NA) a column named after strat_var. When strat_var is
+#   a column name, there is one row per stratum plus an "Overall" pooled row;
+#   when NA, only the pooled ATE is returned (no stratum column).
 #--------------------------------------
 
-boot_ate <- function(data, districts, n_boot, mc_cores) {
-  run_boot(data, districts, n_boot, mc_cores, function(boot_data) {
-    district_rows <- boot_data %>%
-      group_by(district, isTreated_child) %>%
-      summarise(
-        n_deaths_1to59 = sum(n_deaths_1to59, na.rm = TRUE),
-        pt_year_1to59  = sum(pt_year_1to59,  na.rm = TRUE),
-        MortRate       = n_deaths_1to59 * 1e3 / pt_year_1to59,
-        .groups        = "drop"
-      ) %>%
-      pivot_wider(
-        names_from  = isTreated_child,
-        values_from = c(n_deaths_1to59, pt_year_1to59, MortRate)
-      ) %>%
-      mutate(ATE = MortRate_Treatment - MortRate_Control) %>%
-      dplyr::select(district, ATE)
-    
+boot_ate <- function(data, strat_var, n_boot, mc_cores) {
+  # Resample within district x isTreated_child so per-district arm sizes are
+  # held fixed across replicates (avoids empty-arm draws that would give NaN).
+  run_boot(data, c("district", "isTreated_child"), n_boot, mc_cores, function(boot_data) {
     overall_row <- boot_data %>%
       group_by(isTreated_child) %>%
       summarise(
@@ -156,11 +177,85 @@ boot_ate <- function(data, districts, n_boot, mc_cores) {
         names_from  = isTreated_child,
         values_from = c(n_deaths_1to59, pt_year_1to59, MortRate)
       ) %>%
-      mutate(district = "Overall", ATE = MortRate_Treatment - MortRate_Control) %>%
-      dplyr::select(district, ATE)
-    
+      mutate(ATE = MortRate_Treatment - MortRate_Control) %>%
+      dplyr::select(ATE)
+
+    # NA strat_var: overall pooled ATE only, no stratum-level rows
+    if (length(strat_var) != 1 || is.na(strat_var)) {
+      return(overall_row)
+    }
+
+    district_rows <- boot_data %>%
+      group_by(.data[[strat_var]], isTreated_child) %>%
+      summarise(
+        n_deaths_1to59 = sum(n_deaths_1to59, na.rm = TRUE),
+        pt_year_1to59  = sum(pt_year_1to59,  na.rm = TRUE),
+        MortRate       = n_deaths_1to59 * 1e3 / pt_year_1to59,
+        .groups        = "drop"
+      ) %>%
+      pivot_wider(
+        names_from  = isTreated_child,
+        values_from = c(n_deaths_1to59, pt_year_1to59, MortRate)
+      ) %>%
+      mutate(ATE = MortRate_Treatment - MortRate_Control) %>%
+      dplyr::select(all_of(strat_var), ATE)
+
+    # pooled row, labelled "Overall" in the stratum column
+    overall_row <- overall_row %>%
+      mutate(!!strat_var := "Overall") %>%
+      dplyr::select(all_of(strat_var), ATE)
+
     bind_rows(district_rows, overall_row)
   })
+}
+
+
+#--------------------------------------
+# summarise_boot()
+#
+# Collapse the per-replicate output of run_boot() (via boot_mort_rates() or
+# boot_ate()) into point estimates and percentile bootstrap confidence
+# intervals. Stacks the replicate list into one long data.frame, groups by
+# every column except the value column, and returns the mean and the requested
+# percentile CI of `value_col` for each group.
+#
+# Arguments:
+# - boot_list: list of data.frames; output of run_boot() or its wrappers. Every
+#              element must share the same columns: one value column (named by
+#              value_col) plus zero or more grouping columns.
+# - value_col: character(1); name of the column to summarise (e.g. "MortRate",
+#              "ATE")
+# - probs:     length-2 numeric; lower/upper percentiles for the CI
+#              (default c(0.025, 0.975) = a 95% percentile interval)
+#
+# Details:
+# - Grouping columns are inferred as every column other than "replicate" and
+#   value_col, so the summary is stratified exactly as the replicate rows are
+#   (e.g. by district, by district x arm, or pooled when there are no other
+#   columns).
+# - Output columns are named <value_col>_mean, <value_col>_CI_low,
+#   <value_col>_CI_high.
+#
+# Requirements:
+# - Packages: dplyr, purrr
+#
+# Returns:
+# - A data.frame with one row per group: the grouping columns plus
+#   <value_col>_mean, <value_col>_CI_low, and <value_col>_CI_high
+#--------------------------------------
+
+summarise_boot <- function(boot_list, value_col, probs = c(0.025, 0.975)) {
+  combined <- purrr::map_dfr(boot_list, identity, .id = "replicate")
+  group_cols <- setdiff(names(combined), c("replicate", value_col))
+
+  combined %>%
+    group_by(across(all_of(group_cols))) %>%
+    summarise(
+      "{value_col}_mean"    := mean(.data[[value_col]], na.rm = TRUE),
+      "{value_col}_CI_low"  := quantile(.data[[value_col]], probs[1], na.rm = TRUE),
+      "{value_col}_CI_high" := quantile(.data[[value_col]], probs[2], na.rm = TRUE),
+      .groups = "drop"
+    )
 }
 
 

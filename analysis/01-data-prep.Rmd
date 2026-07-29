@@ -204,16 +204,14 @@ For descriptive purposes, we compute mean mortality rates by district and treatm
 set.seed(42)
 n_boot <- 10000
 
-districts <- unique(grappe_mort_filt$district)
-
 boot_ates <- boot_ate(
   data      = grappe_mort_filt,
-  districts = districts,
+  strat_var = "district",
   n_boot    = n_boot,
   mc_cores  = avail_thr
 )
 
-boot_ates_df <- purrr::map_dfr(boot_ates, identity, .id = "replicate")
+boot_ates_df <- summarise_boot(boot_ates, "ATE")
 
 dist_ate_summ <- grappe_mort_filt %>%
   group_by(district, isTreated_child) %>%
@@ -244,17 +242,7 @@ overall_ate_obs <- grappe_mort_filt %>%
 dist_ate_summ <- bind_rows(dist_ate_summ, overall_ate_obs)
 
 dist_ate_summ <- dist_ate_summ %>%
-  left_join(
-    boot_ates_df %>%
-      group_by(district) %>%
-      summarise(
-        ATE_mean    = mean(ATE, na.rm = TRUE),
-        ATE_CI_low  = quantile(ATE, 0.025, na.rm = TRUE),
-        ATE_CI_high = quantile(ATE, 0.975, na.rm = TRUE),
-        .groups = "drop"
-      ),
-    by = "district"
-  ) %>%
+  left_join(boot_ates_df, by = "district") %>%
   mutate(ATE_CI = paste0(round(ATE, 2), " (95% CI: ", round(ATE_CI_low, 2), " to ", round(ATE_CI_high, 2), ")"))
 
 ```
@@ -263,20 +251,13 @@ dist_ate_summ <- dist_ate_summ %>%
 
 boot_mort_tx <- boot_mort_rates(
   data      = grappe_mort_filt,
-  districts = districts,
+  strat_var = "district",
   n_boot    = n_boot,
   mc_cores  = avail_thr,
   group_var = "isTreated_child"
 )
 
-boot_mort_tx_df <- purrr::map_dfr(boot_mort_tx, identity, .id = "replicate") %>%
-      group_by(district, isTreated_child) %>%
-      summarise(
-        MortRate_mean    = mean(MortRate, na.rm = TRUE),
-        MortRate_CI_low  = quantile(MortRate, 0.025, na.rm = TRUE),
-        MortRate_CI_high = quantile(MortRate, 0.975, na.rm = TRUE),
-        .groups = "drop"
-      )
+boot_mort_tx_df <- summarise_boot(boot_mort_tx, "MortRate")
 
 overall_mort_tx_obs <- grappe_mort_filt %>%
   group_by(isTreated_child) %>%
@@ -309,20 +290,13 @@ dist_tx_summ <- grappe_mort_filt %>%
 
 boot_mort_rand <- boot_mort_rates(
   data      = grappe_mort_filt,
-  districts = districts,
+  strat_var = "district",
   n_boot    = n_boot,
   mc_cores  = avail_thr,
   group_var = "tx"
 )
 
-boot_mort_rand_df <- purrr::map_dfr(boot_mort_rand, identity, .id = "replicate") %>%
-      group_by(district, tx) %>%
-      summarise(
-        MortRate_mean    = mean(MortRate, na.rm = TRUE),
-        MortRate_CI_low  = quantile(MortRate, 0.025, na.rm = TRUE),
-        MortRate_CI_high = quantile(MortRate, 0.975, na.rm = TRUE),
-        .groups = "drop"
-      )
+boot_mort_rand_df <- summarise_boot(boot_mort_rand, "MortRate")
 
 overall_mort_rand_obs <- grappe_mort_filt %>%
   group_by(tx) %>%
