@@ -591,7 +591,7 @@ boot_match_df <- bind_rows(boot_mordor_df, boot_all_df) %>%
   )
 
 # Plot: arm on the y-axis, overlap status by colour, faceted by department -----
-pd <- position_dodge(width = 0.6)
+pd <- position_dodge(width = 0.7)
 
 mort_match_plot <- ggplot(
   boot_match_df,
@@ -602,9 +602,11 @@ mort_match_plot <- ggplot(
     aes(xmin = MortRate_CI_low, xmax = MortRate_CI_high),
     position = pd, width = 0.3
   ) +
-  geom_text(aes(label = paste0("n=", n)), position = pd,
-            vjust = -0.9, size = 2.5, show.legend = FALSE) +
-  facet_wrap(~ district, nrow = 2) +
+  ggrepel::geom_text_repel(
+    aes(label = paste0("n=", n)), position = pd,
+    size = 2.5, direction = "both", seed = 42, max.overlaps = Inf,
+    min.segment.length = 0, box.padding = 0.5, point.padding = 0.3, show.legend = FALSE
+  ) +
   scale_color_manual(values = c(
     "No MORDOR overlap" = "#6E8537FF",
     "Overlaps MORDOR"   = "#8B174DFF"
@@ -642,11 +644,16 @@ n_bins <- 4
 dist_breaks <- quantile(all_data$dist_nearest_mordor_km,
                         probs = seq(0, 1, length.out = n_bins + 1), na.rm = TRUE)
 
+brk <- round(dist_breaks, 1)
+bin_labs <- paste0(brk[-length(brk)], "–", brk[-1])
+bin_labs[1] <- paste0("≤", brk[2])
+bin_labs[length(bin_labs)] <- paste0(">", brk[length(brk) - 1])
+
 dist_data <- all_data %>%
   dplyr::filter(!is.na(dist_nearest_mordor_km)) %>%
   mutate(
     dist_bin = cut(dist_nearest_mordor_km, breaks = dist_breaks,
-                   include.lowest = TRUE, dig.lab = 2),
+                   include.lowest = TRUE, labels = bin_labs, dig.lab = 2),
     # combined arm x distance-bin key (same trick as above)
     arm_bin = paste(isTreated_child, dist_bin, sep = "___")
   )
@@ -678,8 +685,11 @@ dist_plot <- ggplot(
     aes(ymin = MortRate_CI_low, ymax = MortRate_CI_high),
     position = pd, width = 0.2
   ) +
-  geom_text(aes(label = paste0("n=", n)), position = pd,
-            vjust = -0.9, size = 2.5, show.legend = FALSE) +
+  ggrepel::geom_text_repel(
+    aes(label = paste0("n=", n)), position = pd,
+    size = 2.5, direction = "y", seed = 42,
+    min.segment.length = 0, box.padding = 0.3, show.legend = FALSE
+  ) +
   scale_color_manual(values = c("Control" = "#8B174DFF", "Treatment" = "#6E8537FF")) +
   labs(x = "Distance to nearest MORDOR village (km, quartile bins)",
        y = "Mortality rate (deaths per 1000 py, 1–59 mo)", color = NULL) +
