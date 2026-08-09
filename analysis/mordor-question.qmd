@@ -1,18 +1,17 @@
 ---
 title: "Examine if the ATE in AVENIR is significantly different for MORDOR districts vs non-MORDOR districts"
-# author: "Ariktha Srivathsan"
 date: "`r Sys.Date()`"
-output:
-  html_document:
-    df_print: paged
+format:
+  html:
+    df-print: paged
     toc: true
-    toc_float: true
-    code_folding: hide
+    code-fold: true
+    embed-resources: true
 editor:
   markdown:
     wrap: 72
 execute:
-  cache: true
+  cache: false
   warning: false
 ---
 
@@ -54,7 +53,7 @@ knitr::opts_chunk$set(echo = TRUE)
 rm(list = ls())
 ```
 
-```{r load data, warning=F, message=T}
+```{r load data, warning=F, message=F}
 
 print(getwd())
 print(here::here())
@@ -92,6 +91,70 @@ df_proj <- df_all %>%
 boxgrid <- readRDS(here("data", "boxgrid.rds"))
 
 ```
+
+```{r}
+
+
+# Mortality by treatment arm and MORDOR state (pooled across all depts) -----
+# state_type is a department-level constant (Boboye/Falmey/Loga are MORDOR,
+# every other department is non-MORDOR), so it doesn't need its own
+# resampling protection -- passing it as strat_var reports the isTreated_child
+# x state_type breakdown from data already safely resampled within
+# district x isTreated_child (same protection boot_ate() uses).
+
+temp_state <- df_all %>%
+  mutate(state_type = ifelse(mordorstate, "MORDOR state", "non-MORDOR state"))
+
+boot_arm_state <- boot_mort_rates(
+  data      = temp_state,
+  strat_var = "state_type",
+  n_boot    = 1000,
+  mc_cores  = avail_thr,
+  group_var = "isTreated_child"
+)
+
+boot_arm_state_df <- summarise_boot(boot_arm_state, "MortRate") %>%
+  dplyr::filter(state_type != "Overall") %>%
+  mutate(
+    isTreated_child = factor(isTreated_child, levels = c("Control", "Treatment")),
+    state_type      = factor(state_type, levels = c("non-MORDOR state", "MORDOR state"))
+  )
+
+# Village counts per arm x state group, for point labels -----
+
+arm_state_n <- temp_state %>%
+  dplyr::count(isTreated_child, state_type)
+
+boot_arm_state_df <- boot_arm_state_df %>%
+  dplyr::left_join(arm_state_n, by = c("isTreated_child", "state_type"))
+
+# Plot -----
+
+ggplot(boot_arm_state_df,
+       aes(x = MortRate_mean, y = isTreated_child, color = state_type)) +
+  geom_point(position = position_dodge(width = 0.4), size = 2.5) +
+  geom_errorbarh(
+    aes(xmin = MortRate_CI_low, xmax = MortRate_CI_high),
+    position = position_dodge(width = 0.4), height = 0.15
+  ) +
+  geom_text(
+    aes(label = paste0("n=", n)),
+    position = position_dodge(width = 0.4),
+    vjust = -1, size = 3, show.legend = FALSE
+  ) +
+  scale_color_manual(values = c("non-MORDOR state" = "#f1a226", "MORDOR state" = "#003f5c")) +
+  labs(
+    x = "Mortality rate (deaths per 1000 py, 1\u201359 mo)",
+    y = NULL, color = NULL
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(legend.position = "bottom")
+
+ggsave(here("results", "manuscript", "supp_fig4-mordor.png"),
+       width = 6, height = 4, dpi = 300)
+
+```
+
 
 ```{r}
 #| label: "fuzzy-match-villages-functions"
@@ -517,12 +580,80 @@ temp <- df_all %>%
 boot_mort_state <- boot_mort_rates(
   data      = temp,
   strat_var = NA,
-  n_boot    = 100,
+  n_boot    = 1000,
   mc_cores  = avail_thr,
   group_var = "state_type"
 )
 
 boot_mort_state_df <- summarise_boot(boot_mort_state, "MortRate")
+
+```
+
+```{r}
+
+# Print mortality rate by MORDOR vs non-MORDOR state -----
+# Assumes columns state_type, MortRate_mean, MortRate_CI_low, MortRate_CI_high
+# (same pattern as boot_mordor_df / boot_all_df above) — adjust col.names if they differ
+
+boot_mort_state_df %>%
+  knitr::kable(
+    digits = 2,
+    col.names = c("State type", "Mortality rate (per 1000 py)", "95% CI low", "95% CI high")
+  )
+
+# Test: mortality rate difference between MORDOR and non-MORDOR states -----
+# boot_mort_state is a list of per-replicate tibbles (one row per state_type),
+# from resampling within district x state_type. Pull MORDOR - non-MORDOR
+# from each replicate directly rather than pivoting a combined frame.
+
+diff_boot <- purrr::map_dbl(boot_mort_state, function(tbl) {
+  mordor_rate     <- tbl$MortRate[tbl$state_type == "MORDOR"]
+  non_mordor_rate <- tbl$MortRate[tbl$state_type == "non-MORDOR"]
+  stopifnot(length(mordor_rate) == 1, length(non_mordor_rate) == 1)
+  mordor_rate - non_mordor_rate
+})
+
+diff_est <- mean(diff_boot)
+diff_ci  <- quantile(diff_boot, c(0.025, 0.975))
+p_boot   <- 2 * min(mean(diff_boot <= 0), mean(diff_boot >= 0))
+
+glue::glue(
+  "Mortality rate difference (MORDOR - non-MORDOR): {round(diff_est, 2)} per 1000 py ",
+  "(95% CI: {round(diff_ci[1], 2)}, {round(diff_ci[2], 2)}), bootstrap p = {round(p_boot, 3)}"
+)
+
+# Test: does the AVENIR ATE differ by MORDOR vs non-MORDOR state? -----
+# boot_ate() resamples within district x isTreated_child; passing state_type
+# as strat_var gives per-replicate ATEs for MORDOR and non-MORDOR (plus a
+# pooled "Overall" row), all from the same resampled draw since MORDOR
+# status is fixed within district. Note ATE here is Treatment - Control,
+# so a negative ATE means treatment lowers mortality.
+
+temp_state <- df_all %>%
+  mutate(state_type = ifelse(mordorstate, "MORDOR", "non-MORDOR"))
+
+boot_ate_state <- boot_ate(
+  data      = temp_state,
+  strat_var = "state_type",
+  n_boot    = 1000,
+  mc_cores  = avail_thr
+)
+
+ate_diff_boot <- purrr::map_dbl(boot_ate_state, function(tbl) {
+  mordor_ate     <- tbl$ATE[tbl$state_type == "MORDOR"]
+  non_mordor_ate <- tbl$ATE[tbl$state_type == "non-MORDOR"]
+  stopifnot(length(mordor_ate) == 1, length(non_mordor_ate) == 1)
+  mordor_ate - non_mordor_ate
+})
+
+ate_diff_est <- mean(ate_diff_boot)
+ate_diff_ci  <- quantile(ate_diff_boot, c(0.025, 0.975))
+ate_diff_p   <- 2 * min(mean(ate_diff_boot <= 0), mean(ate_diff_boot >= 0))
+
+glue::glue(
+  "Difference in ATE (MORDOR - non-MORDOR): {round(ate_diff_est, 2)} per 1000 py ",
+  "(95% CI: {round(ate_diff_ci[1], 2)}, {round(ate_diff_ci[2], 2)}), bootstrap p = {round(ate_diff_p, 3)}"
+)
 
 ```
 
@@ -607,6 +738,7 @@ mort_match_plot <- ggplot(
     size = 2.5, direction = "both", seed = 42, max.overlaps = Inf,
     min.segment.length = 0, box.padding = 0.5, point.padding = 0.3, show.legend = FALSE
   ) +
+  facet_wrap(~ district, nrow = 2) +
   scale_color_manual(values = c(
     "No MORDOR overlap" = "#6E8537FF",
     "Overlaps MORDOR"   = "#8B174DFF"
@@ -644,6 +776,7 @@ n_bins <- 4
 dist_breaks <- quantile(all_data$dist_nearest_mordor_km,
                         probs = seq(0, 1, length.out = n_bins + 1), na.rm = TRUE)
 
+# Human-readable bin labels built from the breaks: "≤0.2", "0.2–27", …, ">50"
 brk <- round(dist_breaks, 1)
 bin_labs <- paste0(brk[-length(brk)], "–", brk[-1])
 bin_labs[1] <- paste0("≤", brk[2])
@@ -708,6 +841,70 @@ ggsave(
 
 
 ```{r}
+# LRT: does the AVENIR treatment effect (ATE) differ by MORDOR state? -----
+# Same fixed-effect structure as the primary model (fitmort_child_gen_krig_int),
+# with an added isTreated_child:state_type term. Full vs. reduced model must
+# be fit on identical rows for the LRT to be valid, so state_type is added to
+# df_proj before either fit rather than filtered separately.
+
+df_proj <- df_proj %>%
+  mutate(state_type = factor(ifelse(mordorstate, "MORDOR", "non-MORDOR"),
+                              levels = c("non-MORDOR", "MORDOR")))
+
+# Full model: adds isTreated_child * state_type -----
+
+# fitmort_child_state_int <- spaMM::fitme(
+#   n_deaths_1to59 ~
+#     1 + lat + lon +
+#     Matern(1 | lon + lat) +
+#     isTreated_child * state_type +
+#     isTreated_child * lat + isTreated_child * lon +
+#     offset(log(pt_year_1to59)),
+#   data   = df_proj,
+#   family = poisson(link = "log"),
+#   control.HLfit = list(NbThreads = avail_thr)
+# )
+# 
+# saveRDS(fitmort_child_state_int, here("data", "fitmort_child_state_int.rds"))
+
+fitmort_child_state_int <- readRDS(here("data", "fitmort_child_state_int.rds"))
+
+# Reduced model: same structure, no isTreated_child:state_type term -----
+
+# fitmort_child_state_main <- spaMM::fitme(
+#   n_deaths_1to59 ~
+#     1 + lat + lon +
+#     Matern(1 | lon + lat) +
+#     isTreated_child + state_type +
+#     isTreated_child * lat + isTreated_child * lon +
+#     offset(log(pt_year_1to59)),
+#   data   = df_proj,
+#   family = poisson(link = "log"),
+#   control.HLfit = list(NbThreads = avail_thr)
+# )
+# 
+# saveRDS(fitmort_child_state_main, here("data", "fitmort_child_state_main.rds"))
+
+fitmort_child_state_main <- readRDS(here("data", "fitmort_child_state_main.rds"))
+
+# Further reduced model: no state_type term -----
+
+fitmort_child_gen_krig_int <- readRDS(here("data", "fitmort_child_gen_krig_int.rds"))
+
+# LRT on the interaction term -----
+
+lrt_state_int <- spaMM::LRT(fitmort_child_state_main, fitmort_child_state_int)
+print(lrt_state_int)
+
+# LRT on the linear term -----
+
+lrt_state_lin <- spaMM::LRT(fitmort_child_gen_krig_int, fitmort_child_state_main)
+print(lrt_state_lin)
+
+```
+
+
+```{r}
 #| label: "fit-non-mordor-model"
 #| eval: false
 
@@ -733,6 +930,8 @@ df_sub <- df_proj %>%
 #         here("data", "non_mordor_model_fit.rds"))
 
 non_mordor_model_fit <- readRDS(here("data", "non_mordor_model_fit.rds"))
+
+fitmort_child_gen_krig_int <- readRDS(here("data", "fitmort_child_gen_krig_int.rds"))
 
 ```
 
