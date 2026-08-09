@@ -44,6 +44,9 @@ niger_adm2_sub <- readRDS(here("data", "niger_adm2_sub.rds"))
 niger_adm2_sub <- niger_adm2_sub %>%
   left_join(dist_summ, by = c("adm2_name" = "district"))
 
+df_all <- readRDS(here("data","grappe_mortality_data.rds"))
+csi_dat_raw <- readRDS(here("data", "csi_dat.rds"))
+
 ate_preds <- readRDS(here("data", "preds_ATE.rds")) 
 
 ```
@@ -157,21 +160,10 @@ ggsave(
 
 ```
 
-```{r Supp Fig 3 prep}
-
-mod_rr_pred <- ate_preds %>%
-    dplyr::filter(model == "gen_krig_int") %>%
-    dplyr::select(geometry, rate_ratio)
-
-mod_rr_pred_rast <- make_raster_map(mod_rr_pred, proj_crs, global_crs, "rate_ratio")
-mod_rr_pred_df <- as.data.frame(mod_rr_pred_rast, xy = TRUE, na.rm = FALSE)
-
-```
-
-```{r Supp Fig 3}
+```{r Supp fig 3}
 
 base_map <- ggplot() +
-  geom_sf(data = niger_adm2_sub, fill = NA, color = "black", size = 0.25) +
+  geom_sf(data = niger_adm2_sub, fill = "white", color = "black", size = 0.25) +
   theme_minimal(base_size = 14) +
   annotation_scale() +
   annotation_north_arrow(location = "bl", which_north = "true", 
@@ -189,6 +181,48 @@ base_map <- ggplot() +
     legend.title = element_text(hjust = 1, vjust = 0.5),
     legend.text = element_text(hjust = 1, vjust = 0.5)
   )
+
+csi_dat <- csi_dat_raw %>%
+  st_transform(crs = global_crs) %>%
+  dplyr::mutate(lon = st_coordinates(.)[, 1], lat = st_coordinates(.)[, 2])
+
+csi_loc <- base_map +
+  geom_point(data = csi_dat, aes(x = lon, y = lat), color = "#00695C", size = 0.5)
+
+n <- dplyr::n_distinct(df_all$csi)
+pastel_colors <- paletteer::paletteer_d("rcartocolor::Pastel") |> as.character()
+
+csi_grappe_loc <- base_map +
+  geom_point(data = df_all, aes(x = lon, y = lat, color = csi), size = 0.5) +
+  geom_point(data = csi_dat, aes(x = lon, y = lat), color = "black", size = 1, shape = 18) +
+  scale_color_manual(values = colorRampPalette(pastel_colors)(n)) +
+  guides(color = "none")
+
+ggsave(
+  csi_grappe_loc,
+  filename = here("results", "manuscript", "supp_fig3-csi_grappe_locations.png"),
+  width = 4,
+  height = 4.5,
+  units = "in",
+  dpi = 300,
+  bg = "white"
+)
+
+```
+
+
+```{r Supp Fig 4 prep}
+
+mod_rr_pred <- ate_preds %>%
+    dplyr::filter(model == "gen_krig_int") %>%
+    dplyr::select(geometry, rate_ratio)
+
+mod_rr_pred_rast <- make_raster_map(mod_rr_pred, proj_crs, global_crs, "rate_ratio")
+mod_rr_pred_df <- as.data.frame(mod_rr_pred_rast, xy = TRUE, na.rm = FALSE)
+
+```
+
+```{r Supp Fig 4}
 
 model_rr <- base_map +
     geom_raster(data = mod_rr_pred_df, aes(x = x, y = y, fill = rate_ratio), na.rm = TRUE) +
@@ -214,7 +248,7 @@ model_rr <- base_map +
 
 model_rr
 
-ggsave(filename = here("results", "manuscript", "supp_fig3-modeled_ATE_rate_ratios.png"),
+ggsave(filename = here("results", "manuscript", "supp_fig4-modeled_ATE_rate_ratios.png"),
        plot = model_rr,
        width = 4,
        height = 4.5,
