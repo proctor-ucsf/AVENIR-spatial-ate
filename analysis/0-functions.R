@@ -104,12 +104,12 @@ boot_mort_rates <- function(data, strat_var, n_boot, mc_cores, group_var) {
         .groups        = "drop"
       ) %>%
       dplyr::select(MortRate, all_of(group_var))
-
+    
     # NA strat_var: overall pooled rate per group only, no stratum-level rows
     if (length(strat_var) != 1 || is.na(strat_var)) {
       return(overall_row)
     }
-
+    
     district_rows <- boot_data %>%
       group_by(.data[[strat_var]], .data[[group_var]]) %>%
       summarise(
@@ -119,12 +119,12 @@ boot_mort_rates <- function(data, strat_var, n_boot, mc_cores, group_var) {
         .groups        = "drop"
       ) %>%
       dplyr::select(all_of(strat_var), MortRate, all_of(group_var))
-
+    
     # pooled row, labelled "Overall" in the stratum column
     overall_row <- overall_row %>%
       mutate(!!strat_var := "Overall") %>%
       dplyr::select(all_of(strat_var), MortRate, all_of(group_var))
-
+    
     bind_rows(district_rows, overall_row)
   })
 }
@@ -179,12 +179,12 @@ boot_ate <- function(data, strat_var, n_boot, mc_cores) {
       ) %>%
       mutate(ATE = MortRate_Treatment - MortRate_Control) %>%
       dplyr::select(ATE)
-
+    
     # NA strat_var: overall pooled ATE only, no stratum-level rows
     if (length(strat_var) != 1 || is.na(strat_var)) {
       return(overall_row)
     }
-
+    
     district_rows <- boot_data %>%
       group_by(.data[[strat_var]], isTreated_child) %>%
       summarise(
@@ -199,12 +199,12 @@ boot_ate <- function(data, strat_var, n_boot, mc_cores) {
       ) %>%
       mutate(ATE = MortRate_Treatment - MortRate_Control) %>%
       dplyr::select(all_of(strat_var), ATE)
-
+    
     # pooled row, labelled "Overall" in the stratum column
     overall_row <- overall_row %>%
       mutate(!!strat_var := "Overall") %>%
       dplyr::select(all_of(strat_var), ATE)
-
+    
     bind_rows(district_rows, overall_row)
   })
 }
@@ -247,7 +247,7 @@ boot_ate <- function(data, strat_var, n_boot, mc_cores) {
 summarise_boot <- function(boot_list, value_col, probs = c(0.025, 0.975)) {
   combined <- purrr::map_dfr(boot_list, identity, .id = "replicate")
   group_cols <- setdiff(names(combined), c("replicate", value_col))
-
+  
   combined %>%
     group_by(across(all_of(group_cols))) %>%
     summarise(
@@ -284,27 +284,27 @@ summarise_boot <- function(boot_list, value_col, probs = c(0.025, 0.975)) {
 #--------------------------------------
 
 plot_matern_corr_proj <- function(
-  spamm_model_fit,
-  filenameval = "avenir-materncorr",
-  modelname = ""
+    spamm_model_fit,
+    filenameval = "avenir-materncorr",
+    modelname = ""
 ) {
   # create a distance matrix between all points
   coords <- as.matrix(spamm_model_fit$data[, c("lon", "lat")])
   d_vec_m <- as.numeric(dist(coords))
-
+  
   # get estimated parameters from the Matern function
   est_nu <- spamm_model_fit$CorrEst_and_RanFix$corrPars$`1`$nu
   est_rho <- spamm_model_fit$CorrEst_and_RanFix$corrPars$`1`$rho
-
+  
   rho_sci <- format(est_rho, scientific = TRUE, digits = 3)
   range_km <- 1 / (1000 * est_rho)
-
+  
   # estimate the correlation between each location
   matern_vec <- spaMM::MaternCorr(d = d_vec_m, nu = est_nu, rho = est_rho)
-
+  
   # NOTE: label_text is unused — annotations below use bquote() for math formatting instead
   # label_text <- sprintf("nu = %0.3f\nrho = %0.3f\nrange = %0.2f km", est_nu, est_rho, range_km)
-
+  
   # bin pairwise distances at 25 m resolution to reduce overplotting
   d_matern_cor <- tibble(
     distm = d_vec_m,
@@ -325,7 +325,7 @@ plot_matern_corr_proj <- function(
       .groups = "drop"
     ) %>%
     arrange(distkm)
-
+  
   # plot the correlation function
   plot_materncor <- ggplot(data = d_matern_cor %>% dplyr::filter(distkm <= 50)) +
     geom_point(
@@ -389,7 +389,7 @@ plot_matern_corr_proj <- function(
       axis.text = element_text(size = 16),
       axis.title = element_text(size = 18)
     )
-
+  
   ggsave(
     filename = paste0(figure_path, filenameval, ".png"),
     plot = plot_materncor,
@@ -397,7 +397,7 @@ plot_matern_corr_proj <- function(
     width = 7,
     height = 5
   )
-
+  
   return(plot_materncor)
 }
 
@@ -428,9 +428,9 @@ plot_matern_corr_proj <- function(
 #--------------------------------------
 
 get_grid_preds <- function(
-  input_grid,
-  spamm_model_fit,
-  tx_group = "Treatment"
+    input_grid,
+    spamm_model_fit,
+    tx_group = "Treatment"
 ) {
   # site_code is a dummy value (not in model); offset is per 1000 person-years
   newd <- input_grid %>%
@@ -446,18 +446,18 @@ get_grid_preds <- function(
       pt_year_1to59 = 1000
     ) %>%
     st_drop_geometry()
-
+  
   temp_preds <- predict(
     object = spamm_model_fit,
     type = "response",
     newdata = newd
   )
-
+  
   # get estimated variance at each location
   # temp_predVar <- spaMM::get_predVar(object = spamm_model_fit,
   #                                    newdata = newd,
   #                                    which = "predVar")
-
+  
   # attach predictions to the original grid; mutate() preserves sf geometry and CRS
   ret <- input_grid %>%
     mutate(
@@ -465,7 +465,7 @@ get_grid_preds <- function(
       # pred_var = as.numeric(temp_predVar),
       isTreated_child = tx_group
     )
-
+  
   return(ret)
 }
 
@@ -493,15 +493,15 @@ get_grid_preds_both_tx <- function(input_grid, spamm_model_fit) {
     spamm_model_fit = spamm_model_fit,
     tx_group = "Control"
   )
-
+  
   preds_tx1 <- get_grid_preds(
     input_grid = input_grid,
     spamm_model_fit = spamm_model_fit,
     tx_group = "Treatment"
   )
-
+  
   preds_long <- bind_rows(preds_tx0, preds_tx1)
-
+  
   return(preds_long)
 }
 
@@ -533,19 +533,19 @@ get_grid_preds_both_tx <- function(input_grid, spamm_model_fit) {
 #--------------------------------------
 
 points_to_raster <- function(
-  x,
-  y,
-  z,
-  mask1 = NULL,
-  mask2 = NULL,
-  crop1 = NULL,
-  crs_inp = global_crs
+    x,
+    y,
+    z,
+    mask1 = NULL,
+    mask2 = NULL,
+    crop1 = NULL,
+    crs_inp = global_crs
 ) {
   pred_raster <- raster::rasterFromXYZ(
     xyz = data.frame(x = x, y = y, z = z),
     crs = crs_inp
   )
-
+  
   if (!is.null(mask1)) {
     pred_raster <- mask(x = pred_raster, mask = mask1)
   }
@@ -555,7 +555,7 @@ points_to_raster <- function(
   if (!is.null(crop1)) {
     pred_raster <- crop(x = pred_raster, y = extent(crop1))
   }
-
+  
   return(pred_raster)
 }
 
@@ -582,10 +582,10 @@ points_to_raster <- function(
 #--------------------------------------
 
 make_raster_map <- function(
-  df,
-  proj_crs = proj_crs,
-  global_crs = global_crs,
-  colname = "pred"
+    df,
+    proj_crs = proj_crs,
+    global_crs = global_crs,
+    colname = "pred"
 ) {
   df2 <- df %>%
     mutate(
@@ -593,16 +593,16 @@ make_raster_map <- function(
       y = sf::st_coordinates(.)[, 2]
     ) %>%
     st_drop_geometry()
-
+  
   r_proj <- terra::rast(df2[, c("x", "y", colname)], type = "xyz")
   terra::crs(r_proj) <- sf::st_crs(proj_crs)$wkt
-
+  
   r_global <- terra::project(
     r_proj,
     sf::st_crs(global_crs)$wkt,
     method = "bilinear"
   )
-
+  
   return(r_global)
 }
 
@@ -635,12 +635,12 @@ sim2tib <- function(sim_responses, newdat, modelname = NA_character_) {
     sim_responses,
     .name_repair = ~ paste0("sim_", seq_along(.))
   )
-
+  
   combined <- bind_cols(
     newdat %>% dplyr::select(lon, lat, isTreated_child),
     sim_tibs
   )
-
+  
   long_preds <- combined %>%
     pivot_longer(
       cols = starts_with("sim_"),
@@ -652,6 +652,6 @@ sim2tib <- function(sim_responses, newdat, modelname = NA_character_) {
     ) %>%
     dplyr::select(lon, lat, isTreated_child, sim_n, pred) %>%
     mutate(model = modelname)
-
+  
   return(long_preds)
 }

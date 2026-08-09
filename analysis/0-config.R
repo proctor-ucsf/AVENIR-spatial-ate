@@ -9,6 +9,7 @@
 
 library(dplyr)
 library(ggpubr)
+library(ggrepel)
 library(ggspatial)
 library(ggtext)
 library(here)

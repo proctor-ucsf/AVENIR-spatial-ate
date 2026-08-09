@@ -89,7 +89,7 @@ boxgrid <- readRDS(here("data", "boxgrid.rds"))
 
 ## CSI-level data preparation
 
-Grappe-level data are collapsed to CSI level by summing deaths and person-years across all grappes within each CSI (regardless of treatment arm). CSI geographic location is approximated by the mean centroid of constituent grappes. Coordinates are projected to UTM for distance-based spatial operations.
+Grappe-level data are collapsed to CSI level by summing deaths and person-years across all grappes within each CSI (regardless of treatment arm). CSI geographic location is approximated by the centroid of constituent grappes. Coordinates are projected to UTM for distance-based spatial operations.
 
 Note: the CSI-level dataset (`csi_dat`) has no `isTreated_child` column. Treatment arm information is irrelevant at this level of aggregation since a single CSI can contain both treated and control grappes.
 
