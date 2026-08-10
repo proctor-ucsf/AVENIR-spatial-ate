@@ -380,7 +380,7 @@ n_per_csi <- df_all %>%
 
 summary(n_per_csi$n)
 
-8base_map +
+base_map +
   geom_point(data = df_all, aes(x = lon, y = lat, color = csi), 
              size = 0.5) +
   scale_color_viridis_d() +
