@@ -65,6 +65,8 @@ Five model specifications are evaluated in sequence, each adding one component t
 3. **Generalized Kriging + Cluster RE** — adds a random intercept per health facility site (`site_code`) for residual between-cluster variance
 4. **Generalized Kriging + Interaction** — adds `treatment × lat` and `treatment × lon` to allow the treatment effect to vary with location (key model for spatial ATE heterogeneity)
 5. **Generalized Kriging + MORDOR** — extends the interaction model with an indicator for districts overlapping the MORDOR azithromycin trial
+6. **Generalized Kriging + Splines** — replaces the linear lat/lon terms (and their treatment interactions) with natural cubic splines, so both the baseline surface and the ATE may curve (additive form)
+7. **Generalized Kriging + Quadratic Polynomial** — replaces the linear lat/lon terms with a full second-order polynomial (`lat`, `lat²`, `lon`, `lat·lon`, `lon²`) on mean-centred coordinates, interacted with treatment; a 6-parameter test for curvature and diagonal structure in the ATE surface
 
 Models are compared via AIC and likelihood ratio tests (LRT). The four best-fitting models (excluding MORDOR) are used to generate predicted mortality surfaces and spatial ATE maps over the study grid.
 
@@ -523,6 +525,434 @@ materncorr_gen_krig_dist_FE
 
 ---
 
+## Generalized krige with natural splines in space
+
+Every model above forces the large-scale spatial trend to be a *plane* in log-rate
+space: baseline mortality is `lat + lon`, and in the interaction model the treatment
+effect is `isTreated_child * lat + isTreated_child * lon`. The Matérn RE absorbs
+non-linear structure in the **baseline** surface, but because it is shared by both
+arms it cancels in the arm contrast — so nothing in the interaction model can
+represent curvature in the ATE. This section relaxes both trends by replacing the
+linear terms with natural cubic splines.
+
+Natural splines (`ns()`) are used rather than B-splines (`bs()`) deliberately: `ns()`
+is constrained to be **linear beyond its boundary knots**, so at the corners of
+`boxgrid` that fall outside the convex hull of the 1390 grappes the fitted surface
+degrades gracefully to the planar trend already estimated. A `bs()` basis extrapolates
+as an unconstrained cubic and can produce implausible rates in exactly those cells.
+Interior knots are at data quantiles (the `ns()` default), so knot density follows
+grappe density rather than empty map space.
+
+> **Important:** the splines must be written as bare `ns()`, never `splines::ns()`.
+> spaMM's internal `.expand_multIMRFs()` compares each formula term's head against
+> `"multIMRF"`; a namespaced call head has length 3, so the comparison returns a
+> length-3 logical and errors out before fitting begins. `splines` is attached in
+> `0-config.R` for this reason. The same trap applies to any `pkg::fun()` call
+> placed inside a spaMM formula.
+
+Two caveats on interpretation:
+
+- **The spline competes with the Matérn RE.** Both model treatment-invariant spatial
+  curvature, so the estimated Matérn range is expected to shrink once the baseline
+  spline is added. That is not a defect, but it does mean the range parameter from
+  these models is **not** comparable to the range quoted for
+  `fitmort_child_gen_krig_int` in `03-csi-analysis.qmd`.
+- **This is not a flexibility gain over `fitmort_child_doub_matern`.** That model's
+  `Matern(0 + isTreated_child_num | lon + lat)` term already gives a fully
+  non-parametric treatment-specific surface. The spline models buy *interpretability*
+  (a small set of testable coefficients) and *speed* (minutes rather than the 2.77
+  hours the double-Matérn model took), plus a properly nested likelihood ratio test.
+
+### Fit additive spline model
+
+With `intercept = FALSE`, an `ns()` basis plus the model intercept spans the linear
+function of its argument, so `1 + ns(lat, df = 4) + ns(lon, df = 4)` strictly contains
+`1 + lat + lon`, and likewise for the treatment interactions. `fitmort_child_gen_krig_int`
+is therefore nested inside this model and `LRT()` is valid. Note that the linear
+`lat + lon` terms are *replaced* by the bases rather than added to — keeping both
+would give a rank-deficient design matrix.
+
+`df = 4` per axis gives 3 interior knots and costs 6 baseline and 6 interaction
+parameters relative to the linear model. The ATE surface is effectively estimated
+from the 1084 deaths in the treated arm, which is what disciplines this choice.
+
+```{r fit additive spline model}
+
+if(refit_models_flag) {
+  tic("Gen Krig: fit spaMM model with additive natural splines (df = 4) in baseline and ATE")
+  fitmort_child_gen_krig_spline <- spaMM::fitme(
+    n_deaths_1to59 ~
+      1 +
+      ns(lat, df = 4) + ns(lon, df = 4) +
+      Matern(1 | lon + lat) +
+      isTreated_child +
+      isTreated_child * ns(lat, df = 4) +
+      isTreated_child * ns(lon, df = 4) +
+      # (1|site_code) +
+      offset(log(pt_year_1to59)),
+    data = df_proj,
+    family = poisson(link = "log"),
+    control.HLfit = list(NbThreads = avail_thr)
+  )
+  toc()
+
+  saveRDS(fitmort_child_gen_krig_spline,
+          here("data", "fitmort_child_gen_krig_spline.rds"))
+} else {
+  fitmort_child_gen_krig_spline <- readRDS(here("data", "fitmort_child_gen_krig_spline.rds"))
+}
+
+```
+
+The knots are stored in the `predvars` attribute of the fitted object's terms at fit
+time and reused verbatim by `predict(newdata = )`, so they survive the
+`saveRDS`/`readRDS` round trip and the grid predictions below use the *fitting* knots
+rather than knots re-derived from `boxgrid`. The check below confirms this: predicting
+at the grappe locations must reproduce the fitted values, and predicting on a subset
+must reproduce the corresponding full-data predictions. If knots were being
+re-derived, neither would hold and the ATE surface could not be trusted.
+
+```{r verify spline knots round trip}
+
+p_fitted <- as.numeric(predict(fitmort_child_gen_krig_spline, type = "response"))
+p_newdat <- as.numeric(predict(fitmort_child_gen_krig_spline,
+                               newdata = sf::st_drop_geometry(df_proj),
+                               type = "response"))
+
+south <- df_proj$lat < median(df_proj$lat)
+p_subset <- as.numeric(predict(fitmort_child_gen_krig_spline,
+                               newdata = sf::st_drop_geometry(df_proj)[south, ],
+                               type = "response"))
+
+# The subset-vs-full comparison is the sharp test of knot re-derivation and
+# agrees to ~1e-14. The fitted-vs-newdata comparison is looser (~1e-7) because
+# the newdata path re-interpolates the Matern field rather than reusing the
+# stored BLUPs; that residual is numerical, not a basis problem.
+stopifnot(
+  max(abs(p_newdat - p_fitted)) < 1e-5,
+  max(abs(p_subset - p_newdat[south])) < 1e-8
+)
+
+cat("Spline knots round-trip through predict(newdata =) correctly.\n")
+
+```
+
+### Compare to interaction model
+
+`spaMM::LRT()` **cannot be used for this comparison.** It decides nesting by
+comparing fixed-effect term *labels*: the spline model's design carries
+`ns(lat, df = 4)1..4`, the interaction model carries `lat`, no label matches, and
+spaMM aborts with `Fixed effects seem non-nested`. The models are nested in the
+column-space sense, but spaMM has no way to see that. `lrt_manual()` (in
+`0-functions.R`) therefore computes the test directly from the ML log-likelihoods.
+
+```{r compare additive spline model}
+
+print(AIC(fitmort_child_gen_krig_int))
+print(AIC(fitmort_child_gen_krig_spline))
+
+# LRT(fitmort_child_gen_krig_spline, fitmort_child_gen_krig_int)  # errors: see above
+lrt_manual(fitmort_child_gen_krig_spline, fitmort_child_gen_krig_int)
+
+```
+
+**Result: the additive spline does not improve on the linear interaction model.**
+Twelve extra fixed-effect parameters buy 9.1 log-likelihood points
+($\chi^2 = 18.22$, df = 12, p = 0.11), and the marginal AIC is *worse* by 5.8
+(4989.68 vs 4983.90). There is no detectable curvature in either the baseline
+surface or the ATE beyond what the plane plus the Matérn field already capture —
+which is useful evidence that the linear specification in
+`fitmort_child_gen_krig_int` is not concealing non-linear treatment effect
+structure.
+
+The predicted Matérn/spline competition is also clearly visible: `rho` doubles
+(8.80e-05 → 1.78e-04, so the range roughly halves) and `nu` rises from 0.23 to
+0.34 once the baseline spline is added. The spline pulls large-scale structure out
+of the random field. **Do not quote the Matérn range from this model** alongside
+the range reported for `fitmort_child_gen_krig_int` in `03-csi-analysis.qmd`.
+
+### Model results
+
+```{r results of the additive spline model}
+
+summary(fitmort_child_gen_krig_spline)
+
+materncorr_gen_krig_spline <- plot_matern_corr_proj(fitmort_child_gen_krig_spline,
+                                                    "avenir-materncorr-fitmort_child_gen_krig_spline",
+                                                    modelname = "Gen Krige + additive splines")
+
+materncorr_gen_krig_spline
+
+```
+
+A tensor-product version (`ns(lat) * ns(lon)`, which would span the full 2D surface
+and could represent diagonal or localised ATE patterns that the additive form cannot)
+was considered and **not** fitted. The additive model already fails to improve on the
+linear interaction, and a tensor interacted with treatment would cost far more
+parameters against the same 1084 treated-arm deaths. The quadratic polynomial in the
+next section is the cheap version of that idea: it buys the `lat·lon` cross term — the
+one piece of non-additive structure — for a single parameter per arm.
+
+---
+
+## Generalized krige with quadratic polynomial in space
+
+This model extends `fitmort_child_gen_krig_int` with the second-order terms `lat²`,
+`lon²` and `lat·lon`, in both the baseline trend and the treatment interaction. The
+ATE surface is therefore a quadratic form in space rather than a plane: it may have a
+gradient that changes with location, a single interior optimum, or a saddle oriented
+diagonally to the axes.
+
+Two design choices are worth stating explicitly:
+
+- **The baseline quadratics are included, not just the treatment interactions.** A
+  `Trt × lat²` term with no `lat²` main effect would force the two arms' curvatures to
+  be equal and opposite around the mean surface, which is not a hypothesis anyone
+  wants to test. Keeping the model hierarchically well-formed costs 3 extra parameters
+  and makes each interaction coefficient read as "how much the treated arm's curvature
+  differs from the control arm's".
+- **This is the additive spline's complement, not its competitor.** `ns(lat) + ns(lon)`
+  buys flexible curvature but *no* interaction between the axes; `poly(degree = 2)`
+  buys only mild curvature but *does* include `lat·lon`. Together they bracket the
+  question of whether the spline's null result was an artefact of additivity.
+
+### Coordinate centring
+
+Raw UTM coordinates are ~5.5e5 (easting) and ~1.4e6 (northing) metres, so their
+squares are ~1e12 and are almost perfectly collinear with the linear terms:
+`cor(lat, lat²)` = 0.9996 on the raw scale. That is a badly conditioned design matrix
+for `fitme()`'s joint optimisation of fixed effects and Matérn parameters. Centring on
+the grappe centroid and rescaling to kilometres drops that correlation to 0.075 for
+latitude and 0.038 for longitude, and keeps every design column within roughly
+±200 (km) and ±4e4 (km²).
+
+The centring constants below are written as **numeric literals inside the formula**,
+not as variables. This is deliberate. `saveRDS()` stores a formula's environment *by
+reference* when that environment is the global environment, so a formula referring to
+a `lat_ctr` object would fail with `object 'lat_ctr' not found` the first time
+`02B`, `03` or `07` loaded the fit in a fresh session and called `predict()`. Literals
+make the saved object self-contained. The guard below fails loudly if the underlying
+data ever shift far enough that the hard-coded centre is no longer the centroid.
+
+Note also that `poly()` is used with `raw = TRUE`, so the design columns are plain
+centred powers. `raw = TRUE` additionally makes prediction trivially safe:
+`makepredictcall.poly()` returns the call unchanged in that case, so — unlike the
+`ns()` models above — nothing basis-related has to survive the `saveRDS`/`readRDS`
+round trip. With the default `raw = FALSE` the columns would be orthogonalised against
+each other via `coefs` stored in `predvars`, which fits equally well but makes the
+individual coefficients uninterpretable and the centring implicit.
+
+```{r polynomial centring constants}
+
+# Empirical centroid of the 1390 grappes, in UTM zone 31N metres.
+lat_ctr_check <- mean(df_proj$lat)
+lon_ctr_check <- mean(df_proj$lon)
+
+# The formula below hard-codes these as literals (see prose). Fail loudly rather
+# than silently re-centring if the input data ever change: a shifted centroid
+# would change the meaning of every polynomial coefficient and quietly break
+# comparability with the saved fit.
+stopifnot(
+  abs(lat_ctr_check - 1448231) < 1000,
+  abs(lon_ctr_check -  552981) < 1000
+)
+
+cat(sprintf("Grappe centroid: lat = %.0f m, lon = %.0f m (formula uses 1448231, 552981)\n",
+            lat_ctr_check, lon_ctr_check))
+
+```
+
+### Fit model
+
+`isTreated_child * poly(...)` expands to the treatment main effect, the five
+polynomial main effects, and their five interactions — 12 fixed effects in total, 6
+more than `fitmort_child_gen_krig_int`. As in the spline models, the linear `lat + lon`
+terms are *replaced* by the polynomial basis (which already contains them as its
+degree-1 columns) rather than added to it; keeping both would be rank-deficient. The
+Matérn term stays on the **uncentred metre** coordinates so that `rho` remains in
+m⁻¹ and is directly comparable to the other models in this file.
+
+Model fitting took 266.250 sec (about 4.5 minutes) with 11 threads — the cheapest of
+the flexible-trend models, since a degree-2 polynomial adds only 6 parameters.
+
+```{r fit polynomial model}
+
+if(refit_models_flag) {
+  tic("Gen Krig: fit spaMM model with quadratic polynomial (degree 2, raw) in baseline and ATE")
+  fitmort_child_gen_krig_poly <- spaMM::fitme(
+    n_deaths_1to59 ~
+      1 +
+      # poly() on centred km coordinates; column suffixes are "lat_power.lon_power",
+      # so 1.0 = lat, 2.0 = lat^2, 0.1 = lon, 1.1 = lat*lon, 0.2 = lon^2.
+      # Written bare (not stats::poly) for the same reason as ns() above: a
+      # namespaced call head breaks spaMM's .expand_multIMRFs() term scan.
+      # Verified — stats::poly() here fails with "the condition has length > 1".
+      isTreated_child * poly(I((lat - 1448231) / 1000),
+                             I((lon -  552981) / 1000),
+                             degree = 2, raw = TRUE) +
+      Matern(1 | lon + lat) +
+      # (1|site_code) +
+      offset(log(pt_year_1to59)),
+    data = df_proj,
+    family = poisson(link = "log"),
+    control.HLfit = list(NbThreads = avail_thr)
+  )
+  toc()
+
+  saveRDS(fitmort_child_gen_krig_poly,
+          here("data", "fitmort_child_gen_krig_poly.rds"))
+} else {
+  fitmort_child_gen_krig_poly <- readRDS(here("data", "fitmort_child_gen_krig_poly.rds"))
+}
+
+```
+
+The same round-trip check applied to the spline model is applied here: predicting at
+the grappe locations must reproduce the fitted values, and predicting on a subset must
+reproduce the corresponding full-data predictions. Both hold: the subset-vs-full
+comparison agrees to 1.4e-14 and the fitted-vs-newdata comparison to 1.9e-07, the same
+pair of magnitudes the spline model shows, and for the same reason on the looser one —
+that path re-interpolates the Matérn field rather than reusing the stored BLUPs.
+
+The check is nonetheless doing less work here than it does for the splines. There it
+guards against knots being silently re-derived from `newdata`; with `raw = TRUE` there
+is no basis to re-derive, so what it actually confirms is that the centring constants
+in the stored call survived serialisation and were applied to the new data.
+
+```{r verify polynomial predict round trip}
+
+p_fitted_poly <- as.numeric(predict(fitmort_child_gen_krig_poly, type = "response"))
+p_newdat_poly <- as.numeric(predict(fitmort_child_gen_krig_poly,
+                                    newdata = sf::st_drop_geometry(df_proj),
+                                    type = "response"))
+
+south_poly <- df_proj$lat < median(df_proj$lat)
+p_subset_poly <- as.numeric(predict(fitmort_child_gen_krig_poly,
+                                    newdata = sf::st_drop_geometry(df_proj)[south_poly, ],
+                                    type = "response"))
+
+# Tolerances match the spline chunk above: the fitted-vs-newdata path re-interpolates
+# the Matern field rather than reusing the stored BLUPs, so it is the looser of the two.
+stopifnot(
+  max(abs(p_newdat_poly - p_fitted_poly)) < 1e-5,
+  max(abs(p_subset_poly - p_newdat_poly[south_poly])) < 1e-8
+)
+
+cat("Polynomial terms round-trip through predict(newdata =) correctly.\n")
+
+```
+
+### Compare to interaction model
+
+`spaMM::LRT()` fails here for the same reason it fails for the splines — it decides
+nesting by comparing fixed-effect term *labels*, and `poly(...)1.0` matches nothing in
+a model whose label is `lat`. The models are nested in the column-space sense (the
+degree-1 polynomial columns are affine functions of `lat` and `lon`, and the model
+intercept absorbs the centring), so `lrt_manual()` computes the test from the ML
+log-likelihoods with df = 6.
+
+```{r compare polynomial model}
+
+print(AIC(fitmort_child_gen_krig_int))
+print(AIC(fitmort_child_gen_krig_poly))
+
+# LRT(fitmort_child_gen_krig_poly, fitmort_child_gen_krig_int)  # errors: see above
+lrt_manual(fitmort_child_gen_krig_poly, fitmort_child_gen_krig_int)
+
+# Also worth reading against the additive spline, which spends 12 parameters on
+# curvature but cannot represent lat*lon. NOT a nested pair in either direction --
+# AIC only, no LRT.
+print(AIC(fitmort_child_gen_krig_spline))
+
+```
+
+**Result: the quadratic polynomial does not improve on the linear interaction model
+either.** Six extra fixed-effect parameters buy 3.1 log-likelihood points
+($\chi^2 = 6.21$, df = 6, p = 0.40), and the marginal AIC is *worse* by 5.8
+(4989.69 vs 4983.90).
+
+The striking detail is that this lands within 0.01 AIC of the additive spline
+(4989.69 vs 4989.68) despite spending half as many parameters on a completely
+different kind of flexibility. Two bases that share nothing — one buying curvature
+without axis interaction, the other buying the `lat·lon` cross term without much
+curvature — both fail to beat the plane by almost exactly the same margin. Taken
+together they close the question the spline section left open: the spline's null
+result was *not* an artefact of additivity, and there is no detectable curvature,
+diagonal orientation, or interior optimum in the ATE surface beyond what the plane
+plus the Matérn field already capture.
+
+Reading the coefficient table below, none of the three baseline second-order terms is
+distinguishable from zero (|t| = 1.64, 0.70, 0.74 for `lat²`, `lat:lon`, `lon²`), and
+neither is any of their treatment interactions (|t| = 0.14, 0.96, 0.57). The only
+interaction that survives is the linear `Trt:lon` (t = -2.06) — the same east–west
+gradient in the ATE that `fitmort_child_gen_krig_int` already reports.
+
+As predicted, the Matérn field gives ground to the trend: `rho` rises from 8.80e-05 to
+1.28e-04 (range 11.4 km → 7.8 km) and `nu` from 0.234 to 0.286, landing between the
+interaction model and the more aggressive spline (5.6 km). **Do not quote the Matérn
+range from this model** alongside the range reported for `fitmort_child_gen_krig_int`
+in `03-csi-analysis.qmd`.
+
+### Model results
+
+`summary()` prints the full 80-character `poly()` coefficient labels, which are hard to
+read. The table below relabels them: rows `lat`/`lon` are the linear trend (per km),
+`lat^2`/`lon^2`/`lat:lon` the curvature (per km²), and the `Trt:` rows are the
+corresponding differences in the treated arm — i.e. the coefficients of the ATE
+surface, evaluated in km from the grappe centroid.
+
+```{r results of the polynomial model}
+
+summary(fitmort_child_gen_krig_poly)
+
+poly_coefs <- fixef(fitmort_child_gen_krig_poly)
+names(poly_coefs) <- names(poly_coefs) %>%
+  # shorten the treatment prefix FIRST, then strip the poly() call; a greedy match on
+  # the poly() call would otherwise swallow the prefix along with it
+  str_replace("^isTreated_childTreatment:", "Trt:") %>%
+  str_replace("^isTreated_childTreatment$", "Trt") %>%
+  # strip the poly() call, leaving the "lat_power.lon_power" suffix
+  str_remove("poly\\(.*raw = TRUE\\)") %>%
+  # map the poly() degree suffixes onto readable monomials
+  str_replace(fixed("1.0"), "lat") %>%
+  str_replace(fixed("2.0"), "lat^2") %>%
+  str_replace(fixed("0.1"), "lon") %>%
+  str_replace(fixed("1.1"), "lat:lon") %>%
+  str_replace(fixed("0.2"), "lon^2")
+
+print(data.frame(term = names(poly_coefs),
+                 estimate = as.numeric(poly_coefs),
+                 rate_ratio = exp(as.numeric(poly_coefs)),
+                 row.names = NULL))
+
+materncorr_gen_krig_poly <- plot_matern_corr_proj(fitmort_child_gen_krig_poly,
+                                                 "avenir-materncorr-fitmort_child_gen_krig_poly",
+                                                 modelname = "Gen Krige + quadratic poly")
+
+materncorr_gen_krig_poly
+
+```
+
+### Extrapolation check
+
+A raw quadratic is not constrained the way `ns()` is: it keeps curving outside the
+data, so in principle grid cells beyond the grappes could be extrapolated along a
+parabola into implausible rates. Checked directly against `boxgrid`, this does not
+happen here, for a reason specific to this grid — `boxgrid` is tightly clipped to the
+study area. Every one of its 16646 cells lies within 20 km of a grappe, 87% within
+5 km, and the extreme predictions are not in the sparse cells at all: the maximum
+predicted rate (38.8 per 1000 py) falls in the *densest* band, within 1 km of a
+grappe, against 36.4 for the interaction model in the same band. In the 10–20 km band
+the polynomial is *lower* than the interaction model (14.3 vs 15.3). The two ATE
+surfaces correlate at 0.91 across cells, differing by a mean of 0.51 deaths per
+1000 py within 5 km of a grappe.
+
+The caveat is therefore narrower than the general warning about polynomials: this
+model is safe on `boxgrid`, but unlike the `ns()` models it carries no built-in
+protection if it is ever predicted onto a wider grid.
+
+---
+
 # Model predictions
 
 Predictions are generated at every grid point in `boxgrid` for both treatment arms under each model, then differenced to produce spatial ATE maps. The MORDOR model is **excluded** from this step because `mordorstate` is a district-level binary covariate with no natural value at arbitrary grid locations inside and outside those districts — assigning it would require an additional spatial join that is not implemented here.
@@ -538,7 +968,9 @@ models_list <- list(
   gen_krig_mordor = fitmort_child_gen_krig_mordor,
   # matern_dist = fitmort_child_matern_dist,
   doub_matern = fitmort_child_doub_matern,
-  dist_FE = fitmort_child_dist_FE
+  dist_FE = fitmort_child_dist_FE,
+  gen_krig_spline = fitmort_child_gen_krig_spline,
+  gen_krig_poly = fitmort_child_gen_krig_poly
 )
 
 tic("Get predictions from all models for both treatment groups")
@@ -573,7 +1005,8 @@ Comparing Matérn correlation functions across all four models. The range parame
 
 ```{r matern corr plots}
 materncorr_simp_krig + materncorr_gen_krig + materncorr_gen_krig_int + materncorr_gen_krig_re +
-  materncorr_gen_krig_mordor + materncorr_gen_krig_matern_dist + materncorr_gen_krig_dist_FE
+  materncorr_gen_krig_mordor + materncorr_gen_krig_matern_dist + materncorr_gen_krig_dist_FE +
+  materncorr_gen_krig_spline + materncorr_gen_krig_poly
 
 ggsave(here("results", "figs" ,"matern_corrs.png"),
     bg = "white", width = 12, height = 9)
@@ -585,7 +1018,7 @@ Consolidated model comparison. AIC differences > 2 indicate a meaningful improve
 
 ```{r aic and lrt tables}
 aic_table <- data.frame(
-  Model = c("Simple Kriging", "Generalized Kriging", "Gen Krige + Interaction", "Gen Krige + Cluster RE", "Gen Krige + MORDOR", "Matern by district", "Matern by tx status", "District FE"),
+  Model = c("Simple Kriging", "Generalized Kriging", "Gen Krige + Interaction", "Gen Krige + Cluster RE", "Gen Krige + MORDOR", "Matern by district", "Matern by tx status", "District FE", "Gen Krige + additive splines", "Gen Krige + quadratic poly"),
   AIC = c(
     AIC(fitmort_child_simp_krig)[1],
     AIC(fitmort_child_gen_krig)[1],
@@ -594,7 +1027,9 @@ aic_table <- data.frame(
     AIC(fitmort_child_gen_krig_mordor)[1],
     AIC(fitmort_child_matern_dist)[1],
     AIC(fitmort_child_doub_matern)[1],
-    AIC(fitmort_child_dist_FE)[1]
+    AIC(fitmort_child_dist_FE)[1],
+    AIC(fitmort_child_gen_krig_spline)[1],
+    AIC(fitmort_child_gen_krig_poly)[1]
   )
 )
 
@@ -602,14 +1037,20 @@ lrt_table <- data.frame(
   Comparison = c("Gen Krige vs Simple Krige", "Gen Krige + Interaction vs Gen Krige", 
                  "Gen Krige + MORDOR vs Gen Krige + Interaction", 
                  # "Matern by tx status vs Gen Krige + Interaction", "Matern by district vs Gen Krige + Interaction", 
-                 "District FE vs Gen Krige + Interaction"),
+                 "District FE vs Gen Krige + Interaction",
+                 "Additive splines vs Gen Krige + Interaction",
+                 "Quadratic poly vs Gen Krige + Interaction"),
   LRT_statistic = c(
     LRT(fitmort_child_gen_krig, fitmort_child_simp_krig)$basicLRT$chi2_LR,
     LRT(fitmort_child_gen_krig_int, fitmort_child_gen_krig)$basicLRT$chi2_LR,
     LRT(fitmort_child_gen_krig_mordor, fitmort_child_gen_krig_int)$basicLRT$chi2_LR,
     # LRT(fitmort_child_doub_matern, fitmort_child_gen_krig_int)$basicLRT$chi2_LR,
     # LRT(fitmort_child_matern_dist, fitmort_child_gen_krig_int)$basicLRT$chi2_LR,
-    LRT(fitmort_child_dist_FE, fitmort_child_gen_krig_int)$basicLRT$chi2_LR
+    LRT(fitmort_child_dist_FE, fitmort_child_gen_krig_int)$basicLRT$chi2_LR,
+    # spaMM::LRT() reports the spline and polynomial models as non-nested because
+    # it compares term labels; lrt_manual() computes the test from the ML log-likelihoods
+    lrt_manual(fitmort_child_gen_krig_spline, fitmort_child_gen_krig_int)$chi2_LR,
+    lrt_manual(fitmort_child_gen_krig_poly, fitmort_child_gen_krig_int)$chi2_LR
   ),
   p_value = c(
     LRT(fitmort_child_gen_krig, fitmort_child_simp_krig)$basicLRT$p_value,
@@ -617,7 +1058,9 @@ lrt_table <- data.frame(
     LRT(fitmort_child_gen_krig_mordor, fitmort_child_gen_krig_int)$basicLRT$p_value,
     # LRT(fitmort_child_doub_matern, fitmort_child_gen_krig_int)$basicLRT$p_value,
     # LRT(fitmort_child_matern_dist, fitmort_child_gen_krig_int)$basicLRT$p_value,
-    LRT(fitmort_child_dist_FE, fitmort_child_gen_krig_int)$basicLRT$p_value
+    LRT(fitmort_child_dist_FE, fitmort_child_gen_krig_int)$basicLRT$p_value,
+    lrt_manual(fitmort_child_gen_krig_spline, fitmort_child_gen_krig_int)$p_value,
+    lrt_manual(fitmort_child_gen_krig_poly, fitmort_child_gen_krig_int)$p_value
   )
 )
 

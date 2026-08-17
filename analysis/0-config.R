@@ -7,6 +7,7 @@
 
 # Load required packages ----
 
+library(colorspace)
 library(dplyr)
 library(ggpubr)
 library(ggrepel)
@@ -22,7 +23,11 @@ library(raster)
 library(renv)
 library(scales)
 library(sf)
-library(spaMM)
+# library(spaMM)
+# splines must be attached, not called as splines::ns() inside a spaMM formula:
+# spaMM's .expand_multIMRFs() compares each term's head against "multIMRF", and a
+# namespaced call head is length 3, which errors under R >= 4.2.
+library(splines)
 library(terra)
 library(tidyverse)
 library(tictoc)
@@ -56,3 +61,10 @@ refit_overdispersion_models_flag <- FALSE
 
 ## Flags to control if posterior probability simulations are re-run in script 2B
 re_simulate <- FALSE # Set TRUE to re-run simulations (slow: ~13 min per model)
+
+## Flags to control if the targeting inputs in script 07 are rebuilt.
+## Both cached objects carry an attribute stamp of the settings they were built
+## under, and 07 stops rather than renders if the stamp no longer matches, so
+## leaving these FALSE cannot silently produce stale numbers.
+rebuild_targeting_preds_flag <- FALSE # Set TRUE to re-predict both arms at every grappe (loads a ~54 MB model per specification)
+rebuild_targeting_boot_flag  <- FALSE # Set TRUE to redraw the predictive bootstrap (slow: the joint covariance over villages x arms)

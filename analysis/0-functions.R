@@ -260,6 +260,63 @@ summarise_boot <- function(boot_list, value_col, probs = c(0.025, 0.975)) {
 
 
 #--------------------------------------
+# lrt_manual()
+#
+# Likelihood ratio test between two nested spaMM fits, computed directly from
+# the log-likelihoods rather than via spaMM::LRT().
+#
+# WHY THIS EXISTS: spaMM::LRT() decides nesting by comparing fixed-effect *term
+# labels*. A spline model whose design contains `ns(lat, df = 4)1..4` shares no
+# label with the linear model's `lat`, so spaMM reports "Fixed effects seem
+# non-nested" and refuses the test — even though an ns() basis with
+# intercept = FALSE, plus the model intercept, spans the linear function and the
+# models are genuinely nested. Use spaMM::LRT() wherever it works; use this only
+# for the spline-vs-linear comparisons.
+#
+# VALIDITY — two conditions the CALLER must ensure, neither of which is checked
+# here because spaMM stores no reliable, stable field for either:
+#   1. The models must genuinely be nested.
+#   2. Both must be fitted by ML, not REML, so that the log-likelihoods are
+#      comparable across different fixed effect structures. spaMM::fitme()
+#      defaults to ML — confirm via summary(), which prints
+#      "Estimation of fixed effects by ML (p_v approximation of logL)".
+# The p_v log-likelihood is requested explicitly below so the comparison is on
+# the marginal (ML) likelihood regardless of the object's default.
+#
+# Arguments:
+# - bigger:  spaMM HLfit object; the more complex model
+# - smaller: spaMM HLfit object; the model nested within `bigger`
+#
+# Requirements:
+# - Packages: spaMM
+#
+# Returns:
+# - One-row data.frame with chi2_LR, df, and p_value
+#--------------------------------------
+
+lrt_manual <- function(bigger, smaller) {
+  if (length(fitted(bigger)) != length(fitted(smaller))) {
+    stop("lrt_manual() requires both models to be fitted on the same rows.")
+  }
+
+  ll_big   <- as.numeric(logLik(bigger,  which = "p_v"))
+  ll_small <- as.numeric(logLik(smaller, which = "p_v"))
+  df_diff  <- length(fixef(bigger)) - length(fixef(smaller))
+
+  if (df_diff <= 0) {
+    stop("lrt_manual(): `bigger` must have more fixed effect parameters than `smaller`.")
+  }
+
+  chi2 <- 2 * (ll_big - ll_small)
+
+  data.frame(
+    chi2_LR = chi2,
+    df      = df_diff,
+    p_value = pchisq(chi2, df = df_diff, lower.tail = FALSE)
+  )
+}
+
+#--------------------------------------
 # plot_matern_corr_proj()
 #
 # Plot and save the Matérn spatial correlation as a function of distance,
