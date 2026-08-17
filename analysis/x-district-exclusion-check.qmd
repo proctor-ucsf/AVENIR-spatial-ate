@@ -1,0 +1,431 @@
+---
+title: "Sensitivity of the primary spatial model to excluding MORDOR-overlapping districts"
+date: today
+# author: "Ariktha Srivathsan"
+format:
+  html:
+    toc: true
+    toc-location: right
+    code-fold: true
+    code-summary: "Show code"
+    df-print: paged
+    self-contained: true
+execute:
+  cache: true
+  warning: false
+  message: false
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+
+rm(list = ls())
+```
+
+## Purpose
+
+The primary model (`fitmort_child_gen_krig_int`, the generalized kriging model with
+`treatment × lat` and `treatment × lon` interactions) is fitted to all 1390 grappes.
+Three districts — **Boboye**, **Falmey** and **Loga** — overlapped with the MORDOR mass
+azithromycin trial, so their background mortality may have been depressed by prior mass
+drug administration, and their treatment effect may be attenuated.
+
+`mordor-question.qmd` approaches this by *adjusting*: adding a `mordorstate` indicator
+and matching MORDOR villages. This document takes the complementary approach — it
+*removes* the districts and refits, then asks whether the predicted mortality surfaces
+and the ATE surface change in any way that would alter the conclusions:
+
+1. **Excluding Boboye** — the largest of the three MORDOR districts
+2. **Excluding Boboye, Falmey and Loga** — all three MORDOR-overlapping districts
+
+Both refits use the primary specification unchanged, including the centred coordinates
+introduced in `02A-spatial-models-fit.Rmd`, so the only difference is which grappes
+enter the likelihood.
+
+> **Interpretation caveat.** Predictions are generated over the *whole* `boxgrid`,
+> including cells inside the dropped districts. In those cells the reduced models have
+> no local data, so the Matérn field shrinks to zero and the prediction falls back to
+> the fixed-effect plane. Those cells are flagged throughout and excluded from the
+> quantitative comparisons — they show what the model extrapolates, not what it
+> learned.
+
+```{r load data}
+
+source(here::here("analysis", "0-config.R"))
+source(here::here("analysis", "0-functions.R"))
+
+df_proj <- readRDS(here("data", "grappe_mortality_data.rds")) %>%
+  ungroup() %>%
+  st_as_sf(coords = c("lon", "lat"), crs = global_crs) %>%
+  st_transform(crs = proj_crs) %>% # UTM zone 31N, for Niger
+  mutate(lon = sf::st_coordinates(.)[, 1],
+         lat = sf::st_coordinates(.)[, 2],
+         isTreated_child_num = ifelse(isTreated_child == "Treatment", 1, 0))
+
+boxgrid        <- readRDS(here("data", "boxgrid.rds"))
+niger_adm2_sub <- readRDS(here("data", "niger_adm2_sub.rds"))
+
+# The two exclusion sets, plus the full-data reference
+excluded_districts <- list(
+  full        = character(0),
+  no_boboye   = "Boboye",
+  no_mordor   = c("Boboye", "Falmey", "Loga")
+)
+
+variant_labels <- c(full      = "All districts",
+                    no_boboye = "Excl. Boboye",
+                    no_mordor = "Excl. Boboye, Falmey, Loga")
+
+```
+
+### What is being dropped
+
+```{r data-loss-table}
+
+df_proj %>%
+  sf::st_drop_geometry() %>%
+  group_by(district) %>%
+  summarise(n_grappe   = n(),
+            n_treated  = sum(isTreated_child == "Treatment"),
+            deaths     = sum(n_deaths_1to59),
+            py         = round(sum(pt_year_1to59)),
+            rate_1000  = round(1000 * sum(n_deaths_1to59) / sum(pt_year_1to59), 1),
+            .groups    = "drop") %>%
+  mutate(mordor_district = district %in% excluded_districts$no_mordor)
+
+```
+
+```{r data-loss-summary}
+
+purrr::map_dfr(names(excluded_districts), function(v) {
+  d <- df_proj %>% dplyr::filter(!district %in% excluded_districts[[v]])
+  tibble(variant     = variant_labels[[v]],
+         n_grappe    = nrow(d),
+         n_treated   = sum(d$isTreated_child == "Treatment"),
+         deaths      = sum(d$n_deaths_1to59),
+         deaths_lost = sum(df_proj$n_deaths_1to59) - sum(d$n_deaths_1to59),
+         pct_deaths_lost = round(100 * (1 - sum(d$n_deaths_1to59) /
+                                          sum(df_proj$n_deaths_1to59)), 1))
+})
+
+```
+
+## Refit the primary model on each subset
+
+The formula is identical to `fitmort_child_gen_krig_int` in `02A-spatial-models-fit.Rmd`
+— centred coordinates in km, Matérn field on the uncentred metre coordinates, Poisson
+with a `log(pt_year_1to59)` offset, fitted by ML. The full-data fit is *loaded*, not
+refitted, so it is guaranteed to be the same object the rest of the repo uses.
+
+Controlled by `refit_exclusion_models_flag` in `0-config.R`. Each refit takes roughly
+4–5 minutes with `r avail_thr` threads.
+
+```{r fit-exclusion-models}
+
+fit_paths <- c(full      = here("data", "fitmort_child_gen_krig_int.rds"),
+               no_boboye = here("data", "fitmort_child_gen_krig_int_no_boboye.rds"),
+               no_mordor = here("data", "fitmort_child_gen_krig_int_no_mordor.rds"))
+
+if(refit_exclusion_models_flag) {
+
+  for(v in c("no_boboye", "no_mordor")) {
+
+    dat_v <- df_proj %>% dplyr::filter(!district %in% excluded_districts[[v]])
+
+    tic(paste("Refit primary model,", variant_labels[[v]]))
+    fit_v <- spaMM::fitme(
+      n_deaths_1to59 ~
+        1 +
+        I((lat - 1448231) / 1000) + I((lon - 552981) / 1000) +
+        Matern(1 | lon + lat) +
+        isTreated_child +
+        isTreated_child:I((lat - 1448231) / 1000) +
+        isTreated_child:I((lon -  552981) / 1000) +
+        offset(log(pt_year_1to59)),
+      data = dat_v,
+      family = poisson(link = "log"),
+      control.HLfit = list(NbThreads = avail_thr)
+    )
+    toc()
+
+    saveRDS(fit_v, fit_paths[[v]])
+  }
+}
+
+fits <- purrr::map(fit_paths, readRDS)
+
+# All three must be the same specification, or the comparison is meaningless
+stopifnot(all(purrr::map_int(fits, ~ length(fixef(.x))) == 6))
+
+```
+
+## Coefficients and variance components
+
+```{r coefficient-table}
+
+purrr::imap_dfr(fits, function(f, v) {
+  b  <- fixef(f)
+  se <- sqrt(diag(vcov(f)))
+  cp <- f$CorrEst_and_RanFix$corrPars$`1`
+  tibble(
+    variant   = variant_labels[[v]],
+    n_grappe  = length(fitted(f)),
+    term      = names(b) %>%
+      str_replace(fixed("I((lat - 1448231)/1000)"), "lat_c") %>%
+      str_replace(fixed("I((lon - 552981)/1000)"), "lon_c") %>%
+      str_replace("isTreated_childTreatment", "Trt"),
+    estimate  = as.numeric(b),
+    se        = as.numeric(se),
+    t         = as.numeric(b / se)
+  )
+}) %>%
+  mutate(across(c(estimate, se, t), ~ signif(.x, 3))) %>%
+  tidyr::pivot_wider(id_cols = term, names_from = variant,
+                     values_from = c(estimate, se, t))
+
+```
+
+`Trt` is the log rate ratio **at the grappe centroid** (coordinates are centred), and
+`Trt:lat_c` / `Trt:lon_c` are the per-km gradients in that log rate ratio.
+
+```{r variance-components}
+
+purrr::imap_dfr(fits, function(f, v) {
+  cp <- f$CorrEst_and_RanFix$corrPars$`1`
+  tibble(variant  = variant_labels[[v]],
+         n_grappe = length(fitted(f)),
+         nu       = signif(cp$nu, 4),
+         rho      = signif(cp$rho, 4),
+         range_km = signif(1 / (1000 * cp$rho), 4),
+         lambda   = signif(f$lambda[[1]], 4),
+         logLik   = signif(as.numeric(logLik(f, which = "p_v")), 6),
+         AIC      = signif(AIC(f)[1], 6))
+})
+
+```
+
+AIC and logLik are **not** comparable across rows — the three models are fitted to
+different numbers of observations. They are reported only to document each fit.
+
+## Predicted surfaces
+
+```{r grid-predictions}
+
+# One prediction surface per variant per arm, over the full boxgrid
+preds_long <- purrr::imap_dfr(fits, function(f, v) {
+  get_grid_preds_both_tx(input_grid = boxgrid, spamm_model_fit = f) %>%
+    mutate(variant = variant_labels[[v]])
+})
+
+preds_wide <- preds_long %>%
+  tidyr::pivot_wider(id_cols = c(variant, district, geometry),
+                     names_from = isTreated_child,
+                     values_from = pred, names_prefix = "pred") %>%
+  mutate(ATE        = predTreatment - predControl,
+         rate_ratio = predTreatment / predControl,
+         # cells the reduced models never saw data in
+         dropped_boboye = district %in% excluded_districts$no_boboye,
+         dropped_mordor = district %in% excluded_districts$no_mordor) %>%
+  mutate(variant = factor(variant, levels = unname(variant_labels)))
+
+```
+
+```{r base-map}
+
+base_map <- ggplot() +
+  geom_sf(data = niger_adm2_sub, fill = NA, color = "black", linewidth = 0.25) +
+  theme_minimal(base_size = 13) +
+  theme(legend.position = "bottom",
+        axis.title = element_blank(),
+        axis.text = element_text(size = 7))
+
+# outline of the districts dropped in each scenario, for overlay
+boboye_outline <- niger_adm2_sub %>%
+  dplyr::filter(adm2_name %in% excluded_districts$no_boboye)
+mordor_outline <- niger_adm2_sub %>%
+  dplyr::filter(adm2_name %in% excluded_districts$no_mordor)
+
+```
+
+### Mortality surfaces, both arms
+
+```{r mortality-surfaces}
+#| fig-width: 11
+#| fig-height: 8
+
+mort_df <- preds_long %>%
+  mutate(variant = factor(variant, levels = unname(variant_labels))) %>%
+  group_by(variant, isTreated_child) %>%
+  group_split()
+
+mort_keys <- preds_long %>%
+  mutate(variant = factor(variant, levels = unname(variant_labels))) %>%
+  group_by(variant, isTreated_child) %>%
+  group_keys()
+
+mort_rast <- purrr::map(mort_df, ~ make_raster_map(.x, proj_crs, global_crs, "pred"))
+names(mort_rast) <- paste(mort_keys$variant, mort_keys$isTreated_child, sep = "__")
+
+mort_raster_df <- purrr::imap_dfr(mort_rast, function(res, name) {
+  parts <- strsplit(name, "__")[[1]]
+  as.data.frame(res, xy = TRUE, na.rm = FALSE) %>%
+    mutate(variant = parts[1], arm = parts[2])
+}) %>%
+  mutate(variant = factor(variant, levels = unname(variant_labels)))
+
+p_mort <- base_map +
+  geom_raster(data = mort_raster_df, aes(x = x, y = y, fill = pred), na.rm = TRUE) +
+  geom_sf(data = niger_adm2_sub, fill = NA, color = "black", linewidth = 0.25) +
+  geom_sf(data = mordor_outline, fill = NA, color = "red", linewidth = 0.5) +
+  facet_grid(arm ~ variant) +
+  scale_fill_viridis_c(name = "Predicted deaths / 1000 py",
+                       guide = guide_colorbar(title.position = "top")) +
+  labs(caption = "Red outline: the three MORDOR-overlapping districts.")
+
+p_mort
+
+```
+
+### ATE surfaces
+
+```{r ate-surfaces}
+#| fig-width: 11
+#| fig-height: 4.5
+
+ate_df   <- preds_wide %>% group_by(variant) %>% group_split()
+ate_keys <- preds_wide %>% group_by(variant) %>% group_keys()
+
+ate_rast <- purrr::map(ate_df, ~ make_raster_map(.x, proj_crs, global_crs, "ATE"))
+names(ate_rast) <- as.character(ate_keys$variant)
+
+ate_raster_df <- purrr::imap_dfr(ate_rast, function(res, name) {
+  as.data.frame(res, xy = TRUE, na.rm = FALSE) %>% mutate(variant = name)
+}) %>%
+  mutate(variant = factor(variant, levels = unname(variant_labels)))
+
+p_ate <- base_map +
+  geom_raster(data = ate_raster_df, aes(x = x, y = y, fill = ATE), na.rm = TRUE) +
+  geom_sf(data = niger_adm2_sub, fill = NA, color = "black", linewidth = 0.25) +
+  geom_sf(data = mordor_outline, fill = NA, color = "red", linewidth = 0.5) +
+  facet_wrap(~ variant) +
+  scale_fill_gradient2(name = "ATE (deaths / 1000 py)",
+                       low = "#2166ac", mid = "white", high = "#b2182b",
+                       midpoint = 0,
+                       guide = guide_colorbar(title.position = "top")) +
+  labs(caption = "Negative (blue) = treatment arm has lower predicted mortality.")
+
+p_ate
+
+```
+
+### How far does the ATE surface move?
+
+```{r ate-difference-maps}
+#| fig-width: 9
+#| fig-height: 4.5
+
+ate_diff <- preds_wide %>%
+  sf::st_drop_geometry() %>%
+  dplyr::select(variant, ATE) %>%
+  mutate(cell = rep(seq_len(nrow(boxgrid)), times = length(fits))) %>%
+  tidyr::pivot_wider(id_cols = cell, names_from = variant, values_from = ATE)
+
+names(ate_diff) <- c("cell", "full", "no_boboye", "no_mordor")
+
+diff_sf <- boxgrid %>%
+  mutate(diff_boboye = ate_diff$no_boboye - ate_diff$full,
+         diff_mordor = ate_diff$no_mordor - ate_diff$full)
+
+diff_long <- bind_rows(
+  diff_sf %>% mutate(pred = diff_boboye, comparison = "Excl. Boboye - all districts"),
+  diff_sf %>% mutate(pred = diff_mordor, comparison = "Excl. all 3 MORDOR - all districts")
+)
+
+diff_split <- diff_long %>% group_by(comparison) %>% group_split()
+diff_keys  <- diff_long %>% group_by(comparison) %>% group_keys()
+diff_rast  <- purrr::map(diff_split, ~ make_raster_map(.x, proj_crs, global_crs, "pred"))
+names(diff_rast) <- diff_keys$comparison
+
+diff_raster_df <- purrr::imap_dfr(diff_rast, function(res, name) {
+  as.data.frame(res, xy = TRUE, na.rm = FALSE) %>% mutate(comparison = name)
+})
+
+p_diff <- base_map +
+  geom_raster(data = diff_raster_df, aes(x = x, y = y, fill = pred), na.rm = TRUE) +
+  geom_sf(data = niger_adm2_sub, fill = NA, color = "black", linewidth = 0.25) +
+  geom_sf(data = mordor_outline, fill = NA, color = "red", linewidth = 0.5) +
+  facet_wrap(~ comparison) +
+  scale_fill_gradient2(name = "Change in ATE (deaths / 1000 py)",
+                       low = "#4d9221", mid = "white", high = "#c51b7d",
+                       midpoint = 0,
+                       guide = guide_colorbar(title.position = "top")) +
+  labs(caption = "Change relative to the full-data fit. Cells inside the red outline are extrapolations for the reduced models.")
+
+p_diff
+
+```
+
+### Cell-by-cell agreement
+
+```{r ate-scatter}
+#| fig-width: 9
+#| fig-height: 4.5
+
+scatter_dat <- bind_rows(
+  tibble(full = ate_diff$full, excluded = ate_diff$no_boboye,
+         comparison = "Excl. Boboye",
+         in_dropped = boxgrid$district %in% excluded_districts$no_boboye),
+  tibble(full = ate_diff$full, excluded = ate_diff$no_mordor,
+         comparison = "Excl. Boboye, Falmey, Loga",
+         in_dropped = boxgrid$district %in% excluded_districts$no_mordor)
+)
+
+p_scatter <- ggplot(scatter_dat, aes(x = full, y = excluded, color = in_dropped)) +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "grey40") +
+  geom_point(size = 0.3, alpha = 0.3) +
+  ggpubr::stat_cor(data = scatter_dat %>% dplyr::filter(!in_dropped),
+                   aes(x = full, y = excluded), inherit.aes = FALSE, size = 3.5) +
+  facet_wrap(~ comparison) +
+  scale_color_manual(name = "Grid cell is in a dropped district",
+                     values = c(`FALSE` = "#2166ac", `TRUE` = "#b2182b")) +
+  labs(x = "ATE, all districts (deaths / 1000 py)",
+       y = "ATE, reduced fit") +
+  theme_minimal(base_size = 13) +
+  theme(legend.position = "bottom")
+
+p_scatter
+
+```
+
+The correlation reported is computed on **retained** cells only.
+
+```{r ate-agreement-table}
+
+purrr::map_dfr(c("no_boboye", "no_mordor"), function(v) {
+  keep <- !boxgrid$district %in% excluded_districts[[v]]
+  d    <- ate_diff[[v]] - ate_diff$full
+  tibble(
+    variant          = variant_labels[[v]],
+    cells_retained   = sum(keep),
+    cells_dropped    = sum(!keep),
+    cor_retained     = round(cor(ate_diff$full[keep], ate_diff[[v]][keep]), 4),
+    mean_abs_diff    = round(mean(abs(d[keep])), 3),
+    max_abs_diff     = round(max(abs(d[keep])), 3),
+    ate_min_retained = round(min(ate_diff[[v]][keep]), 2),
+    ate_max_retained = round(max(ate_diff[[v]][keep]), 2),
+    ate_min_full     = round(min(ate_diff$full[keep]), 2),
+    ate_max_full     = round(max(ate_diff$full[keep]), 2)
+  )
+})
+
+```
+
+```{r save-outputs}
+
+saveRDS(preds_wide, here("data", "preds_ATE_district_exclusion.rds"))
+
+```
+
+## Findings
+
+*(Filled in after the refits — see the tables and maps above.)*

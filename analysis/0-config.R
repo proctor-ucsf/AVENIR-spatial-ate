@@ -58,6 +58,9 @@ nsim_input <- 1000
 refit_models_flag <- FALSE # Set to TRUE to refit models, which can take a long time. Set to FALSE to load previously fitted models.
 refit_csi_models_flag <- FALSE
 refit_overdispersion_models_flag <- FALSE
+## Refits the primary model on district subsets in x-district-exclusion-check.qmd
+## (~4-5 min per subset). The full-data fit is always loaded, never refitted there.
+refit_exclusion_models_flag <- FALSE
 
 ## Flags to control if posterior probability simulations are re-run in script 2B
 re_simulate <- FALSE # Set TRUE to re-run simulations (slow: ~13 min per model)
