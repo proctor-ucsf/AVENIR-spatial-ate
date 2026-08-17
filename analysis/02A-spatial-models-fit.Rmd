@@ -221,17 +221,17 @@ materncorr_gen_krig <- plot_matern_corr_proj(fitmort_child_gen_krig,
 
 ---
 
-## Random effect for site code
+<!-- ## Random effect for site code -->
 
-This model extends the generalized kriging model by adding a random intercept for `site_code` (health facility catchment area). This accounts for clustering of grappes within sites — residual between-site heterogeneity in mortality that is not captured by the Matérn spatial correlation. Because site locations are spatially clustered, some of this variance may overlap with the Matérn RE, making the site RE and the spatial RE partially competing.
+<!-- This model extends the generalized kriging model by adding a random intercept for `site_code` (health facility catchment area). This accounts for clustering of grappes within sites — residual between-site heterogeneity in mortality that is not captured by the Matérn spatial correlation. Because site locations are spatially clustered, some of this variance may overlap with the Matérn RE, making the site RE and the spatial RE partially competing. -->
 
-The AIC and LRT comparisons for all three models accumulated so far (simple, generalized, and generalized + RE) are computed together in this chunk.
+<!-- The AIC and LRT comparisons for all three models accumulated so far (simple, generalized, and generalized + RE) are computed together in this chunk. -->
 
-> **Note:** This model took substantially longer to fit (~72 minutes) than the others due to the additional random effect. The `site_code` RE was commented out in the previous models as a simplification.
+<!-- > **Note:** This model took substantially longer to fit (~72 minutes) than the others due to the additional random effect. The `site_code` RE was commented out in the previous models as a simplification. -->
 
-Model fitting took 4374.418 sec (just over 72 minutes) with 11 threads.
+<!-- Model fitting took 4374.418 sec (just over 72 minutes) with 11 threads. -->
 
-```{r fit gen kriging model w RE for site code}
+```{r fit gen kriging model w RE for site code, eval = FALSE}
 
 if(refit_models_flag) {
   tic("Generalized Krig: fit spaMM model for child mortality with linear lat/lon terms and RE for site code")
