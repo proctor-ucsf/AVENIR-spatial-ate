@@ -311,7 +311,11 @@ p_ate <- base_map +
   scale_fill_gradient2(name = "ATE (deaths / 1000 py)",
                        low = "#2166ac", mid = "white", high = "#b2182b",
                        midpoint = 0,
-                       guide = guide_colorbar(title.position = "top")) +
+                       # wide bar + explicit breaks: the default is too narrow here
+                       # and the tick labels overprint each other
+                       breaks = seq(-10, 2, by = 2),
+                       guide = guide_colorbar(title.position = "top",
+                                              barwidth = unit(9, "cm"))) +
   labs(caption = "Negative (blue) = treatment arm has lower predicted mortality.")
 
 p_ate
@@ -321,7 +325,7 @@ p_ate
 ### How far does the ATE surface move?
 
 ```{r ate-difference-maps}
-#| fig-width: 9
+#| fig-width: 10
 #| fig-height: 4.5
 
 ate_diff <- preds_wide %>%
@@ -336,10 +340,15 @@ diff_sf <- boxgrid %>%
   mutate(diff_boboye = ate_diff$no_boboye - ate_diff$full,
          diff_mordor = ate_diff$no_mordor - ate_diff$full)
 
+# factor(), not character: group_split()/facet_wrap() would otherwise order these
+# alphabetically and put the three-district comparison first
+diff_levels <- c("Excl. Boboye", "Excl. Boboye, Falmey, Loga")
+
 diff_long <- bind_rows(
-  diff_sf %>% mutate(pred = diff_boboye, comparison = "Excl. Boboye - all districts"),
-  diff_sf %>% mutate(pred = diff_mordor, comparison = "Excl. all 3 MORDOR - all districts")
-)
+  diff_sf %>% mutate(pred = diff_boboye, comparison = diff_levels[1]),
+  diff_sf %>% mutate(pred = diff_mordor, comparison = diff_levels[2])
+) %>%
+  mutate(comparison = factor(comparison, levels = diff_levels))
 
 diff_split <- diff_long %>% group_by(comparison) %>% group_split()
 diff_keys  <- diff_long %>% group_by(comparison) %>% group_keys()
@@ -348,7 +357,8 @@ names(diff_rast) <- diff_keys$comparison
 
 diff_raster_df <- purrr::imap_dfr(diff_rast, function(res, name) {
   as.data.frame(res, xy = TRUE, na.rm = FALSE) %>% mutate(comparison = name)
-})
+}) %>%
+  mutate(comparison = factor(comparison, levels = diff_levels))
 
 p_diff <- base_map +
   geom_raster(data = diff_raster_df, aes(x = x, y = y, fill = pred), na.rm = TRUE) +
@@ -358,8 +368,11 @@ p_diff <- base_map +
   scale_fill_gradient2(name = "Change in ATE (deaths / 1000 py)",
                        low = "#4d9221", mid = "white", high = "#c51b7d",
                        midpoint = 0,
-                       guide = guide_colorbar(title.position = "top")) +
-  labs(caption = "Change relative to the full-data fit. Cells inside the red outline are extrapolations for the reduced models.")
+                       guide = guide_colorbar(title.position = "top",
+                                              barwidth = unit(9, "cm"))) +
+  labs(caption = paste("Change relative to the full-data fit.",
+                       "Green = more protective without those districts.",
+                       "\nCells inside the red outline are extrapolations."))
 
 p_diff
 
@@ -428,4 +441,66 @@ saveRDS(preds_wide, here("data", "preds_ATE_district_exclusion.rds"))
 
 ## Findings
 
-*(Filled in after the refits — see the tables and maps above.)*
+**The average treatment effect survives; the *spatial gradient* in it does not.**
+
+The treatment effect at the study centroid is stable and, if anything, strengthens as
+the MORDOR districts are removed — log RR −0.180 (RR 0.84, t = −4.12) on all districts,
+−0.205 (RR 0.81, t = −4.22) without Boboye, −0.237 (RR 0.79, t = −3.54) without all
+three. It stays significant in every fit despite losing 31% of the deaths in the
+largest exclusion. The direction is what a MORDOR-attenuation story predicts: the
+districts with prior mass drug administration were diluting the overall effect.
+
+The east–west interaction behaves very differently:
+
+| fit | `Trt:lon_c` | SE | t |
+|---|---|---|---|
+| All districts | −0.00283 | 0.00100 | **−2.83** |
+| Excl. Boboye | −0.00209 | 0.00131 | −1.60 |
+| Excl. Boboye, Falmey, Loga | −0.00098 | 0.00180 | −0.55 |
+
+The point estimate falls by 65% while the SE inflates by 1.8×, so this is not only a
+power loss — the coefficient itself moves far more than dropping 31% of events would
+explain. The north–south interaction, never significant, collapses similarly
+(t = 1.46 → 0.98 → 0.22).
+
+**Why: the harmful corner of the ATE surface is Boboye.** In the full-data fit, of the
+1464 grid cells with a positive (harmful) ATE, 1223 are in Boboye, 217 in Falmey and 15
+in Loga — 99.4% of them inside MORDOR districts, and 75.8% of Boboye's cells are
+positive. Boboye and Falmey are also the two westernmost districts (mean longitude
+2.87°E and 2.86°E, against 3.37–4.11°E for the rest). The significant east–west
+gradient is therefore anchored by a near-null-to-harmful estimate at the western edge;
+remove that edge and the gradient has little left to stand on.
+
+Consistent with this, both reduced fits predict a **uniformly protective** surface over
+the districts they retain: ATE spans −10.60 to −0.37 without Boboye and −9.34 to −1.39
+without all three, against −11.12 to +0.88 for the full fit over the same cells. No
+harmful pocket remains anywhere.
+
+**Elsewhere the surface barely moves.** Over retained cells the ATE correlates with the
+full-data surface at 0.983 (excl. Boboye; mean absolute change 0.30 deaths per 1000 py,
+max 1.43) and 0.899 (excl. all three; mean 0.56, max 2.13). The difference maps show the
+change concentrated in and around the dropped districts, shading green — more protective
+— as the attenuating districts leave, with the far south-east drifting very slightly the
+other way.
+
+**Inside the dropped districts the models extrapolate, as expected.** Without Boboye,
+the predicted ATE there swings from the full fit's −0.89 … +2.35 to −1.40 … +0.39: the
+harmful signal in Boboye was coming from Boboye's own data, and once that data is gone
+the model fills the hole with the regional plane. Those cells are diagnostic, not
+estimates.
+
+**The Matérn range shortens** — 11.4 km → 9.4 km → 8.2 km — with `nu` rising from 0.234
+to 0.368. Some of this is genuinely less data over a smaller, less contiguous footprint,
+so it should not be read as evidence about MORDOR.
+
+### What this means for the primary analysis
+
+The ATE itself is robust. The claim that the treatment effect *varies systematically
+across space* — the east–west gradient in `fitmort_child_gen_krig_int` — is not robust
+to excluding the MORDOR-overlapping districts, because those districts supply the
+western, weakest-effect end of the gradient. That is not the same as saying the gradient
+is an artefact: prior mass azithromycin administration is a plausible *reason* for a
+genuinely weaker effect there, and dropping the districts removes the contrast that
+identifies it. But any statement about spatial heterogeneity in the ATE should be
+reported alongside this sensitivity analysis, and the covariate-adjustment results in
+`mordor-question.qmd` read as the complementary evidence.
