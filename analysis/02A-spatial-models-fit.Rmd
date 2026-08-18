@@ -199,7 +199,7 @@ if(refit_models_flag) {
 print(AIC(fitmort_child_simp_krig))
 print(AIC(fitmort_child_gen_krig))
 
-LRT(fitmort_child_gen_krig, fitmort_child_simp_krig)
+spaMM::LRT(fitmort_child_gen_krig, fitmort_child_simp_krig)
 
 ```
 
@@ -1128,7 +1128,7 @@ Predictions are generated at every grid point in `boxgrid` for both treatment ar
 models_list <- list(
   simp_krig = fitmort_child_simp_krig,
   gen_krig = fitmort_child_gen_krig,
-  gen_krig_re = fitmort_child_gen_krig_re,
+  # gen_krig_re = fitmort_child_gen_krig_re,
   gen_krig_int = fitmort_child_gen_krig_int,
   gen_krig_mordor = fitmort_child_gen_krig_mordor,
   # matern_dist = fitmort_child_matern_dist,
@@ -1169,7 +1169,7 @@ saveRDS(preds_wide, here("data", "preds_ATE.rds"))
 Comparing Matérn correlation functions across all four models. The range parameter (distance at which correlation drops to ~0.05) indicates the spatial scale of residual mortality clustering after conditioning on model covariates. Shorter range in more complex models suggests that additional fixed effects (lat/lon trend, interaction) are absorbing large-scale spatial structure.
 
 ```{r matern corr plots}
-materncorr_simp_krig + materncorr_gen_krig + materncorr_gen_krig_int + materncorr_gen_krig_re +
+materncorr_simp_krig + materncorr_gen_krig + materncorr_gen_krig_int +
   materncorr_gen_krig_mordor + materncorr_gen_krig_matern_dist + materncorr_gen_krig_dist_FE +
   materncorr_gen_krig_spline + materncorr_gen_krig_poly
 
@@ -1183,12 +1183,23 @@ Consolidated model comparison. AIC differences > 2 indicate a meaningful improve
 
 ```{r aic and lrt tables}
 aic_table <- data.frame(
-  Model = c("Simple Kriging", "Generalized Kriging", "Gen Krige + Interaction", "Gen Krige + Cluster RE", "Gen Krige + MORDOR", "Matern by district", "Matern by tx status", "District FE", "Gen Krige + additive splines", "Gen Krige + quadratic poly"),
+  Model = c(
+    "Simple Kriging",
+    "Generalized Kriging",
+    "Gen Krige + Interaction",
+    # "Gen Krige + Cluster RE",
+    "Gen Krige + MORDOR",
+    "Matern by district",
+    "Matern by tx status",
+    "District FE",
+    "Gen Krige + additive splines",
+    "Gen Krige + quadratic poly"
+  ),
   AIC = c(
     AIC(fitmort_child_simp_krig)[1],
     AIC(fitmort_child_gen_krig)[1],
     AIC(fitmort_child_gen_krig_int)[1],
-    AIC(fitmort_child_gen_krig_re)[1],
+    # AIC(fitmort_child_gen_krig_re)[1],
     AIC(fitmort_child_gen_krig_mordor)[1],
     AIC(fitmort_child_matern_dist)[1],
     AIC(fitmort_child_doub_matern)[1],
@@ -1197,37 +1208,51 @@ aic_table <- data.frame(
     AIC(fitmort_child_gen_krig_poly)[1]
   )
 )
-
 lrt_table <- data.frame(
-  Comparison = c("Gen Krige vs Simple Krige", "Gen Krige + Interaction vs Gen Krige", 
-                 "Gen Krige + MORDOR vs Gen Krige + Interaction", 
-                 # "Matern by tx status vs Gen Krige + Interaction", "Matern by district vs Gen Krige + Interaction", 
-                 "District FE vs Gen Krige + Interaction",
-                 "Additive splines vs Gen Krige + Interaction",
-                 "Quadratic poly vs Gen Krige + Interaction"),
+  Comparison = c(
+    "Gen Krige vs Simple Krige",
+    "Gen Krige + Interaction vs Gen Krige",
+    "Gen Krige + MORDOR vs Gen Krige + Interaction",
+    # "Matern by tx status vs Gen Krige + Interaction", 
+    # "Matern by district vs Gen Krige + Interaction",
+    "District FE vs Gen Krige + Interaction",
+    "Additive splines vs Gen Krige + Interaction",
+    "Quadratic poly vs Gen Krige + Interaction"
+  ),
   # Every comparison involving fitmort_child_gen_krig_int now uses lrt_manual():
   # that model's coordinates are centred, so its term labels
   # (I((lat - 1448231)/1000)) match nothing in the uncentred models and
   # spaMM::LRT() reports them as non-nested. All pairs below are nested in the
   # column-space sense and all are ML fits, which is what lrt_manual() requires.
   LRT_statistic = c(
-    LRT(fitmort_child_gen_krig, fitmort_child_simp_krig)$basicLRT$chi2_LR,
+    spaMM::LRT(fitmort_child_gen_krig, fitmort_child_simp_krig)$basicLRT$chi2_LR,
     lrt_manual(fitmort_child_gen_krig_int, fitmort_child_gen_krig)$chi2_LR,
-    lrt_manual(fitmort_child_gen_krig_mordor, fitmort_child_gen_krig_int)$chi2_LR,
+    lrt_manual(
+      fitmort_child_gen_krig_mordor,
+      fitmort_child_gen_krig_int
+    )$chi2_LR,
     lrt_manual(fitmort_child_dist_FE, fitmort_child_gen_krig_int)$chi2_LR,
-    lrt_manual(fitmort_child_gen_krig_spline, fitmort_child_gen_krig_int)$chi2_LR,
+    lrt_manual(
+      fitmort_child_gen_krig_spline,
+      fitmort_child_gen_krig_int
+    )$chi2_LR,
     lrt_manual(fitmort_child_gen_krig_poly, fitmort_child_gen_krig_int)$chi2_LR
   ),
   p_value = c(
-    LRT(fitmort_child_gen_krig, fitmort_child_simp_krig)$basicLRT$p_value,
+    spaMM::LRT(fitmort_child_gen_krig, fitmort_child_simp_krig)$basicLRT$p_value,
     lrt_manual(fitmort_child_gen_krig_int, fitmort_child_gen_krig)$p_value,
-    lrt_manual(fitmort_child_gen_krig_mordor, fitmort_child_gen_krig_int)$p_value,
+    lrt_manual(
+      fitmort_child_gen_krig_mordor,
+      fitmort_child_gen_krig_int
+    )$p_value,
     lrt_manual(fitmort_child_dist_FE, fitmort_child_gen_krig_int)$p_value,
-    lrt_manual(fitmort_child_gen_krig_spline, fitmort_child_gen_krig_int)$p_value,
+    lrt_manual(
+      fitmort_child_gen_krig_spline,
+      fitmort_child_gen_krig_int
+    )$p_value,
     lrt_manual(fitmort_child_gen_krig_poly, fitmort_child_gen_krig_int)$p_value
   )
 )
-
 saveRDS(aic_table, here("data", "model_aic_table.rds"))
 saveRDS(lrt_table, here("data", "model_lrt_table.rds"))
 ```

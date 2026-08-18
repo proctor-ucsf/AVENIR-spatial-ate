@@ -137,7 +137,7 @@ boot_seed <- 20260812
 # the cumulative heat map below is built for; the facet order follows this
 # vector everywhere.
 model_names <- c("fitmort_child_gen_krig_int",
-                 "fitmort_child_doub_matern",
+                 # "fitmort_child_doub_matern",
                  "fitmort_child_gen_krig_spline")
 
 # Short keys, as used by preds_ATE.rds and by the lookup tables below. The

@@ -1,0 +1,443 @@
+---
+title: "08 — Is the linear-in-coordinates ATE plane adequate?"
+date: today
+# author: "Ariktha Srivathsan"
+format:
+  html:
+    toc: true
+    toc-location: right
+    code-fold: true
+    code-summary: "Show code"
+    df-print: paged
+    self-contained: true
+execute:
+  cache: false
+  warning: false
+  message: false
+---
+
+<!--
+#--------------------------------------------
+#
+# AVENIR-spatial-ate/analysis/08-check-linearity.qmd
+#
+# Sensitivity analysis: does the linear-in-coordinates constraint on the
+# treatment contrast in the primary spatial model (M1) miss real curvature or
+# diagonal structure in the ATE surface, and does baseline (control-arm)
+# mortality heterogeneity account for the ATE heterogeneity?
+#
+# The primary model (M1) is FIXED. Nothing here is a model-selection step:
+# M1 remains primary regardless of what these fits show. All four models were
+# fit in 02A-spatial-models-fit.Rmd; this script only loads the cached fits and
+# the cached prediction surfaces (data/preds_ATE.rds) and summarises them.
+#
+# Model  cached name                        specification
+#   M1   fitmort_child_gen_krig_int         linear plane (primary)
+#   M2   fitmort_child_gen_krig_spline      additive natural splines, df = 4
+#   M3   fitmort_child_gen_krig_poly        quadratic treatment contrast (+3 df)
+#   M4   fitmort_child_doub_matern          arm-specific Matern deviation field
+#
+#--------------------------------------------
+-->
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+rm(list = ls())
+```
+
+```{r Load packages and config}
+
+library(here)
+library(tidyverse)
+library(sf)
+sf_use_s2(FALSE)
+
+source(here::here("analysis", "0-config.R"))
+source(here::here("analysis", "0-functions.R"))
+
+# No step below is stochastic (all models are pre-fit; predictions are cached;
+# loess/lm are deterministic), but a seed is set for reproducibility per house
+# style. `avail_thr` (n_cores) is available from 0-config.R but unused here:
+# there is no re-fitting or simulation in this script.
+set.seed(20260817)
+```
+
+# Overview
+
+The primary model M1 constrains the treatment contrast to a plane in the two
+coordinates: the log rate ratio varies as `a0 + a1 * lat_c + a2 * lon_c`. This
+script asks **Is the plane adequate?** 
+
+Three progressively more flexible treatment
+   surfaces (additive splines, quadratic contrast, arm-specific Matern
+   field) are compared to M1 by surface agreement, AIC, a nested LRT (M3 only),
+   and the back-transformed SD of the M4 deviation field.
+
+With 1,084 treated deaths, the expected outcome is that the more flexible models reproduce the plane. 
+
+```{r Load cached fits and prediction surfaces}
+
+# --- Cached model fits (fit in 02A) ----
+m1 <- readRDS(here("data", "fitmort_child_gen_krig_int.rds"))    # linear plane (primary)
+m2 <- readRDS(here("data", "fitmort_child_gen_krig_spline.rds")) # additive splines df = 4
+m3 <- readRDS(here("data", "fitmort_child_gen_krig_poly.rds"))   # quadratic contrast +3 df
+m4 <- readRDS(here("data", "fitmort_child_doub_matern.rds"))     # arm-specific Matern field
+
+# Human-readable labels and lettered panels, in the M1..M4 order used throughout.
+model_key <- tibble::tribble(
+  ~model,             ~mnum, ~panel, ~label,
+  "gen_krig_int",     "M1",  "A",    "M1: linear plane (primary)",
+  "gen_krig_spline",  "M2",  "B",    "M2: additive splines (df 4)",
+  "gen_krig_poly",    "M3",  "C",    "M3: quadratic contrast",
+  "doub_matern",      "M4",  "D",    "M4: arm-specific Matern field"
+)
+
+# --- Cached prediction surfaces (built in 02A: get_grid_preds_both_tx over ----
+# --- boxgrid, then differenced). One row per grid cell per model. ----
+ate_preds <- readRDS(here("data", "preds_ATE.rds"))
+
+# District outlines for the maps.
+niger_adm2_sub <- readRDS(here("data", "niger_adm2_sub.rds"))
+
+# Restrict to the four models this script compares and derive log RR + log
+# baseline. rate_ratio = predTreatment / predControl is already on the surface.
+preds4 <- ate_preds %>%
+  dplyr::filter(model %in% model_key$model) %>%
+  mutate(
+    log_rr        = log(rate_ratio),
+    log_base_ctrl = log(predControl)   # control-arm log mortality rate
+  ) %>%
+  left_join(model_key, by = "model")
+
+# The four surfaces are predicted on the same boxgrid in the same row order
+# (verified: coordinates are identical across models), so cross-model
+# quantities can be aligned by within-model row index rather than a spatial join.
+n_cells <- preds4 %>% st_drop_geometry() %>% count(model) %>% pull(n) %>% unique()
+stopifnot(length(n_cells) == 1L)
+```
+
+```{r}
+
+bind_rows(
+  tibble(mnum = "M1",
+         terms = "trt + lat_c + lon_c + trt:lat_c + trt:lon_c"),
+  tibble(mnum = "M2",
+         terms = "ns(lat_c,4)+ns(lon_c,4) + trt + trt:ns(lat_c,4)+trt:ns(lon_c,4)"),
+  tibble(mnum = "M3",
+         terms = "M1 + trt:lat_c^2 + trt:lon_c^2 + trt:lat_c:lon_c"),
+  tibble(mnum = "M4",
+         terms = "M1 + Matern(0 + trt | lat+lon)")
+) %>%
+  left_join(model_key %>% dplyr::select(mnum, label), by = "mnum") %>%
+  dplyr::select(model = label, terms) %>%
+  knitr::kable(caption = "All models have an offset for log of person-years and a Matern field, Matern(1 | lat+lon)")
+
+```
+
+
+<!-- # Shared map scaffolding ---- -->
+
+```{r base map}
+
+# Reused from 06C: white land, district outlines, scale bar, north arrow.
+base_map <- ggplot() +
+  geom_sf(data = niger_adm2_sub, fill = "white", color = "black", size = 0.25) +
+  theme_minimal(base_size = 12) +
+  annotation_scale(height = unit(0.15, "cm")) +
+  scale_x_continuous(name = "Longitude") +
+  scale_y_continuous(name = "Latitude") +
+  theme(
+    legend.position   = "bottom",
+    legend.background  = element_rect(fill = "white", color = NA),
+    legend.title       = element_text(hjust = 0.5, vjust = 0.5),
+    strip.text         = element_text(hjust = 0, face = "bold")
+  )
+
+# rasterise_surface(): pull one model's grid column, rasterise to WGS84.
+# Local helper (used 4x below); kept here rather than in 0-functions.R because
+# it is specific to this script's preds4 object.
+rasterise_surface <- function(preds_sf, model_name, colname) {
+  one <- preds_sf %>%
+    dplyr::filter(model == model_name) %>%
+    dplyr::select(dplyr::all_of(colname))
+  rast <- make_raster_map(one, proj_crs, global_crs, colname)
+  as.data.frame(rast, xy = TRUE, na.rm = FALSE) %>%
+    dplyr::rename(value = dplyr::all_of(colname))
+}
+```
+
+# Is the plane adequate?
+
+## Surface grid 
+
+A 4x4 grid laying out all four predicted quantities under all four models. 
+
+```{r Full 4x4 surface grid}
+# Lightweight base for a 16-panel grid: no per-panel axis text / scale bar /
+# north arrow (base_map would repeat all of those 16 times). Model identity is
+# a left-side strip; quantity is the column title.
+row_labs <- c(M1 = "M1\nlinear", M2 = "M2\nsplines",
+              M3 = "M3\nquadratic", M4 = "M4\n2 fields")
+mini_base <- ggplot() +
+  geom_sf(data = niger_adm2_sub, fill = "white", color = "black", size = 0.15) +
+  theme_minimal(base_size = 9) +
+  theme(
+    axis.text = element_blank(), axis.title = element_blank(),
+    axis.ticks = element_blank(), panel.grid = element_blank(),
+    legend.position = "bottom",
+    legend.title = element_text(size = 7, hjust = 0.5),
+    legend.text = element_text(size = 6),
+    plot.title = element_text(hjust = 0.5, face = "bold", size = 10),
+    strip.text.y.left = element_text(angle = 0, face = "bold", size = 9)
+  )
+# make_surface_column(): one faceted column (models down the rows) for a single
+# predicted quantity, with that quantity's colour scale. `first = TRUE` keeps the
+# left-side model labels; later columns hide them (invisible strip preserves row
+# alignment across the patchwork).
+make_surface_column <- function(colname, fill_scale, col_title, first = FALSE) {
+  df <- purrr::map_dfr(model_key$mnum, function(mn) {
+    mod <- model_key$model[model_key$mnum == mn]
+    rasterise_surface(preds4, mod, colname) %>% mutate(mnum = mn)
+  }) %>%
+    mutate(mnum = factor(mnum, levels = model_key$mnum))
+  p <- mini_base +
+    geom_raster(data = df, aes(x = x, y = y, fill = value), na.rm = TRUE) +
+    geom_sf(data = niger_adm2_sub, fill = NA, color = "grey30", size = 0.1) +
+    facet_wrap(~ mnum, ncol = 1, strip.position = "left",
+               labeller = as_labeller(row_labs)) +
+    fill_scale +
+    ggtitle(col_title) +
+    guides(fill = guide_colorbar(
+      title.position = "top", title.hjust = 0.5,
+      barheight = unit(6, "pt"), barwidth = unit(95, "pt"),
+      ticks.colour = "white", frame.colour = "white"))
+  if (!first) p <- p + theme(strip.text.y.left = element_text(color = NA))
+  p
+}
+# Manuscript colour scales (matching 06B-fig2-primary_maps.qmd): viridis for
+# mortality, blue-white-red for the ATE rate difference, log teal-white-pink for
+# the rate ratio. oob = squish keeps the few cells beyond a limit at the end
+# colour rather than dropping them (M3/M4 ATE peak just above +3).
+scale_mort <- scale_fill_viridis_c(
+  limits = c(0, 35), breaks = seq(0, 30, by = 10),
+  oob = scales::squish, na.value = NA, name = "Mortality rate\n(per 1000 py)")
+scale_ate <- scale_fill_gradient2(
+  low = muted("dodgerblue"), mid = "white", high = muted("red"),
+  midpoint = 0, limits = c(-13, 3), breaks = seq(-10, 0, by = 5),
+  oob = scales::squish, na.value = NA, name = "ATE: rate difference\n(per 1000 py)")
+scale_rr <- scale_fill_gradient2(
+  low = muted("#009392FF"), mid = "white", high = muted("#D0587EFF"),
+  transform = "log", midpoint = 1, limits = c(0.5, 1.5),
+  breaks = seq(0.5, 1.5, by = 0.25), oob = scales::squish, na.value = NA,
+  name = "Rate ratio\n(treated / control)")
+surface_grid <- (
+  make_surface_column("predControl",   scale_mort, "Control\nmortality", first = TRUE) |
+  make_surface_column("predTreatment", scale_mort, "Treatment\nmortality") |
+  make_surface_column("ATE",           scale_ate,  "ATE\n(treated-control)") |
+  make_surface_column("rate_ratio",    scale_rr,   "Rate ratio\n(treated/control)")
+)
+surface_grid
+ggsave(
+  filename = here("results", "figs", "linearity-surface-grid-4x4.png"),
+  plot = surface_grid, width = 8, height = 8, units = "in", dpi = 300, bg = "white")
+```
+
+## Surface correlation matrix
+
+Pearson correlation of predicted log RR across grid cells, for every pair of
+models. High off-diagonal correlations mean the flexible surfaces are re-drawing
+the same RR gradient the plane draws.
+
+```{r log RR surface correlation matrix}
+
+# Wide matrix: one column of log RR per model, rows aligned by grid cell.
+log_rr_wide <- preds4 %>%
+  st_drop_geometry() %>%
+  group_by(model) %>%
+  mutate(cell = row_number()) %>%
+  ungroup() %>%
+  dplyr::select(cell, label, log_rr) %>%
+  pivot_wider(names_from = label, values_from = log_rr) %>%
+  dplyr::select(-cell)
+
+surface_cor_matrix <- cor(log_rr_wide, method = "pearson")
+
+surface_cor_df <- as.data.frame(round(surface_cor_matrix, 3))
+
+surface_cor_df %>%
+  knitr::kable(caption = "Pearson correlation of predicted log RR across grid cells.")
+```
+
+
+## Model comparison table 
+
+```{r model comparison table}
+
+# matern_field1(): rho / range(km) / nu of the shared spatial field (field 1),
+# so all four models are described on the same footing. (For M2 these are not
+# comparable to the others because the splined MAIN effects compete with the
+# field for the baseline surface — see footnote.)
+matern_field1 <- function(fit) {
+  cp  <- fit$CorrEst_and_RanFix$corrPars[["1"]]
+  tibble(rho = cp$rho, range_km = 1 / (1000 * cp$rho), nu = cp$nu)
+}
+
+# Estimated-parameter count k that matches the marginal AIC penalty spaMM
+# reports (fixef + lambda + corrPars): the df that goes WITH the AIC column.
+param_k <- function(fit) sum(unlist(fit$dfs))
+
+# Nested LRT, M3 vs M1 (3 df): M1 is nested in M3 (linear terms retained).
+lrt_m3 <- lrt_manual(m3, m1)
+
+# M4 vs M1 tests a variance component at its boundary (lambda_delta >= 0). The
+# fixed effects are identical, so lrt_manual() does not apply; compute the
+# deviance directly. Nominal 1 df on the variance; the null distribution is a
+# 0.5 chi2_0 + 0.5 chi2_1 mixture, so the naive p is halved and is conservative.
+ll_m1 <- as.numeric(logLik(m1, which = "p_v"))
+ll_m4 <- as.numeric(logLik(m4, which = "p_v"))
+chi2_m4 <- 2 * (ll_m4 - ll_m1)
+p_m4_mixture <- 0.5 * pchisq(chi2_m4, df = 1, lower.tail = FALSE)
+
+model_comparison <- bind_rows(
+  tibble(mnum = "M1",
+         terms = "trt + lat_c + lon_c + trt:lat_c + trt:lon_c",
+         matern_field1(m1)),
+  tibble(mnum = "M2",
+         terms = "ns(lat_c,4)+ns(lon_c,4) + trt + trt:ns(lat_c,4)+trt:ns(lon_c,4)",
+         matern_field1(m2)),
+  tibble(mnum = "M3",
+         terms = "M1 + trt:lat_c^2 + trt:lon_c^2 + trt:lat_c:lon_c",
+         matern_field1(m3)),
+  tibble(mnum = "M4",
+         terms = "M1 + Matern(0 + trt | lat+lon)",
+         matern_field1(m4))
+) %>%
+  left_join(model_key %>% dplyr::select(mnum, label), by = "mnum") %>%
+  mutate(
+    aic    = c(AIC(m1)[1], AIC(m2)[1], AIC(m3)[1], AIC(m4)[1]),
+    params = c(param_k(m1), param_k(m2), param_k(m3), param_k(m4)),
+    # lrt_vs_m1_chi2 = c(NA, NA, lrt_m3$chi2_LR, chi2_m4),
+    # lrt_vs_m1_df   = c(NA, NA, lrt_m3$df,      1),
+    lrt_vs_m1_p    = c(NA, NA, lrt_m3$p_value, p_m4_mixture)
+  ) %>%
+  dplyr::select(model = label, aic, params,
+                # lrt_vs_m1_chi2, lrt_vs_m1_df, 
+                lrt_vs_m1_p,
+                rho, range_km, nu)
+
+model_comparison %>%
+  mutate(across(where(is.numeric), ~ signif(.x, 4)))
+```
+
+# Robustness: arm-stratified residual smooths
+
+Pearson residuals from M1, smoothed separately over space within treated and
+control villages. If the plane were hiding RR structure, the two smoothed
+residual surfaces would diverge (systematically positive where one arm is
+under-predicted and the other over-predicted). This is an internal diagnostic —
+it belongs in the supplement only if it shows something.
+
+```{r arm-stratified residual smooths}
+
+# Fitting data with Pearson residuals, in UTM (projected) coordinates.
+resid_dat <- m1$data %>%
+  mutate(pearson_resid = residuals(m1, type = "pearson"))
+
+# loess surface of residuals within each arm, predicted back onto the boxgrid
+# cells (deterministic; NA outside the data hull, which drops out). span chosen
+# for a broad regional smooth, not local wiggle.
+grid_xy <- preds4 %>%
+  dplyr::filter(mnum == "M1") %>%
+  mutate(x = st_coordinates(.)[, 1], y = st_coordinates(.)[, 2]) %>%
+  st_drop_geometry() %>%
+  dplyr::select(x, y)
+
+smooth_one_arm <- function(arm_label) {
+  d <- resid_dat %>% dplyr::filter(isTreated_child == arm_label)
+  fit <- loess(pearson_resid ~ lon + lat, data = d, span = 0.5, degree = 1,
+               control = loess.control(surface = "direct"))
+  preds <- predict(fit, newdata = tibble(lon = grid_xy$x, lat = grid_xy$y))
+  tibble(x = grid_xy$x, y = grid_xy$y, value = as.numeric(preds),
+         arm = arm_label)
+}
+
+resid_smooth <- purrr::map_dfr(c("Control", "Treatment"), smooth_one_arm)
+
+# rasterise each arm's smoothed surface for mapping.
+resid_smooth_sf <- st_as_sf(resid_smooth %>% dplyr::filter(!is.na(value)),
+                            coords = c("x", "y"), crs = proj_crs)
+
+resid_raster_df <- purrr::map_dfr(
+  c("Control", "Treatment"),
+  function(a) {
+    one <- resid_smooth_sf %>% dplyr::filter(arm == a) %>% dplyr::select(value)
+    rast <- make_raster_map(one, proj_crs, global_crs, "value")
+    as.data.frame(rast, xy = TRUE, na.rm = FALSE) %>% mutate(arm = a)
+  }
+)
+
+resid_lim <- max(abs(resid_raster_df$value), na.rm = TRUE)
+
+# How much structure is there? SD of each smoothed surface (a flat surface ~ 0
+# means no unmodelled spatial structure in that arm).
+resid_smooth_sd <- resid_smooth %>%
+  group_by(arm) %>%
+  summarise(smooth_sd = sd(value, na.rm = TRUE), .groups = "drop")
+
+resid_smooth_sd %>%
+  knitr::kable(digits = 3, caption = paste(
+    "SD of the arm-stratified smoothed Pearson-residual surface.",
+    "Values near zero indicate no unmodelled spatial structure in that arm."))
+
+resid_smooths <- base_map +
+  geom_raster(data = resid_raster_df, aes(x = x, y = y, fill = value), na.rm = TRUE) +
+  geom_sf(data = niger_adm2_sub, fill = NA, color = "grey20", size = 0.15) +
+  facet_wrap(~ arm, nrow = 1) +
+  scale_fill_gradient2(
+    low = muted("#4B0055"), mid = "white", high = muted("#007D34"),
+    midpoint = 0, limits = c(-resid_lim, resid_lim), na.value = NA,
+    guide = guide_colorbar(title = "Smoothed Pearson residual (M1)",
+                           title.position = "top", title.hjust = 0.5,
+                           barheight = unit(10, "pt"), barwidth = unit(200, "pt")))
+
+resid_smooths
+
+ggsave(
+  filename = here("results", "figs", "linearity-residual-smooths.png"),
+  plot = resid_smooths, width = 8, height = 4.6, units = "in", dpi = 300, bg = "white")
+```
+
+```{r save results object}
+
+linearity_check <- list(
+  # 4.2 surface agreement
+  surface_cor_matrix = surface_cor_matrix,
+  # 4.4 model comparison
+  model_comparison  = model_comparison,
+  lrt_m3_vs_m1      = lrt_m3,
+  lrt_m4_vs_m1      = tibble(chi2_LR = chi2_m4, df = 1, p_value_mixture = p_m4_mixture),
+  # 6 residual smooths
+  resid_smooth_sd   = resid_smooth_sd
+)
+
+saveRDS(linearity_check, here("data", "linearity_check_results.rds"))
+```
+
+# Interpretation
+
+Read together, these results are the anticipated null:
+
+- Three of four RR surfaces are visually interchangeable and their predicted
+  log RR correlates highly across every model pair. The low ATE band in M2 (additive splines) has a shift of the ATE surface towards the east. 
+- The plane (M1) has the lowest marginal AIC; M2–M4 are each several AIC units
+  worse. 
+- M4 field contributes only short-range, village-level scatter (Matern range shorter than the village spacing), not a smooth spatial gradient the plane misses.
+- Baseline mortality does not fully explain the ATE heterogeneity: the
+  north–south baseline gradient and the east–west RR gradient are oblique, so
+  the RR surface is its own signal, not just a reflection of where mortality is high.
+
+This is consistent with the linear specification being adequate at the
+resolution these data support. 
+
+```
