@@ -50,6 +50,14 @@ render_script("05-results.qmd")
 render_script("06A-fig1-context_map.qmd")
 render_script("06B-fig2-primary_maps.qmd")
 
+# 08 — Sensitivity: adequacy of the linear ATE plane ----------------------
+# Loads the cached fits (M1-M4) and cached prediction surfaces; fits nothing.
+# Writes the multi-panel Supplementary Figure 4, so it must run after 06C's
+# single-panel chunk (which it supersedes). Kept in the pipeline because it
+# produces a manuscript figure and a results object downstream text cites.
+
+render_script("08-check-linearity.qmd")
+
 # scripts that are not pipeline steps are intentionally excluded here
 
 message("\n--- run-all.R complete ---")
