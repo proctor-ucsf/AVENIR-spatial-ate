@@ -441,7 +441,7 @@ dist_summ %>%
 ### Test of heterogeneity in ATE across departments
 
 ```{r}
-#| label: heterogeneity-test-mort
+#| label: heterogeneity-test-ate
 
 state_poi_mod <- glm(n_deaths_1to59 ~ isTreated_child + factor(district) + offset(log(pt_year_1to59)),
                       data = subset(df_all, pt_year_1to59 > 0), family = poisson(link = "log"))
@@ -703,7 +703,7 @@ gen_re_corr_plot <- ggplot(data = pred_model_wide, aes(x = gen_krig, y = gen_kri
                      values = c("#fecd6c", "#e84d60"),
                      name = "Treatment Group") 
 
-simp_corr_plot + gen_int_corr_plot + gen_re_corr_plot +
+simp_corr_plot + gen_int_corr_plot + #gen_re_corr_plot +
   plot_layout(guides = "collect") &
   theme(legend.position = "bottom")
 
@@ -929,9 +929,11 @@ ggsave(here("results", "figs", "csi_model_mort_pred.png"),
 bg = "white",
 width = 8, height = 6, units = "in")
 
+# <!-- When comparing this csi-level aggregate analysis to the grappe-level analysis, we see that the csi-level models have a larger Matern correlation range (`r round(range_csi_km, 2)`^★^ km for the generalized kriging model) compared to the grappe-level models (range of `r round(range_gen_km, 2)`^★^ km for the generalized kriging model and `r round(range_gen_int_km, 2)`^★^ km when we include an interaction with treatment). This suggests that there is more spatial correlation in the grappe-level data than in the csi-level data, which makes sense given that the grappe-level data has more spatial granularity and may capture more local spatial patterns. -->
+
 ```
 
-When comparing this csi-level aggregate analysis to the grappe-level analysis, we see that the csi-level models have a larger Matern correlation range (`r round(range_csi_km, 2)`^★^ km for the generalized kriging model) compared to the grappe-level models (range of `r round(range_gen_km, 2)`^★^ km for the generalized kriging model and `r round(range_gen_int_km, 2)`^★^ km when we include an interaction with treatment). This suggests that there is more spatial correlation in the grappe-level data than in the csi-level data, which makes sense given that the grappe-level data has more spatial granularity and may capture more local spatial patterns.
+
 
 Despite the loss of spatial resolution, the CSI-level analysis preserves the broad spatial gradients in mortality. However, the increased correlation range suggests that aggregation smooths over local variability, effectively inflating the apparent spatial scale of dependence. This implies that CSI-level surveillance may be adequate for identifying large-scale patterns but may miss localized hotspots or heterogeneity in treatment effects that are detectable at the grappe level.
 

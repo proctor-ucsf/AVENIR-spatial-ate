@@ -11,7 +11,7 @@ format:
     df-print: paged
     self-contained: true
 execute:
-  cache: true
+  cache: false
   warning: false
   message: false
 ---
@@ -307,7 +307,7 @@ summary(fit_nested)
 # lambda[1] = Matern spatial variance
 # lambda[2] = CSI-within-district variance
 # lambda[3] = district variance
-varcomps <- get_ranPars(fit_nested)
+varcomps <- spaMM::get_ranPars(fit_nested)
 varcomps$lambda
 
 # proportion of total random-effect variance explained by each component
@@ -320,15 +320,15 @@ The variance partitioning results suggest that approximately `r round(prop_var[1
 
 ---
 
-## CSI-level model variance components
+<!-- ## CSI-level model variance components -->
 
-> ⚠️ **Flag — incomplete analysis:** The section heading "Estimating the proportion of variance lost due to aggregation to the CSI level" implies a direct comparison between grappe-level and CSI-level variance components. The code below fits a CSI-level model and reports its variance components, but does not explicitly compute the "variance lost" — this would require a structured comparison (e.g., comparing `lambda` values between `fit_nested` and `fit_csi`, or computing information loss metrics). Consider either adding this computation or revising the heading to "CSI-level model variance components".
+<!-- > ⚠️ **Flag — incomplete analysis:** The section heading "Estimating the proportion of variance lost due to aggregation to the CSI level" implies a direct comparison between grappe-level and CSI-level variance components. The code below fits a CSI-level model and reports its variance components, but does not explicitly compute the "variance lost" — this would require a structured comparison (e.g., comparing `lambda` values between `fit_nested` and `fit_csi`, or computing information loss metrics). Consider either adding this computation or revising the heading to "CSI-level model variance components". -->
 
-Fitting a CSI-level spatial model with a district random effect. This allows comparison of the spatial variance component (`lambda[1]`) at the CSI level vs. the grappe level — a smaller Matérn variance at the CSI level would indicate that aggregation has smoothed over fine-scale spatial heterogeneity.
+<!-- Fitting a CSI-level spatial model with a district random effect. This allows comparison of the spatial variance component (`lambda[1]`) at the CSI level vs. the grappe level — a smaller Matérn variance at the CSI level would indicate that aggregation has smoothed over fine-scale spatial heterogeneity. -->
 
-Note: this CSI model includes a `(1|district)` RE, unlike the models in `03-csi-analysis.qmd` which do not. The fitted object is saved to a separate file (`var_part_csi_model.rds`) to avoid overwriting the `03` models.
+<!-- Note: this CSI model includes a `(1|district)` RE, unlike the models in `03-csi-analysis.qmd` which do not. The fitted object is saved to a separate file (`var_part_csi_model.rds`) to avoid overwriting the `03` models. -->
 
-```{r fit-csi-model}
+```{r eval=FALSE}
 #| label: fit csi model
 
 if(refit_overdispersion_models_flag){
@@ -350,7 +350,7 @@ fit_csi <- readRDS(here("data", "var_part_csi_model.rds"))
 
 ```
 
-```{r}
+```{r eval=FALSE}
 #| label: csi variance components
 
 # lambda[1] = Matern spatial variance at CSI level
@@ -361,6 +361,8 @@ varcomps_csi$lambda
 prop_var_csi <- varcomps_csi$lambda / sum(varcomps_csi$lambda)
 round(prop_var_csi,3)
 
+# <!-- The variance partitioning results for the CSI-level model suggest that approximately `r round(prop_var_csi[1],3)*100`% of the variance in mortality is explained by fine-scale spatial correlation, and `r round(prop_var_csi[2],3)*100`% is explained by differences between districts. -->
+
 ```
 
-The variance partitioning results for the CSI-level model suggest that approximately `r round(prop_var_csi[1],3)*100`% of the variance in mortality is explained by fine-scale spatial correlation, and `r round(prop_var_csi[2],3)*100`% is explained by differences between districts.
+

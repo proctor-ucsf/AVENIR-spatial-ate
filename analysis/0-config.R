@@ -23,7 +23,7 @@ library(raster)
 library(renv)
 library(scales)
 library(sf)
-# library(spaMM)
+library(spaMM)
 # splines must be attached, not called as splines::ns() inside a spaMM formula:
 # spaMM's .expand_multIMRFs() compares each term's head against "multIMRF", and a
 # namespaced call head is length 3, which errors under R >= 4.2.
@@ -56,8 +56,8 @@ nsim_input <- 1000
 
 ## Flags to control if models are re-fit
 refit_models_flag <- FALSE # Set to TRUE to refit models, which can take a long time. Set to FALSE to load previously fitted models.
-refit_csi_models_flag <- TRUE
-refit_overdispersion_models_flag <- TRUE
+refit_csi_models_flag <- FALSE
+refit_overdispersion_models_flag <- FALSE
 ## Refits the primary model on district subsets in x-district-exclusion-check.qmd
 ## (~4-5 min per subset). The full-data fit is always loaded, never refitted there.
 refit_exclusion_models_flag <- FALSE

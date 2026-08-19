@@ -12,7 +12,7 @@ editor:
   markdown:
     wrap: 72
 execute:
-  cache: true
+  cache: false
   warning: false
 ---
 
