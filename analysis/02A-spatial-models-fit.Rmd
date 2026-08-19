@@ -1184,7 +1184,7 @@ Predictions are generated at every grid point in `boxgrid` for both treatment ar
 models_list <- list(
   simp_krig = fitmort_child_simp_krig,
   gen_krig = fitmort_child_gen_krig,
-  gen_krig_re = fitmort_child_gen_krig_re,
+  # gen_krig_re = fitmort_child_gen_krig_re,
   gen_krig_int = fitmort_child_gen_krig_int,
   gen_krig_mordor = fitmort_child_gen_krig_mordor,
   # matern_dist = fitmort_child_matern_dist,
