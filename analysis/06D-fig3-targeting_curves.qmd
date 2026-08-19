@@ -51,6 +51,12 @@ base::load(here("data", "targeting_fig3_objects.rda"))
 # figure cannot drift from the model the analysis calls primary.
 ref_key     <- fig3_meta$ref_key
 ref_display <- fig3_meta$ref_display
+
+# Hex codes for potential color palettes (order: rd, mort_grappe, mort_csi, mort_dept, random):
+# 
+# Cool + dark-teal RD: #08343f, #4eb3d3, #02818a, #238b45, grey60
+# Purple/magenta + aubergine RD: #4d004b, #c994c7, #df65b0, #ce1256, grey60
+
 ```
 
 ```{r prep data}
@@ -123,7 +129,7 @@ fig3 <- ggplot(curves_plot,
   # legend key, including the three rules that contribute no block knots.
   geom_point(data = block_knots_ref, size = 1.6, alpha = 0.7, show.legend = FALSE) +
   annotate("text", x = annot_x, y = annot_top,
-           label = "Concordance (AUC) with RD ranking",
+           label = "Concordance with ATE ranking",
            hjust = 0, vjust = 1, size = 4, fontface = "bold", colour = "grey25") +
   geom_text(data = auc_annot, aes(x = x, y = y, label = label, colour = rule),
             hjust = 0, vjust = 1, size = 4, show.legend = FALSE, inherit.aes = FALSE) +
