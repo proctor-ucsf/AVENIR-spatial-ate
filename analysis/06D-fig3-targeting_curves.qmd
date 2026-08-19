@@ -1,0 +1,153 @@
+---
+title: "06d-fig3-targeting-curves"
+date: today
+# author: "Ariktha Srivathsan"
+format:
+  html:
+    toc: true
+    toc-location: right
+    code-fold: true
+    code-summary: "Show code"
+    df-print: paged
+    self-contained: true
+execute:
+  cache: false
+  warning: false
+  message: false
+---
+
+Figure 3: how closely a mortality-based targeting rule tracks the effect-based
+gold standard, under the primary (linear treatment-by-space interaction) model.
+Every object plotted here is built in `07-targeting-analysis.qmd` and read back
+from `data/targeting_fig3_objects.rda`; this script attaches no model and redraws
+no bootstrap, so it stays a pure presentation layer.
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+rm(list = ls())
+```
+
+```{r Load packages and config}
+
+library(here)
+library(tidyverse)
+
+source(here::here("analysis", "0-config.R"))
+```
+
+```{r Load data}
+
+# The whole Figure 3 hand-off bundle: point-estimate curves already joined to
+# their degradation ribbons, the block-rule knots, the AUC annotation table, the
+# rule colours/labels, and a metadata list. See the save chunk at the end of 07
+# for what each object carries.
+#
+# base::load(), not bare load(): 0-config.R attaches renv, whose load() (open a
+# project) masks base R's load() (restore an .rda). The qualifier dodges the mask.
+base::load(here("data", "targeting_fig3_objects.rda"))
+
+# The primary specification, named by 07 rather than hard-coded here, so this
+# figure cannot drift from the model the analysis calls primary.
+ref_key     <- fig3_meta$ref_key
+ref_display <- fig3_meta$ref_display
+```
+
+```{r prep data}
+
+# Single panel: filter the multi-model objects to the primary specification and
+# restore the rule factor order so colours, legend and annotation rows all read
+# in the same sequence as everywhere else in the analysis.
+rule_order <- names(rule_labels)
+
+curves_plot <- curves_ci %>%
+  dplyr::filter(model == ref_key) %>%
+  mutate(rule = factor(rule, levels = rule_order))
+
+block_knots_ref <- block_knots %>%
+  dplyr::filter(model == ref_key) %>%
+  mutate(rule = factor(rule, levels = rule_order))
+
+# `random` carries a zero-height band (a single knot at (1, 1) in every draw), so
+# it is excluded from the ribbon layer deliberately rather than by oversight -
+# drawing it would invite reading its invisible band as merely too narrow to see.
+band_rules <- c("rd", "mort_grappe", "mort_csi", "mort_dept")
+ribbon_dat <- curves_plot %>% dplyr::filter(rule %in% band_rules)
+```
+
+```{r annotation layout}
+
+# The AUC block sits in the top-left, above everything the curves and their bands
+# reach in that corner. Measuring headroom on the ribbon's UPPER edge rather than
+# the point-estimate line keeps the band from sliding behind the text unseen.
+annot_x       <- 0.02
+annot_step    <- 0.07
+annot_x_right <- 0.16   # right edge of the annotation column, on the coverage axis
+annot_pad     <- 0.05   # clearance between the highest band and the lowest text row
+
+annot_headroom <- curves_plot %>%
+  dplyr::filter(x <= annot_x_right) %>%
+  summarise(v = max(pmax(prop_averted, upper), na.rm = TRUE)) %>%
+  pull(v)
+
+n_annot_rows <- length(band_rules)
+annot_bottom <- annot_headroom + annot_pad
+annot_top    <- annot_bottom + n_annot_rows * annot_step
+
+# One AUC per informative rule, coloured to match its curve. `random` is dropped:
+# it is 0.5 by construction and says nothing about the rule. `rd` reads 1.000
+# because it is the comparator ranked against itself - the header names the
+# quantity so the eye does not confuse it with the area under the plotted curve.
+auc_annot <- conc_tab %>%
+  dplyr::filter(model == ref_key, rule != "random") %>%
+  mutate(rule = factor(rule, levels = rule_order)) %>%
+  arrange(rule) %>%
+  mutate(x = annot_x,
+         y = annot_top - annot_step * dplyr::row_number(),
+         label = sprintf("%.3f", auc))
+```
+
+```{r figure 3}
+#| fig-width: 8
+#| fig-height: 6.5
+
+fig3 <- ggplot(curves_plot,
+               aes(x = x, y = prop_averted, colour = rule, group = rule)) +
+  # Ribbons under the lines so the point estimates stay legible where bands overlap.
+  geom_ribbon(data = ribbon_dat, aes(ymin = lower, ymax = upper, fill = rule),
+              alpha = 0.15, colour = NA, show.legend = FALSE) +
+  scale_fill_manual(values = rule_colours) +
+  geom_hline(yintercept = 1, linetype = "dashed", colour = "grey50") +
+  geom_line(linewidth = 1) +
+  # show.legend = FALSE: without it this layer stamps a point glyph onto every
+  # legend key, including the three rules that contribute no block knots.
+  geom_point(data = block_knots_ref, size = 1.6, alpha = 0.7, show.legend = FALSE) +
+  annotate("text", x = annot_x, y = annot_top,
+           label = "Concordance (AUC) with RD ranking",
+           hjust = 0, vjust = 1, size = 4, fontface = "bold", colour = "grey25") +
+  geom_text(data = auc_annot, aes(x = x, y = y, label = label, colour = rule),
+            hjust = 0, vjust = 1, size = 4, show.legend = FALSE, inherit.aes = FALSE) +
+  scale_x_continuous(name = "Doses delivered (% of all doses)",
+                     labels = scales::percent) +
+  scale_y_continuous(name = "Predicted deaths averted\n(% of universal-treatment total)",
+                     labels = scales::percent) +
+  scale_colour_manual(values = rule_colours, labels = rule_labels, name = NULL) +
+  theme_minimal(base_size = 14) +
+  theme(legend.position = "bottom",
+        legend.key      = element_blank(),
+        plot.margin     = margin(0.4, 0.6, 0.4, 0.4, "cm")) +
+  guides(colour = guide_legend(nrow = 2))
+
+fig3
+
+ggsave(here("results", "manuscript", "fig3-targeting_curves.png"),
+       plot = fig3, bg = "white", width = 8, height = 6.5, dpi = 300)
+```
+
+The shaded bands are one-sided
+`r scales::percent(fig3_meta$ci_level)` degradation bands from
+`r fig3_meta$B_boot` predictive draws: what it costs to rank villages on an
+estimate of the surface rather than on the fitted surface itself. Point-estimate
+curves are the best case; the band is the cost of estimation error. Numbers
+top-left are rank concordance (AUC) with the treatment-effect (RD) ordering.
+Model: `r ref_display`.

@@ -1611,6 +1611,44 @@ All figures are given for three specifications; the numbers quoted here are `r r
 - **Simultaneous rather than pointwise bands.** The ribbons cover each coverage level individually, not the curve as a whole.
 - **Specification uncertainty as a quantity.** Showing three specifications side by side displays the sensitivity but does not put a number on it, and no resampling scheme addresses it.
 
+## Figure 3 hand-off
+
+```{r save figure 3 objects}
+#| include: false
+
+# Everything the manuscript's Figure 3 (primary-model targeting curves with
+# their degradation envelopes) needs, bundled into one .rda so the figure script
+# never has to attach spaMM, read a ~54 MB fit, or redraw the O(n^2) concordance
+# bootstrap. This document owns every expensive and stochastic step; the figure
+# script downstream is pure presentation and depends only on this file.
+#
+# The multi-model objects are saved whole rather than pre-filtered to the primary
+# specification. The figure script names `ref_key` itself and filters, exactly as
+# 06B does, so which model is "primary" stays visible in the figure code rather
+# than being silently baked in here - and a coauthor who wants the three-panel
+# version has the other two specifications on hand without re-rendering 07.
+fig3_meta <- list(
+  ref_key     = ref_key,        # "gen_krig_int": the primary (linear treatment-by-space interaction) model
+  ref_display = ref_display,
+  model_display = model_display, # keyed display names, in case a panel is labelled
+  B_boot      = B_boot,          # draws behind every band, for the caption
+  ci_level    = ci_level,        # nominal band coverage, for the caption
+  eff_floor   = eff_floor,       # coverage floor below which efficiency ratios are unstable
+  x_grid      = x_grid)
+
+# One object per figure ingredient. Comments name what each carries so the
+# figure script - which never sees the code that built them - can be read alone.
+save(
+  curves_ci,    # point-estimate curves joined to the degradation ribbon: model, rule, x, prop_averted, lower, upper, median
+  block_knots,  # CSI/department block-boundary knots (the dots on the two step rules)
+  conc_tab,     # rank concordance (AUC) with the RD ordering, per model x rule - the panel annotation
+  eff_ribbon,   # efficiency-ratio degradation band, if a second panel is wanted
+  rule_labels,  # display labels for the five ranking rules
+  rule_colours, # colours for the five ranking rules
+  fig3_meta,
+  file = here("data", "targeting_fig3_objects.rda"))
+```
+
 ```{r session info}
 
 sessionInfo()
