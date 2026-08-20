@@ -286,7 +286,7 @@ spaMM::LRT(fit_csi_gen, fit_csi)
 
 ```
 
-The LRT comparing the simple kriging model (fit_csi) to the more complex model with lat/lon fixed effects (fit_csi_gen) has a p-value of `r format(LRT(fit_csi, fit_csi_gen)$basicLRT$p_value, digits = 4)`, indicating that the more complex model fits significantly better than the simple kriging model.
+The LRT comparing the simple kriging model (fit_csi) to the more complex model with lat/lon fixed effects (fit_csi_gen) has a p-value of `r format(spaMM::LRT(fit_csi, fit_csi_gen)$basicLRT$p_value, digits = 4)`, indicating that the more complex model fits significantly better than the simple kriging model.
 
 ---
 

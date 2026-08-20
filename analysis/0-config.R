@@ -23,7 +23,7 @@ library(raster)
 library(renv)
 library(scales)
 library(sf)
-# library(spaMM)
+library(spaMM)
 # splines must be attached, not called as splines::ns() inside a spaMM formula:
 # spaMM's .expand_multIMRFs() compares each term's head against "multIMRF", and a
 # namespaced call head is length 3, which errors under R >= 4.2.

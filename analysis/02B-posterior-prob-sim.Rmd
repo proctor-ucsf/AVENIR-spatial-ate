@@ -107,17 +107,17 @@ newdat <- cross_join(
 
 if(re_simulate){
 
-  tic("simulations")
-  simulated_responses_gen_krig <- simulate(fitmort_child_gen_krig,
-                                      type = "predVar",
-                                      variances=list(linPred=TRUE,disp=TRUE),
-                                      nsim = nsim_input,
-                                      newdata = newdat,
-                                      seed = 12345
-  )
-  toc()
-
-  saveRDS(simulated_responses_gen_krig, here("data", "simulated_responses_gen_krig.rds"))
+  # tic("simulations")
+  # simulated_responses_gen_krig <- simulate(fitmort_child_gen_krig,
+  #                                     type = "predVar",
+  #                                     variances=list(linPred=TRUE,disp=TRUE),
+  #                                     nsim = nsim_input,
+  #                                     newdata = newdat,
+  #                                     seed = 12345
+  # )
+  # toc()
+  # 
+  # saveRDS(simulated_responses_gen_krig, here("data", "simulated_responses_gen_krig.rds"))
 
   tic("simulations: interaction")
   simulated_responses_gen_krig_int <- simulate(fitmort_child_gen_krig_int,
@@ -132,7 +132,7 @@ if(re_simulate){
   saveRDS(simulated_responses_gen_krig_int, here("data", "simulated_responses_gen_krig_int.rds"))
 
 } else {
-  simulated_responses_gen_krig <- readRDS(here("data", "simulated_responses_gen_krig.rds"))
+  # simulated_responses_gen_krig <- readRDS(here("data", "simulated_responses_gen_krig.rds"))
   simulated_responses_gen_krig_int <- readRDS(here("data", "simulated_responses_gen_krig_int.rds"))
 }
 
@@ -147,7 +147,7 @@ if(re_simulate){
 ```{r post process simulations}
 
 full_pred_long <- rbind(
-  sim2tib(simulated_responses_gen_krig, newdat, "gen_krig"),
+  # sim2tib(simulated_responses_gen_krig, newdat, "gen_krig"),
   sim2tib(simulated_responses_gen_krig_int, newdat, "gen_krig_int")
 )
 

@@ -11,7 +11,7 @@ format:
     df-print: paged
     self-contained: true
 execute:
-  cache: true
+  cache: false
   warning: false
   message: false
 ---
@@ -26,23 +26,21 @@ rm(list = ls())
 
 The primary model (`fitmort_child_gen_krig_int`, the generalized kriging model with
 `treatment × lat` and `treatment × lon` interactions) is fitted to all 1390 grappes.
-Three districts — **Boboye**, **Falmey** and **Loga** — overlapped with the MORDOR mass
-azithromycin trial, so their background mortality may have been depressed by prior mass
-drug administration, and their treatment effect may be attenuated.
+Three districts — **Boboye**, **Falmey** and **Loga** — overlapped with the MORDOR trial, so their background mortality may have been depressed by prior MDA, and their treatment effect may be attenuated.
 
 `mordor-question.qmd` approaches this by *adjusting*: adding a `mordorstate` indicator
 and matching MORDOR villages. This document takes the complementary approach — it
 *removes* the districts and refits, then asks whether the predicted mortality surfaces
 and the ATE surface change in any way that would alter the conclusions:
 
-1. **Excluding Boboye** — the largest of the three MORDOR districts
+1. **Excluding Boboye** — with the lowest mortality of the three MORDOR districts
 2. **Excluding Boboye, Falmey and Loga** — all three MORDOR-overlapping districts
 
 Both refits use the primary specification unchanged, including the centred coordinates
 introduced in `02A-spatial-models-fit.Rmd`, so the only difference is which grappes
 enter the likelihood.
 
-> **Interpretation caveat.** Predictions are generated over the *whole* `boxgrid`,
+> Interpretation caveat. Predictions are generated over the whole `boxgrid`,
 > including cells inside the dropped districts. In those cells the reduced models have
 > no local data, so the Matérn field shrinks to zero and the prediction falls back to
 > the fixed-effect plane. Those cells are flagged throughout and excluded from the
@@ -276,7 +274,7 @@ mort_raster_df <- purrr::imap_dfr(mort_rast, function(res, name) {
 p_mort <- base_map +
   geom_raster(data = mort_raster_df, aes(x = x, y = y, fill = pred), na.rm = TRUE) +
   geom_sf(data = niger_adm2_sub, fill = NA, color = "black", linewidth = 0.25) +
-  geom_sf(data = mordor_outline, fill = NA, color = "red", linewidth = 0.5) +
+  geom_sf(data = mordor_outline, fill = NA, color = "#546E7A", linewidth = 0.5) +
   facet_grid(arm ~ variant) +
   scale_fill_viridis_c(name = "Predicted deaths / 1000 py",
                        guide = guide_colorbar(title.position = "top")) +
@@ -306,7 +304,7 @@ ate_raster_df <- purrr::imap_dfr(ate_rast, function(res, name) {
 p_ate <- base_map +
   geom_raster(data = ate_raster_df, aes(x = x, y = y, fill = ATE), na.rm = TRUE) +
   geom_sf(data = niger_adm2_sub, fill = NA, color = "black", linewidth = 0.25) +
-  geom_sf(data = mordor_outline, fill = NA, color = "red", linewidth = 0.5) +
+  geom_sf(data = mordor_outline, fill = NA, color = "#546E7A", linewidth = 0.5) +
   facet_wrap(~ variant) +
   scale_fill_gradient2(name = "ATE (deaths / 1000 py)",
                        low = "#2166ac", mid = "white", high = "#b2182b",
@@ -363,7 +361,7 @@ diff_raster_df <- purrr::imap_dfr(diff_rast, function(res, name) {
 p_diff <- base_map +
   geom_raster(data = diff_raster_df, aes(x = x, y = y, fill = pred), na.rm = TRUE) +
   geom_sf(data = niger_adm2_sub, fill = NA, color = "black", linewidth = 0.25) +
-  geom_sf(data = mordor_outline, fill = NA, color = "red", linewidth = 0.5) +
+  geom_sf(data = mordor_outline, fill = NA, color = "#546E7A", linewidth = 0.5) +
   facet_wrap(~ comparison) +
   scale_fill_gradient2(name = "Change in ATE (deaths / 1000 py)",
                        low = "#4d9221", mid = "white", high = "#c51b7d",
