@@ -56,13 +56,19 @@
 #                    downstream function (default 1 = the observed data).
 #
 # Details:
+# - person_time is the grappe's observed child-years at risk (pt_year_1to59
+#   from grappe_dat, one value per grappe). It is the single exposure unit the
+#   downstream targeting curves run on: benefit is RD * person_time / 1000, the
+#   curve accumulates person_time on the x-axis, and every weighted mean and
+#   concordance downstream weights by it. Because cost and benefit then share
+#   person_time, ordering by RD is the exact optimal (benefit-per-person-time)
+#   greedy order and the `rd` curve is a true envelope.
 # - N_i is n_doses: study-drug doses actually delivered to children 1-59
-#   months, summed over a grappe's rounds. This is the quantity every
-#   downstream function weights, ranks and accumulates on. Doses are counted
-#   in every arm, not just child azithromycin - a placebo grappe's dose count
-#   measures the same thing (how many children a distribution round in that
-#   grappe reaches), which is exactly the operational quantity the targeting
-#   question needs.
+#   months, summed over a grappe's rounds. Doses are counted in every arm, not
+#   just child azithromycin - a placebo grappe's dose count measures how many
+#   children a distribution round in that grappe reaches. It is retained as a
+#   delivery / coverage descriptor only; since the person-time reframing it is
+#   no longer a weight, a ranking signal, or the curve's budget.
 # - n_children is the sum of started_phase_1to59 across a grappe's phases.
 #   started_phase_1to59 counts a child once per phase, so this is a child-
 #   *round* total on the same footing as n_doses, not a count of distinct
@@ -75,7 +81,9 @@
 #   gap would be indistinguishable from a genuine non-distribution.
 # - Predictions use a fixed offset of pt_year_1to59 = 1000, so mu0 and mu1 are
 #   on a deaths-per-1000-child-years scale (the same convention as
-#   get_grid_preds() in 0-functions.R).
+#   get_grid_preds() in 0-functions.R). Note this prediction offset is a
+#   constant 1000 and is unrelated to the `person_time` column returned below,
+#   which carries each grappe's *observed* child-years and drives the curves.
 # - The prediction newdata carries district and site_code even though the
 #   interaction model does not use them, and a numeric isTreated_child_num
 #   alongside the factor arm indicator. Between them these cover the
@@ -92,7 +100,7 @@
 # Returns:
 # - A tibble with one row per grappe and columns: replicate, site_code,
 #   grappe, csi, district, lat, lon, n_phases, n_children, n_rounds, n_doses,
-#   mu0, mu1, rd, deaths_averted.
+#   person_time, mu0, mu1, rd, deaths_averted.
 #--------------------------------------
 
 build_prediction_table <- function(spamm_model_fit,
@@ -105,7 +113,7 @@ build_prediction_table <- function(spamm_model_fit,
                                    replicate = 1) {
 
   required_grappe <- c("site_code", "grappe", "csi", "district",
-                       "lat", "lon", "isTreated_child")
+                       "lat", "lon", "isTreated_child", "pt_year_1to59")
   required_phase <- c("site_code", "phase", "started_phase_1to59")
   required_dose <- c("site_code", "phase", "n_doses")
 
@@ -144,9 +152,13 @@ build_prediction_table <- function(spamm_model_fit,
       .groups  = "drop"
     )
 
+  # person_time is the grappe's observed child-years at risk. Renamed from
+  # pt_year_1to59 on the way in so it cannot be confused with the constant
+  # pt_year_1to59 = 1000 prediction offset set on `newd` below.
   base_dat <- grappe_dat %>%
     ungroup() %>%
-    dplyr::select(site_code, grappe, csi, district, lat, lon) %>%
+    dplyr::select(site_code, grappe, csi, district, lat, lon,
+                  person_time = pt_year_1to59) %>%
     # one-to-one: a row-multiplying join would sail past the is.na() checks
     # below and silently double-count children or doses
     dplyr::left_join(pop, by = "site_code", relationship = "one-to-one") %>%
@@ -205,16 +217,23 @@ build_prediction_table <- function(spamm_model_fit,
   # degrees for mapping; only the prediction newdata uses projected metres.
   # rd is signed so that positive = benefit, i.e. the negative of the ATE
   # (predTreatment - predControl) reported elsewhere in this repo.
+  #
+  # deaths_averted uses observed person_time as the exposure denominator, not
+  # n_doses * phase_years. Because cost (person_time on the curve's x-axis) and
+  # benefit then share person_time, deaths averted per child-year is exactly
+  # rd / 1000, so ordering by rd is the optimal greedy order and the `rd` curve
+  # is a true envelope. phase_years is retained as an argument for the coverage
+  # descriptives but no longer enters the benefit.
   out <- base_dat %>%
     mutate(
       replicate      = replicate_id,
       mu0            = predict_arm("Control"),
       mu1            = predict_arm("Treatment"),
       rd             = mu0 - mu1,
-      deaths_averted = rd * n_doses * phase_years / 1000
+      deaths_averted = rd * person_time / 1000
     ) %>%
     dplyr::select(replicate, site_code, grappe, csi, district, lat, lon,
-                  n_phases, n_children, n_rounds, n_doses,
+                  n_phases, n_children, n_rounds, n_doses, person_time,
                   mu0, mu1, rd, deaths_averted)
 
   tibble::as_tibble(out)
@@ -231,15 +250,18 @@ build_prediction_table <- function(spamm_model_fit,
 #
 # Arguments:
 # - dat:   tibble from build_prediction_table(). Must contain replicate,
-#          site_code, csi, district, n_children, n_doses, mu0, mu1, rd,
-#          deaths_averted.
+#          site_code, csi, district, n_children, n_doses, person_time, mu0,
+#          mu1, rd, deaths_averted.
 # - level: character; one of "grappe", "csi", "department".
 #
 # Details:
-# - mu0, mu1 and rd are averaged with weights n_doses; n_children, n_doses and
-#   deaths_averted are summed. Because rd is n_doses-weighted, the summed
-#   deaths_averted equals rd * n_doses * T / 1000 recomputed at the coarse
-#   scale exactly, so the three scales cannot drift apart.
+# - mu0, mu1 and rd are averaged with weights person_time; n_children, n_doses,
+#   person_time and deaths_averted are summed. Because rd is person_time-
+#   weighted, the summed deaths_averted equals rd * person_time / 1000
+#   recomputed at the coarse scale exactly, so the three scales cannot drift
+#   apart. Person-time weighting (rather than doses) makes the aggregated rate
+#   the unit's actual person-time-weighted rate, consistent with the crude
+#   arm-specific rates it is compared against.
 # - level = "grappe" is a pass-through that returns the same column set as the
 #   other two levels, so callers can map over all three uniformly. site_code
 #   and grappe survive only as unit_id / unit_label, and lat, lon, n_phases and
@@ -255,7 +277,8 @@ build_prediction_table <- function(spamm_model_fit,
 # Returns:
 # - A tibble with one row per unit per replicate: replicate, level, unit_id,
 #   unit_label, district (NA-free at every level), csi (NA at department
-#   level), n_units, n_children, n_doses, mu0, mu1, rd, deaths_averted.
+#   level), n_units, n_children, n_doses, person_time, mu0, mu1, rd,
+#   deaths_averted.
 #--------------------------------------
 
 aggregate_predictions <- function(dat, level = c("grappe", "csi", "department")) {
@@ -270,7 +293,7 @@ aggregate_predictions <- function(dat, level = c("grappe", "csi", "department"))
                unit_label = grappe,
                n_units    = 1L) %>%
         dplyr::select(replicate, level, unit_id, unit_label, district, csi,
-                      n_units, n_children, n_doses, mu0, mu1, rd,
+                      n_units, n_children, n_doses, person_time, mu0, mu1, rd,
                       deaths_averted) %>%
         tibble::as_tibble()
     )
@@ -286,20 +309,21 @@ aggregate_predictions <- function(dat, level = c("grappe", "csi", "department"))
 
   # NOTE: summarise() evaluates its arguments in order and later expressions
   # see earlier *results*, so the three weighted means must be computed before
-  # n_doses is collapsed to a sum - otherwise weighted.mean() would be handed
-  # a single number as its weight vector.
+  # person_time is collapsed to a sum - otherwise weighted.mean() would be
+  # handed a single number as its weight vector.
   out <- dat %>%
     mutate(unit_id = as.character(.data[[group_col]])) %>%
     group_by(replicate, unit_id) %>%
     summarise(
       district       = dplyr::first(district),
       n_units        = dplyr::n(),
-      mu0            = stats::weighted.mean(mu0, w = n_doses, na.rm = TRUE),
-      mu1            = stats::weighted.mean(mu1, w = n_doses, na.rm = TRUE),
-      rd             = stats::weighted.mean(rd, w = n_doses, na.rm = TRUE),
+      mu0            = stats::weighted.mean(mu0, w = person_time, na.rm = TRUE),
+      mu1            = stats::weighted.mean(mu1, w = person_time, na.rm = TRUE),
+      rd             = stats::weighted.mean(rd, w = person_time, na.rm = TRUE),
       deaths_averted = sum(deaths_averted, na.rm = TRUE),
       n_children     = sum(n_children, na.rm = TRUE),
       n_doses        = sum(n_doses, na.rm = TRUE),
+      person_time    = sum(person_time, na.rm = TRUE),
       .groups        = "drop"
     ) %>%
     mutate(
@@ -308,7 +332,8 @@ aggregate_predictions <- function(dat, level = c("grappe", "csi", "department"))
       csi        = if (level_name == "csi") unit_id else NA_character_
     ) %>%
     dplyr::select(replicate, level, unit_id, unit_label, district, csi,
-                  n_units, n_children, n_doses, mu0, mu1, rd, deaths_averted)
+                  n_units, n_children, n_doses, person_time, mu0, mu1, rd,
+                  deaths_averted)
 
   tibble::as_tibble(out)
 }
@@ -322,13 +347,14 @@ aggregate_predictions <- function(dat, level = c("grappe", "csi", "department"))
 #
 # Five rules:
 #   rd           descending predicted risk difference. The upper envelope:
-#                because deaths averted per dose is rd * T / 1000, ordering by
-#                rd is ordering by benefit per dose, which is the optimal
-#                greedy order for a budget expressed in doses. Not achievable
-#                prospectively, since rd is not knowable in advance.
+#                because deaths averted per child-year is rd / 1000, ordering
+#                by rd is ordering by benefit per unit person-time, which is
+#                the optimal greedy order for a budget expressed in person-
+#                time. Not achievable prospectively, since rd is not knowable
+#                in advance.
 #   mort_grappe  descending predicted control-arm mortality. The operational
 #                rule of interest.
-#   mort_csi     CSIs ordered by dose-weighted mu0; all grappes in a CSI
+#   mort_csi     CSIs ordered by person-time-weighted mu0; all grappes in a CSI
 #                treated as one block.
 #   mort_dept    departments as blocks. Coarsest targeting.
 #   random       population-proportional allocation; the no-information
@@ -336,7 +362,7 @@ aggregate_predictions <- function(dat, level = c("grappe", "csi", "department"))
 #
 # Arguments:
 # - dat:  grappe-level tibble from build_prediction_table(). Must contain
-#         replicate, site_code, csi, district, n_doses, mu0, rd.
+#         replicate, site_code, csi, district, n_doses, person_time, mu0, rd.
 # - rule: character; one of "rd", "mort_grappe", "mort_csi", "mort_dept",
 #         "random".
 #
@@ -379,13 +405,13 @@ rank_clusters <- function(dat,
     mort_csi = dat %>%
       group_by(replicate, csi) %>%
       mutate(block_id    = as.character(csi),
-             block_score = stats::weighted.mean(mu0, w = n_doses,
+             block_score = stats::weighted.mean(mu0, w = person_time,
                                                 na.rm = TRUE)) %>%
       ungroup(),
     mort_dept = dat %>%
       group_by(replicate, district) %>%
       mutate(block_id    = as.character(district),
-             block_score = stats::weighted.mean(mu0, w = n_doses,
+             block_score = stats::weighted.mean(mu0, w = person_time,
                                                 na.rm = TRUE)) %>%
       ungroup(),
     random = dat %>%
@@ -413,11 +439,11 @@ rank_clusters <- function(dat,
 #--------------------------------------
 # compute_targeting_curve()
 #
-# Cumulative predicted deaths averted against cumulative doses delivered for
-# one ranking rule, evaluated on a caller-supplied shared x-grid.
+# Cumulative predicted deaths averted against cumulative person-time covered
+# for one ranking rule, evaluated on a caller-supplied shared x-grid.
 #
-# The y-axis is a percentage of the universal-treatment total, so the phase
-# duration cancels and the curve is invariant to the choice of T. Note that
+# The y-axis is a percentage of the universal-treatment total, so any common
+# scaling of the exposure cancels and the curve is a pure share. Note that
 # the curve is not necessarily monotone: wherever the model predicts rd < 0
 # (harm), treating those grappes subtracts from the cumulative total, so the
 # rd curve typically rises above 100% and comes back down to 100% at full
@@ -427,7 +453,7 @@ rank_clusters <- function(dat,
 # - dat:    grappe-level tibble from build_prediction_table().
 # - rule:   character; passed to rank_clusters().
 # - x_grid: numeric vector of cumulative coverage values in [0, 1] expressed
-#           as a share of all doses delivered, the shared grid all rules are
+#           as a share of all person-time, the shared grid all rules are
 #           evaluated on (default seq(0, 1, by = 0.005)).
 #
 # Details:
@@ -448,28 +474,28 @@ rank_clusters <- function(dat,
 #
 # Returns:
 # - A tibble with one row per replicate per grid point: replicate, rule, x
-#   (proportion of doses delivered), doses_delivered (count), prop_averted
-#   (proportion of universal-treatment deaths averted), deaths_averted
-#   (count).
+#   (proportion of person-time), person_time (cumulative child-years),
+#   prop_averted (proportion of universal-treatment deaths averted),
+#   deaths_averted (count).
 #--------------------------------------
 
 compute_targeting_curve <- function(dat, rule, x_grid = seq(0, 1, by = 0.005)) {
 
   if (any(x_grid < 0 | x_grid > 1)) {
-    stop("x_grid must lie in [0, 1]; it is a proportion of doses delivered.")
+    stop("x_grid must lie in [0, 1]; it is a proportion of person-time.")
   }
 
   ranked <- rank_clusters(dat, rule = rule)
 
   curve_one <- function(rep_dat) {
 
-    total_doses   <- sum(rep_dat$n_doses, na.rm = TRUE)
+    total_pt      <- sum(rep_dat$person_time, na.rm = TRUE)
     total_averted <- sum(rep_dat$deaths_averted, na.rm = TRUE)
 
-    if (total_doses <= 0 || total_averted == 0) {
+    if (total_pt <= 0 || total_averted == 0) {
       warning("Degenerate totals for rule '", rule, "'; returning NA curve.")
       return(tibble::tibble(x = x_grid, prop_averted = NA_real_,
-                            doses_delivered = NA_real_,
+                            person_time = NA_real_,
                             deaths_averted = NA_real_))
     }
     if (total_averted < 0) {
@@ -479,7 +505,7 @@ compute_targeting_curve <- function(dat, rule, x_grid = seq(0, 1, by = 0.005)) {
 
     knots <- rep_dat %>%
       arrange(rank_order) %>%
-      mutate(cum_x = cumsum(n_doses) / total_doses,
+      mutate(cum_x = cumsum(person_time) / total_pt,
              cum_y = cumsum(deaths_averted) / total_averted) %>%
       dplyr::filter(block_boundary)
 
@@ -494,7 +520,7 @@ compute_targeting_curve <- function(dat, rule, x_grid = seq(0, 1, by = 0.005)) {
                                    rule = 2,
                                    ties = "ordered")$y
     ) %>%
-      mutate(doses_delivered = x * total_doses,
+      mutate(person_time    = x * total_pt,
              deaths_averted  = prop_averted * total_averted)
   }
 
@@ -504,7 +530,7 @@ compute_targeting_curve <- function(dat, rule, x_grid = seq(0, 1, by = 0.005)) {
       curve_one(rep_dat) %>%
         mutate(replicate = rep_dat$replicate[1], rule = rule)
     }) %>%
-    dplyr::select(replicate, rule, x, doses_delivered, prop_averted,
+    dplyr::select(replicate, rule, x, person_time, prop_averted,
                   deaths_averted)
 }
 
@@ -513,7 +539,7 @@ compute_targeting_curve <- function(dat, rule, x_grid = seq(0, 1, by = 0.005)) {
 # rule_concordance()
 #
 # The AUROC of a targeting rule against the predicted-effect ranking: for a
-# randomly drawn pair of villages, weighted by doses delivered, the probability
+# randomly drawn pair of villages, weighted by person-time, the probability
 # that the rule ranks the village with the larger predicted RD ahead of the
 # other one.
 #
@@ -563,7 +589,7 @@ rule_concordance <- function(dat, rule, max_n = 5000) {
   # higher score = treated earlier, so negate the rank
   score <- -ranked$block_rank
   rd    <- ranked$rd
-  w     <- ranked$n_doses
+  w     <- ranked$person_time
 
   keep  <- is.finite(score) & is.finite(rd) & is.finite(w) & w > 0
   score <- score[keep]; rd <- rd[keep]; w <- w[keep]
@@ -605,11 +631,11 @@ rule_concordance <- function(dat, rule, max_n = 5000) {
 # weighted_correlation()
 #
 # Weighted Spearman and Pearson correlations between two vectors. The weights
-# are caller-supplied; every call in this project passes doses delivered.
+# are caller-supplied; every call in this project passes person-time.
 #
 # Arguments:
 # - x, y: numeric vectors of equal length.
-# - w:    numeric vector of the same length; weights, here doses delivered.
+# - w:    numeric vector of the same length; weights, here person-time.
 #
 # Details:
 # - The weighted Spearman coefficient is the weighted Pearson correlation of
@@ -803,7 +829,9 @@ predictive_draw_tables <- function(spamm_model_fit,
              mu0            = mu0_b,
              mu1            = mu1_b,
              rd             = mu0_b - mu1_b,
-             deaths_averted = (mu0_b - mu1_b) * n_doses * phase_years / 1000)
+             # observed person-time is the exposure denominator, matching
+             # build_prediction_table(); phase_years no longer enters.
+             deaths_averted = (mu0_b - mu1_b) * person_time / 1000)
   })
 }
 

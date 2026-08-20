@@ -94,7 +94,7 @@ library(spaMM)
 # stochastic step is the predictive bootstrap draw, which sets `boot_seed`
 # inside predictive_draw_tables() and is read back from a cached .rds. Rendering
 # this document twice cannot move a number. The `random` rule remains
-# population-proportional by construction, not by simulation.
+# person-time-proportional by construction, not by simulation.
 
 # Protection conferred by one AVENIR distribution round, in years, assumed
 # common across rounds. The Data section checks the assumption against observed
@@ -102,8 +102,8 @@ library(spaMM)
 # trial actually accrued.
 phase_years <- 0.5
 
-# Shared x-grid for every targeting curve, on the proportion-of-doses scale.
-# Fixed rather than at observed knots so that bootstrap replicates can be
+# Shared x-grid for every targeting curve, on the proportion-of-person-time
+# scale. Fixed rather than at observed knots so that bootstrap replicates can be
 # summarised pointwise into quantile ribbons with no interpolation mismatch.
 x_grid <- seq(0, 1, by = 0.005)
 
@@ -198,12 +198,12 @@ dose_dat   <- readRDS(here("data", "grappe_dose_counts_by_phase.rds"))
 # The cache is not keyed on its inputs. Stamping the settings onto the saved
 # table and checking them on load is what stops a later edit to phase_years,
 # either CRS, or the model list from silently leaving every number in this
-# document computed under the old settings. `weight` is part of the stamp so the
-# eligible-children version of this table cannot be reused now that N_i is
-# doses delivered.
+# document computed under the old settings. `exposure` is part of the stamp so a
+# table built under the earlier doses-delivered denominator cannot be reused now
+# that benefit and the curve budget are both observed person-time.
 pred_params_for <- function(this_model) {
   list(model       = this_model,
-       weight      = "doses_delivered",
+       exposure    = "observed_person_time",
        phase_years = phase_years,
        global_crs  = global_crs,
        proj_crs    = proj_crs)
@@ -276,6 +276,7 @@ boot_params_for <- function(this_model) {
   list(model       = this_model,
        B           = B_boot,
        phase_years = phase_years,
+       exposure    = "observed_person_time",
        seed        = boot_seed,
        scheme      = "predictive_draw_no_refit")
 }
@@ -350,19 +351,14 @@ n_doses_med  <- median(pred_table$n_doses)
 n_doses_q1   <- unname(quantile(pred_table$n_doses, 0.25))
 n_doses_q3   <- unname(quantile(pred_table$n_doses, 0.75))
 
-# The exposure denominator for deaths averted is N_i * phase_years, not the
-# observed pt_year_1to59 (see the prose for why). Quote what the alternative
-# denominator would give, so the size of that choice is on the record. The gap
-# is not the aggregate child-years gap: it is rd-weighted, because the villages
-# where doses x phase_years overshoots observed person-time are not a random
-# subset with respect to predicted effect.
-total_averted_obs_pt <- pred_table %>%
-  dplyr::left_join(grappe_dat %>%
-                     ungroup() %>%
-                     dplyr::select(site_code, pt_year_1to59),
-                   by = "site_code", relationship = "one-to-one") %>%
-  summarise(v = sum(rd * pt_year_1to59) / 1000) %>%
-  pull(v)
+# Total observed child-years at risk across the analytic grappes, the exposure
+# the targeting curves accumulate on. Reported alongside the dose totals so the
+# curve budget (person-time) and the delivery descriptor (doses) are both on the
+# record.
+total_person_time <- sum(pred_table$person_time)
+pt_med  <- median(pred_table$person_time)
+pt_q1   <- unname(quantile(pred_table$person_time, 0.25))
+pt_q3   <- unname(quantile(pred_table$person_time, 0.75))
 
 # Coverage, computed round by round -----
 #
@@ -421,18 +417,19 @@ crude_ctrl <- crude$rate[crude$isTreated_child == "Control"]
 crude_trt  <- crude$rate[crude$isTreated_child == "Treatment"]
 crude_rd   <- crude_ctrl - crude_trt
 
-# Predicted surface, one row per model. The dose-weighted means are the
+# Predicted surface, one row per model. The person-time-weighted means are the
 # like-for-like comparison with the crude rates above, which are themselves
-# ratios of pooled totals; the medians are quoted alongside because the surface
-# is right-skewed and the two summaries differ by more than a rounding error.
+# person-time ratios of pooled totals; the medians are quoted alongside because
+# the surface is right-skewed and the two summaries differ by more than a
+# rounding error.
 surface_tab <- purrr::imap_dfr(pred_tables, function(dat, this_key) {
   tibble::tibble(
     model         = this_key,
-    mu0_wmean     = stats::weighted.mean(dat$mu0, w = dat$n_doses),
+    mu0_wmean     = stats::weighted.mean(dat$mu0, w = dat$person_time),
     mu0_med       = median(dat$mu0),
     mu0_p05       = unname(quantile(dat$mu0, 0.05)),
     mu0_p95       = unname(quantile(dat$mu0, 0.95)),
-    rd_wmean      = stats::weighted.mean(dat$rd, w = dat$n_doses),
+    rd_wmean      = stats::weighted.mean(dat$rd, w = dat$person_time),
     rd_med        = median(dat$rd),
     rd_p05        = unname(quantile(dat$rd, 0.05)),
     rd_p95        = unname(quantile(dat$rd, 0.95)),
@@ -450,11 +447,9 @@ pct_rd_negative <- surface_of("pct_rd_neg")
 
 <!-- The analytic sample is `r scales::comma(n_grappes)`^★^ grappes in `r n_csi`^★^ CSIs and `r n_dept`^★^ departments of Dosso region (median `r median(grappes_per_csi)`^★^ grappes per CSI, range `r min(grappes_per_csi)`–`r max(grappes_per_csi)`^★^). The departments are very unequal in size, from `r sprintf("%.1f", min(dose_share_dept$share))`%^★^ of all doses in `r dose_share_dept$unit_label[1]`^★^ to `r sprintf("%.1f", max(dose_share_dept$share))`%^★^ in `r dose_share_dept$unit_label[nrow(dose_share_dept)]`^★^ — which matters for the block rules, because a department-block rule moves `r sprintf("%.0f", max(dose_share_dept$share))`%^★^ of the region's doses in a single step. -->
 
-**Doses delivered,** $N_i$. $N_i$ is the number of azithro/placebo doses delivered to children 1–59 months, summed over distribution rounds by village: `r scales::comma(total_doses)` doses in total, median `r scales::comma(n_doses_med)` per village (IQR `r scales::comma(n_doses_q1)`–`r scales::comma(n_doses_q3)`). It does not depend on the specification, so it is the same $N_i$ behind all three sets of curves.
+**Person-time,** the budget. Each village contributes its observed child-years at risk, $\text{pt}_i$ (children 1–59 months): `r scales::comma(round(total_person_time))` child-years in total, median `r scales::comma(round(pt_med))` per village (IQR `r scales::comma(round(pt_q1))`–`r scales::comma(round(pt_q3))`). This is the exposure the targeting curves accumulate on the x-axis, and the denominator that converts $\widehat{RD}_i$ into a count of deaths: deaths averted in village $i$ is $\widehat{RD}_i \cdot \text{pt}_i / 1000$. Because cost (person-time on the x-axis) and benefit share $\text{pt}_i$, deaths averted per child-year is exactly $\widehat{RD}_i / 1000$, so ordering by $\widehat{RD}$ is ordering by benefit per unit person-time — the optimal greedy order, which is why the `rd` curve is a true envelope (see the Targeting rules section).
 
-<!-- **Exposure denominator.** $\widehat{RD}_i$ is in deaths per 1000 child-years, so converting it into a number of deaths needs child-years. This document uses $N_i \times$ `phase_years` — doses delivered times the six-month interval between AVENIR's biannual rounds — rather than the observed `pt_year_1to59`. That is a deliberate choice, not an approximation to observed person-time: the targeting budget is denominated in doses, and making benefit and cost share a denominator is what makes deaths averted per dose exactly $\widehat{RD}_i \cdot T / 1000$, which is in turn what makes ranking by $\widehat{RD}$ the optimal greedy order rather than merely a good one (see the Targeting rules section). Under an observed-person-time denominator the optimum would be $\widehat{RD}_i \cdot \text{pt}_i / N_i$ instead, and the `rd` curve would no longer be a true envelope. -->
-
-<!-- The choice is visible only in the absolute death counts, which run about `r scales::percent(total_averted / total_averted_obs_pt - 1, accuracy = 1)` high: universal treatment averts `r scales::comma(total_averted, accuracy = 1)` deaths on this denominator against `r scales::comma(total_averted_obs_pt, accuracy = 1)` on observed person-time. Every curve, efficiency ratio and percentage below is a share of the universal-treatment total, so the denominator cancels and none of them move. -->
+**Doses delivered,** $N_i$. $N_i$ is the number of azithro/placebo doses delivered to children 1–59 months, summed over distribution rounds by village: `r scales::comma(total_doses)` doses in total, median `r scales::comma(n_doses_med)` per village (IQR `r scales::comma(n_doses_q1)`–`r scales::comma(n_doses_q3)`). Since the person-time reframing, $N_i$ is no longer the curve's budget or a ranking weight; it is retained below only as a delivery / coverage descriptor.
 
 **Coverage.** Matching doses to children eligible at the beginning of each round, delivery covered `r scales::percent(dose_coverage, accuracy = 0.1)` of eligible child-rounds (per-village median `r scales::percent(cov_med, accuracy = 0.1)`, IQR `r scales::percent(cov_q1, accuracy = 0.1)`–`r scales::percent(cov_q3, accuracy = 0.1)`, minimum `r scales::percent(cov_min, accuracy = 0.1)`; `r n_low_cov` village`r if (n_low_cov != 1) "s"` below 80%). `r n_round_gaps` village-rounds across `r n_grappe_gaps` villages appear in the mortality data with no matching dose record. Those rounds contribute zero doses to $N_i$.
 
@@ -485,7 +480,7 @@ p_dose_cum <- ggplot(pred_table, aes(x = "All rounds", y = n_doses)) +
   plot_annotation(title = "Doses delivered to children 1-59 months, per village")
 ```
 
-Round 1 sits a little below the later rounds; rounds 2–4 are close to each other. The cumulative panel is the $N_i$ every curve below is built on.
+Round 1 sits a little below the later rounds; rounds 2–4 are close to each other. The cumulative panel is $N_i$, the delivery volume per village; the curves below are budgeted in person-time rather than in these doses.
 
 **Predicted mortality surfaces.** Predictions below come from these three fitted models:
 
@@ -544,27 +539,27 @@ cat("In each, $\\mu_i$ is expected deaths in village $i$, $PT_i$ its child-years
     sep = "")
 ```
 
-Crude arm-specific mortality is `r sprintf("%.1f", crude_ctrl)` per 1000 child-years in the control arm and `r sprintf("%.1f", crude_trt)` in the treatment arm, a crude rate difference of `r sprintf("%.1f", crude_rd)`. The like-for-like comparison is with the dose-weighted mean of each predicted surface, since the crude rates are themselves ratios of pooled totals:
+Crude arm-specific mortality is `r sprintf("%.1f", crude_ctrl)` per 1000 child-years in the control arm and `r sprintf("%.1f", crude_trt)` in the treatment arm, a crude rate difference of `r sprintf("%.1f", crude_rd)`. The like-for-like comparison is with the person-time-weighted mean of each predicted surface, since the crude rates are themselves person-time ratios of pooled totals:
 
 ```{r surface table}
 
 surface_tab %>%
   mutate(
     Model      = model_display[model],
-    `mu0, dose-weighted mean` = sprintf("%.1f", mu0_wmean),
+    `mu0, PT-weighted mean` = sprintf("%.1f", mu0_wmean),
     `mu0, median (5th-95th)`  = sprintf("%.1f (%.1f-%.1f)", mu0_med, mu0_p05, mu0_p95),
-    `RD, dose-weighted mean`  = sprintf("%.1f", rd_wmean),
+    `RD, PT-weighted mean`  = sprintf("%.1f", rd_wmean),
     `RD, median (5th-95th)`   = sprintf("%.1f (%.1f-%.1f)", rd_med, rd_p05, rd_p95),
     `% villages RD < 0`       = sprintf("%.1f%%", pct_rd_neg),
     `Deaths averted, universal` = scales::comma(total_averted, accuracy = 1)) %>%
-  dplyr::select(Model, `mu0, dose-weighted mean`, `mu0, median (5th-95th)`,
-                `RD, dose-weighted mean`, `RD, median (5th-95th)`,
+  dplyr::select(Model, `mu0, PT-weighted mean`, `mu0, median (5th-95th)`,
+                `RD, PT-weighted mean`, `RD, median (5th-95th)`,
                 `% villages RD < 0`, `Deaths averted, universal`) %>%
   knitr::kable(
     caption = paste("Predicted surfaces under the three specifications, in",
                     "deaths per 1000 child-years. Every surface is",
-                    "right-skewed, so the medians sit below the dose-weighted",
-                    "means. The last column is the deaths that treating every",
+                    "right-skewed, so the medians sit below the person-time-",
+                    "weighted means. The last column is the deaths that treating every",
                     "village is predicted to avert over the trial period -",
                     "the denominator of every percentage below."))
 ```
@@ -709,7 +704,7 @@ The two mortality columns share a fixed 0–35 colour scale, so they can be comp
 
 ## Predicted mortality vs predicted ATE
 
-Coarser scales are dose-weighted means of village-level predictions, not separate refits, so all three scales rest on one prediction per model. Correlation is expected to *increase* with coarsening, as within-unit prediction noise should average out.
+Coarser scales are person-time-weighted means of village-level predictions, not separate refits, so all three scales rest on one prediction per model. Correlation is expected to *increase* with coarsening, as within-unit prediction noise should average out.
 
 ```{r correlations by scale}
 
@@ -719,7 +714,7 @@ level_display <- c(grappe = "Village", csi = "CSI", department = "Department")
 corr_tab <- purrr::imap_dfr(pred_tables, function(dat, this_key) {
   purrr::map_dfr(level_names, function(this_level) {
     agg <- aggregate_predictions(dat, level = this_level)
-    weighted_correlation(x = agg$mu0, y = agg$rd, w = agg$n_doses) %>%
+    weighted_correlation(x = agg$mu0, y = agg$rd, w = agg$person_time) %>%
       mutate(model = this_key, level = this_level, .before = 1)
   })
 })
@@ -733,13 +728,13 @@ scatter_dat <- purrr::imap_dfr(pred_tables, function(dat, this_key) {
   purrr::map_dfr(level_names, ~ aggregate_predictions(dat, level = .x)) %>%
     mutate(model = this_key)
 }) %>%
-  # Point size is scaled *within* panel. n_doses spans two orders of magnitude
-  # within the village panel and roughly another between villages and
+  # Point size is scaled *within* panel. person_time spans two orders of
+  # magnitude within the village panel and roughly another between villages and
   # departments, and facet_grid(scales = "free") frees x by column and y by row
   # only - a single pooled size scale would squash every village point to
   # within a fraction of a point of the minimum and carry no information there.
   group_by(model, level) %>%
-  mutate(size_rel = n_doses / max(n_doses)) %>%
+  mutate(size_rel = person_time / max(person_time)) %>%
   ungroup() %>%
   mutate(model_label = as_model_label(model),
          level_label = factor(level_display[level],
@@ -758,7 +753,7 @@ corr_annot <- corr_tab %>%
 ggplot(scatter_dat, aes(x = mu0, y = rd)) +
   geom_hline(yintercept = 0, linetype = "dashed", colour = "grey50") +
   geom_point(aes(size = size_rel), alpha = 0.35, colour = "#2c7fb8") +
-  geom_smooth(aes(weight = n_doses), method = "loess", formula = y ~ x,
+  geom_smooth(aes(weight = person_time), method = "loess", formula = y ~ x,
               se = FALSE, colour = "#e84d60", linewidth = 0.8, alpha = 0.5) +
   geom_text(data = corr_annot, aes(x = -Inf, y = Inf, label = label),
             hjust = -0.08, vjust = 1.15, size = 3.1, colour = "grey25",
@@ -768,7 +763,7 @@ ggplot(scatter_dat, aes(x = mu0, y = rd)) +
   scale_size_continuous(range = c(0.6, 6), labels = scales::percent) +
   labs(x = "Predicted control-arm mortality (deaths per 1000 child-years)",
        y = "Predicted risk difference\n(deaths averted per 1000 child-years)",
-       size = "Doses delivered\n(% of panel maximum)") +
+       size = "Person-time\n(% of panel maximum)") +
   theme_minimal(base_size = 12) +
   theme(legend.position = "bottom",
         strip.text.y    = element_text(size = 9))
@@ -777,8 +772,8 @@ ggplot(scatter_dat, aes(x = mu0, y = rd)) +
 Notes:
 
 * Axis scales are free: `facet_grid` frees $x$ by column and $y$ by row, so panels are comparable down a column and across a row but not diagonally
-* Point area is doses delivered relative to the largest unit *in that panel*
-* LOESS fit and the correlations are weighted by doses delivered
+* Point area is person-time relative to the largest unit *in that panel*
+* LOESS fit and the correlations are weighted by person-time
 * The two single-Matérn rows are near-deterministic curves by construction; the two-Matérn row is the one with genuine scatter
 
 ------------------------------------------------------------------------
@@ -791,11 +786,13 @@ Five ranking rules, all evaluated on the same x-grid, under each of the three mo
 |------------------------|------------------------|------------------------|
 | `rd` | descending $\widehat{RD}_i$ | upper envelope; gold standard |
 | `mort_grappe` | descending $\hat\mu^0_i$ | the operational rule of interest |
-| `mort_csi` | CSIs as blocks; dose-weighted $\hat\mu^0$ | coarser targeting |
-| `mort_dept` | departments as blocks; dose-weighted $\hat\mu^0$ | coarsest targeting |
-| `random` | population-proportional | no-information reference (45° line) |
+| `mort_csi` | CSIs as blocks; PT-weighted $\hat\mu^0$ | coarser targeting |
+| `mort_dept` | departments as blocks; PT-weighted $\hat\mu^0$ | coarsest targeting |
+| `random` | person-time-proportional | no-information reference (45° line) |
 
-`rd`: Upper envelope. Deaths averted per dose delivered in village $i$ is $\widehat{RD}_i \cdot T / 1000$, so ordering by $\widehat{RD}$ *is* ordering by benefit per dose — the optimal greedy order.
+The x-axis budget is **person-time**: villages are added in each rule's rank order, and the x-coordinate is the cumulative share of the region's child-years at risk.
+
+`rd`: Upper envelope. Deaths averted per child-year of exposure in village $i$ is $\widehat{RD}_i / 1000$, so ordering by $\widehat{RD}$ *is* ordering by benefit per unit person-time — the optimal greedy order.
 
 ```{r targeting curves}
 
@@ -813,7 +810,7 @@ rule_labels <- c(rd          = "Treatment effect (RD), grappe",
                  mort_grappe = "Mortality, grappe",
                  mort_csi    = "Mortality, CSI",
                  mort_dept   = "Mortality, department",
-                 random      = "Population-proportional")
+                 random      = "Person-time-proportional")
 
 # The three mortality rules are one family read as a sequence - village, CSI,
 # department - so they get a single qualitative ramp rather than three unrelated
@@ -869,6 +866,7 @@ unc_params <- list(models      = model_names,
                    B           = B_boot,
                    seed        = boot_seed,
                    phase_years = phase_years,
+                   exposure    = "observed_person_time",
                    x_grid      = x_grid,
                    ci_level    = ci_level,
                    eff_floor   = eff_floor)
@@ -984,7 +982,7 @@ if (is.null(unc)) {
     purrr::map_dfr(level_names, function(this_level) {
       purrr::map_dfr(reps, function(rep_dat) {
         agg <- aggregate_predictions(rep_dat, level = this_level)
-        weighted_correlation(x = agg$mu0, y = agg$rd, w = agg$n_doses)
+        weighted_correlation(x = agg$mu0, y = agg$rd, w = agg$person_time)
       }) %>%
         mutate(model = this_key, level = this_level, .before = 1)
     })
@@ -1085,7 +1083,7 @@ block_knots <- purrr::imap_dfr(pred_tables, function(dat, this_key) {
   purrr::map_dfr(c("mort_csi", "mort_dept"), function(this_rule) {
     rank_clusters(dat, rule = this_rule) %>%
       arrange(rank_order) %>%
-      mutate(x = cumsum(n_doses) / sum(n_doses),
+      mutate(x = cumsum(person_time) / sum(person_time),
              prop_averted = cumsum(deaths_averted) / sum(deaths_averted)) %>%
       dplyr::filter(block_boundary) %>%
       dplyr::select(rule, x, prop_averted)
@@ -1193,8 +1191,8 @@ p_curves <- ggplot(curves_plot, aes(x = x, y = prop_averted,
   scale_x_continuous(labels = scales::percent) +
   scale_y_continuous(labels = scales::percent) +
   scale_colour_manual(values = rule_colours, labels = rule_labels) +
-  labs(x = "Doses delivered (% of all doses)",
-       y = "Predicted deaths averted\n(% of universal-treatment total)",
+  labs(x = "Cumulative proportion of person-time",
+       y = "Cumulative proportion of mortality reduction",
        colour = NULL) +
   theme_minimal(base_size = 12) +
   theme(legend.position = "bottom",
@@ -1268,8 +1266,8 @@ again. -->
 #   scale_x_continuous(labels = scales::percent) +
 #   scale_y_continuous(labels = scales::percent) +
 #   scale_colour_manual(values = rule_colours, labels = rule_labels) +
-#   labs(x = "Doses delivered (% of all doses)",
-#        y = "Predicted deaths averted\n(% of universal-treatment total)",
+#   labs(x = "Cumulative proportion of person-time",
+#        y = "Cumulative proportion of mortality reduction",
 #        colour = NULL,
 #        title = "Posterior band: curves computed within each replicate",
 #        subtitle = "Solid = point estimate, dotted = posterior median.") +
@@ -1331,7 +1329,7 @@ p_curve_grid <- ggplot(curve_grid, aes(x = coverage, y = rule, fill = pct)) +
   # Title and subtitle are wrapped explicitly: ggplot truncates rather than
   # reflowing, and naming the specification is long enough to run off a
   # 10-inch panel on one line.
-  labs(x = "Doses delivered (% of all doses)", y = NULL,
+  labs(x = "Cumulative proportion of person-time", y = NULL,
        fill = "% of universal-treatment total",
        title = paste0("Cumulative predicted deaths averted\n",
                       ref_display, " (", ref_key, ") only"),
@@ -1386,9 +1384,9 @@ rd_peak    <- peak_of("rd")
 rd_peak_at <- peak_at_of("rd")
 ```
 
-$N_i$ counts doses delivered in **every** arm, not just child azithromycin, so the denominator behind "% of all doses" is the whole region's distribution volume. There is no 100% column because there is nothing to compare there: at full coverage every rule averts the same `r scales::comma(total_averted, accuracy = 1)` deaths by construction.
+The x-axis is the cumulative share of the region's child person-time, accrued as villages are added in each rule's rank order. There is no 100% column because there is nothing to compare there: at full coverage every rule averts the same `r scales::comma(total_averted, accuracy = 1)` deaths by construction.
 
-My interpretation of the heatmap (all numbers `r ref_display`): Treating the highest-mortality villages up to 30% of all doses is predicted to avert `r sprintf("%.0f", mort_g_at_30)`% of the deaths that treating everyone would avert (`r scales::comma(averted_at_30, accuracy = 1)` deaths), against `r sprintf("%.0f", rd_at_30)`% for the treatment effect-ranked gold standard and 30% for population-proportional random allocation. The same 30% mortality rule applied in blocks gives `r sprintf("%.0f", mort_csi_at_30)`% at the CSI scale and `r sprintf("%.0f", mort_d_at_30)`% at the department scale, indicating that targetting at the village-level is more effective than coarser targetting.
+My interpretation of the heatmap (all numbers `r ref_display`): Treating the highest-mortality villages up to 30% of the region's child person-time is predicted to avert `r sprintf("%.0f", mort_g_at_30)`% of the deaths that treating everyone would avert (`r scales::comma(averted_at_30, accuracy = 1)` deaths), against `r sprintf("%.0f", rd_at_30)`% for the treatment effect-ranked gold standard and 30% for person-time-proportional random allocation. The same 30% mortality rule applied in blocks gives `r sprintf("%.0f", mort_csi_at_30)`% at the CSI scale and `r sprintf("%.0f", mort_d_at_30)`% at the department scale, indicating that targetting at the village-level is more effective than coarser targetting.
 
 The `rd` curve reaches its maximum of `r sprintf("%.0f", rd_peak)`% of the universal-treatment total at `r scales::percent(rd_peak_at, accuracy = 1)` coverage, then returns to 100% at full coverage by construction. That is not a recommendation to withhold treatment from those villages, and the bands make the reason explicit: at `r scales::percent(rd_peak_at, accuracy = 1)` coverage the envelope's own `r scales::percent(ci_level)` interval runs from `r sprintf("%.0f", band_at("rd", rd_peak_at, "lower"))`% to `r sprintf("%.0f", band_at("rd", rd_peak_at, "upper"))`%, so the overshoot above 100% is well inside the noise.
 
@@ -1401,7 +1399,7 @@ The `rd` curve reaches its maximum of `r sprintf("%.0f", rd_peak)`% of the unive
 
 So "targeting at village scale beats department scale" is well supported here, while "mortality-based targeting recovers most of what effect-based targeting could" is a point estimate with a great deal of noise around it.
 
-**Relative efficiency** We're defining it to be the efficiency of the given rule relative to the RD one: $R_r(x) = y_r(x) / y_{\text{rd}}(x)$ on the shared grid, the fraction of achievable benefit retained by a rule a programme could actually apply, at a given coverage. Bounded above by 1 by construction, and $\to 1$ as $x \to 1$. Unstable as $x \to 0$, so the grid is read from `r scales::percent(eff_floor)` of all doses upwards.
+**Relative efficiency** We're defining it to be the efficiency of the given rule relative to the RD one: $R_r(x) = y_r(x) / y_{\text{rd}}(x)$ on the shared grid, the fraction of achievable benefit retained by a rule a programme could actually apply, at a given coverage. Bounded above by 1 by construction, and $\to 1$ as $x \to 1$. Unstable as $x \to 0$, so the grid is read from `r scales::percent(eff_floor)` of person-time upwards.
 
 ```{r efficiency curves}
 #| fig-width: 13
@@ -1454,7 +1452,7 @@ p_efficiency <- efficiency %>%
   # plot, and forcing its unused factor level into the scale would put an
   # "Effect (RD)" key in the legend with nothing drawn against it.
   scale_colour_manual(values = rule_colours, labels = rule_labels) +
-  labs(x = "Doses delivered (% of all doses)",
+  labs(x = "Cumulative proportion of person-time",
        y = "Relative efficiency \n(share of RD-ranked rule retained)",
        colour = NULL,
        title = "Efficiency of feasible rules relative to the gold standard") +
@@ -1474,7 +1472,7 @@ Every feasible rule converges to the envelope at full coverage by construction, 
 
 ### Rank concordance
 
-**Rank concordance.** $C$ is the AUROC of a targeting rule against the predicted-effect ranking, so every rule gets its own. Draw two villages at random, weighted by doses delivered; $C$ is the dose-weighted probability that the rule ranks ahead whichever of the two has the larger predicted $\widehat{RD}$, with ties contributing 0.5.
+**Rank concordance.** $C$ is the AUROC of a targeting rule against the predicted-effect ranking, so every rule gets its own. Draw two villages at random, weighted by person-time; $C$ is the person-time-weighted probability that the rule ranks ahead whichever of the two has the larger predicted $\widehat{RD}$, with ties contributing 0.5.
 
 Two rules pin the scale exactly rather than approximately: `random` puts every village in one block, so every pair is a tie and $C = 0.5$ — no ranking information. `rd` is the comparator, so $C = 1$. The feasible mortality rules fall in between and $C$ is on a 0.5-to-1 scale.
 
@@ -1554,7 +1552,7 @@ conc_wrong_share <- 1 - conc_grappe
 # compare the mean RD gap inside correctly- and incorrectly-ranked pairs, and
 # the share of all pairwise RD difference that the wrong ones carry.
 pair_gap <- local({
-  mu0 <- pred_table$mu0; rd <- pred_table$rd; w <- pred_table$n_doses
+  mu0 <- pred_table$mu0; rd <- pred_table$rd; w <- pred_table$person_time
   W <- outer(w, w); diag(W) <- 0
   higher_mort <- outer(mu0, mu0, ">")
   higher_rd   <- outer(rd, rd, ">")
@@ -1567,7 +1565,7 @@ pair_gap <- local({
 })
 ```
 
-Under `r ref_display`, the village-level mortality rule scores `r sprintf("%.2f", conc_grappe)`. Read literally: draw two villages at random, weighted by doses, and the rule puts them in the correct order — higher predicted benefit first — about `r scales::percent(conc_grappe, accuracy = 1)`^★^ of the time.
+Under `r ref_display`, the village-level mortality rule scores `r sprintf("%.2f", conc_grappe)`. Read literally: draw two villages at random, weighted by person-time, and the rule puts them in the correct order — higher predicted benefit first — about `r scales::percent(conc_grappe, accuracy = 1)`^★^ of the time.
 
 **How much of that is structural, specification by specification.**
 
