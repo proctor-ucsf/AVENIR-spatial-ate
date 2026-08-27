@@ -18,9 +18,13 @@ execute:
 
 Figure 3: how closely a mortality-based targeting rule tracks the effect-based
 gold standard, under the primary (linear treatment-by-space interaction) model.
-Every object plotted here is built in `07-targeting-analysis.qmd` and read back
-from `data/targeting_fig3_objects.rda`; this script attaches no model and redraws
-no bootstrap, so it stays a pure presentation layer.
+The x-axis is the cumulative share of all doses delivered as villages are added
+in each rule's rank order; the y-axis is the predicted deaths averted, as a % of
+the universal-treatment total. The inset table gives the targeting-curve area
+ratio ("heterogeneity captured") for each mortality aggregation level. Every
+object plotted here is built in `07-targeting-analysis.qmd` and read back from
+`data/targeting_fig3_objects.rda`; this script attaches no model, so it stays a
+pure presentation layer.
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
@@ -38,10 +42,10 @@ source(here::here("analysis", "0-config.R"))
 
 ```{r Load data}
 
-# The whole Figure 3 hand-off bundle: point-estimate curves already joined to
-# their degradation ribbons, the block-rule knots, the AUC annotation table, the
-# rule colours/labels, and a metadata list. See the save chunk at the end of 07
-# for what each object carries.
+# The Figure 3 hand-off bundle: point-estimate targeting curves, the block-rule
+# knots, the concordance and targeting-curve area-ratio tables, the rule
+# colours/labels, and a metadata list. See the save chunk at the end of 07 for
+# what each object carries.
 #
 # base::load(), not bare load(): 0-config.R attaches renv, whose load() (open a
 # project) masks base R's load() (restore an .rda). The qualifier dodges the mask.
@@ -51,12 +55,6 @@ base::load(here("data", "targeting_fig3_objects.rda"))
 # figure cannot drift from the model the analysis calls primary.
 ref_key     <- fig3_meta$ref_key
 ref_display <- fig3_meta$ref_display
-
-# Hex codes for potential color palettes (order: rd, mort_grappe, mort_csi, mort_dept, random):
-# 
-# Cool + dark-teal RD: #08343f, #4eb3d3, #02818a, #238b45, grey60
-# Purple/magenta + aubergine RD: #4d004b, #c994c7, #df65b0, #ce1256, grey60
-
 ```
 
 ```{r prep data}
@@ -66,7 +64,7 @@ ref_display <- fig3_meta$ref_display
 # in the same sequence as everywhere else in the analysis.
 rule_order <- names(rule_labels)
 
-curves_plot <- curves_ci %>%
+curves_plot <- curves %>%
   dplyr::filter(model == ref_key) %>%
   mutate(rule = factor(rule, levels = rule_order))
 
@@ -78,14 +76,25 @@ block_knots_ref <- block_knots %>%
 # it is excluded from the ribbon layer deliberately rather than by oversight -
 # drawing it would invite reading its invisible band as merely too narrow to see.
 band_rules <- c("rd", "mort_grappe", "mort_csi", "mort_dept")
-ribbon_dat <- curves_plot %>% dplyr::filter(rule %in% band_rules)
+# ribbon_dat <- curves_plot %>% dplyr::filter(rule %in% band_rules)
+
+rule_labels["random"] <- "Random"
+rule_labels["rd"] <- "ATE-based ranking (reference)"
+
+# Linetypes: the two reference curves (RD envelope, random) are the only ones in
+# the line legend; the three mortality curves are identified by the coloured
+# inset table instead. Solid RD, dashed random.
+# NOTE: the original `rule_lt` definition was lost when this file was overwritten;
+# this is a reconstruction - adjust if your linetypes differed.
+rule_lt <- c(rd = "solid", mort_grappe = "solid", mort_csi = "solid",
+             mort_dept = "solid", random = "dashed")
 ```
 
 ```{r annotation layout}
 
-# The AUC block sits in the top-left, above everything the curves and their bands
-# reach in that corner. Measuring headroom on the ribbon's UPPER edge rather than
-# the point-estimate line keeps the band from sliding behind the text unseen.
+# The annotation block sits in the top-left, above everything the curves and their
+# bands reach in that corner. Measuring headroom on the ribbon's UPPER edge rather
+# than the point-estimate line keeps the band from sliding behind the text unseen.
 annot_x       <- 0.02
 annot_step    <- 0.07
 annot_x_right <- 0.16   # right edge of the annotation column, on the coverage axis
@@ -93,67 +102,107 @@ annot_pad     <- 0.05   # clearance between the highest band and the lowest text
 
 annot_headroom <- curves_plot %>%
   dplyr::filter(x <= annot_x_right) %>%
-  summarise(v = max(pmax(prop_averted, upper), na.rm = TRUE)) %>%
+  summarise(v = max(prop_averted, na.rm = TRUE)) %>%
   pull(v)
 
 n_annot_rows <- length(band_rules)
 annot_bottom <- annot_headroom + annot_pad
 annot_top    <- annot_bottom + n_annot_rows * annot_step
 
-# One AUC per informative rule, coloured to match its curve. `random` is dropped:
-# it is 0.5 by construction and says nothing about the rule. `rd` reads 1.000
-# because it is the comparator ranked against itself - the header names the
-# quantity so the eye does not confuse it with the area under the plotted curve.
-auc_annot <- conc_tab %>%
+# One targeting-curve area ratio per informative rule, coloured to match its
+# curve. `random` is dropped (0 by construction). The area ratio is the share of
+# the achievable above-45-degree benefit-area a rule retains: the magnitude-
+# weighted quantity the eye actually reads off the figure, so it is what the
+# annotation reports. `rd` reads 1.00 as the envelope.
+area_annot <- area_ratio_tab %>%
   dplyr::filter(model == ref_key, rule != "random") %>%
+  dplyr::filter(model == ref_key, rule != "rd") %>%
   mutate(rule = factor(rule, levels = rule_order)) %>%
   arrange(rule) %>%
   mutate(x = annot_x,
          y = annot_top - annot_step * dplyr::row_number(),
-         label = sprintf("%.3f", auc))
+         label = sprintf("%.1f%%", area_ratio * 100))
+
+table_data <- area_annot %>%
+  dplyr::select(rule, label) %>%
+  mutate(rule = as.character(rule)) %>%
+  mutate(row_colour = rule_colours[rule]) %>%
+  mutate(rule = dplyr::case_when(
+    rule == "mort_grappe" ~ "Village-level",
+    rule == "mort_csi" ~ "CSI-level",
+    rule == "mort_dept" ~ "Department-level",
+    TRUE ~ rule
+  )) %>%
+  dplyr::rename(`Mortality\naggregation level` = rule, `Heterogeneity\ncaptured` = label)
+
+row_colours <- table_data$row_colour
+table_data  <- dplyr::select(table_data, -row_colour)
+
+# Convert to a tableGrob (grid graphics object)
+table_grob <- gridExtra::tableGrob(
+  table_data, rows = NULL,
+  theme = gridExtra::ttheme_minimal(
+    base_size = 10,
+    core = list(
+      bg_params = list(
+        # gridExtra fills the cell matrix column-major, so repeat the
+        # per-row pattern once per column to get a full-row fill
+        fill  = rep(row_colours, times = ncol(table_data)),
+        alpha = 0.35,     # keep text legible over the colour
+        col   = NA
+      ),
+      fg_params = list(col = "black")
+    ),
+    colhead = list(fg_params = list(fontface = "bold"))
+  )
+)
 ```
 
 ```{r figure 3}
 #| fig-width: 8
 #| fig-height: 6.5
 
-fig3 <- ggplot(curves_plot,
+pl3 <- ggplot(curves_plot,
                aes(x = x, y = prop_averted, colour = rule, group = rule)) +
-  # Ribbons under the lines so the point estimates stay legible where bands overlap.
-  geom_ribbon(data = ribbon_dat, aes(ymin = lower, ymax = upper, fill = rule),
-              alpha = 0.15, colour = NA, show.legend = FALSE) +
-  scale_fill_manual(values = rule_colours) +
   geom_hline(yintercept = 1, linetype = "dashed", colour = "grey50") +
-  geom_line(linewidth = 1) +
+  geom_line(aes(linetype = rule), linewidth = 1) +
   # show.legend = FALSE: without it this layer stamps a point glyph onto every
   # legend key, including the three rules that contribute no block knots.
   geom_point(data = block_knots_ref, size = 1.6, alpha = 0.7, show.legend = FALSE) +
-  annotate("text", x = annot_x, y = annot_top,
-           label = "Concordance with ATE ranking",
-           hjust = 0, vjust = 1, size = 4, fontface = "bold", colour = "grey25") +
-  geom_text(data = auc_annot, aes(x = x, y = y, label = label, colour = rule),
-            hjust = 0, vjust = 1, size = 4, show.legend = FALSE, inherit.aes = FALSE) +
-  scale_x_continuous(name = "Doses delivered (% of all doses)",
-                     labels = scales::percent) +
-  scale_y_continuous(name = "Predicted deaths averted\n(% of universal-treatment total)",
-                     labels = scales::percent) +
-  scale_colour_manual(values = rule_colours, labels = rule_labels, name = NULL) +
+  scale_x_continuous(name = "Doses delivered (% of universal-treatment doses)",
+                     breaks = seq(0, 1, 0.25),
+                     labels = seq(0, 100, 25)) +
+  scale_y_continuous(name = "Predicted deaths averted (% of universal-treatment total)",
+                     breaks = seq(0, 1, 0.25),
+                     labels = seq(0, 100, 25)) +
+  scale_colour_manual(values = rule_colours, labels = rule_labels[c("rd", "random")], name = NULL, breaks = c("rd", "random")) +
+  scale_linetype_manual(values = rule_lt, breaks = c("rd", "random"), labels = rule_labels[c("rd", "random")], name = NULL) +
   theme_minimal(base_size = 14) +
-  theme(legend.position = "bottom",
-        legend.key      = element_blank(),
-        plot.margin     = margin(0.4, 0.6, 0.4, 0.4, "cm")) +
-  guides(colour = guide_legend(nrow = 2))
+  theme(legend.background = element_rect(fill = "white", color = NA),
+        legend.box.just = "center",
+        legend.justification.inside = "center",
+        legend.key.justification = "center",
+        legend.text = element_text(hjust = 0.5),
+        legend.position = "inside",
+        legend.position.inside = c(0.7, 0.12)) +
+  guides(colour = guide_legend(keywidth = unit(1, "cm")),
+         linetype = guide_legend(keywidth = unit(1, "cm")))
+
+fig3 <- pl3 + coord_equal() +
+  inset_element(table_grob,
+                  left = 0.5, bottom = 0.2,
+                  right = 0.9, top = 0.45)
 
 fig3
 
 ggsave(here("results", "manuscript", "fig3-targeting_curves.png"),
-       plot = fig3, bg = "white", width = 8, height = 6.5, dpi = 300)
-```
+       plot = fig3, bg = "white", width = 7, height = 7.2, dpi = 300)
 
-The shaded bands are one-sided
-`r scales::percent(fig3_meta$ci_level)` degradation bands from
-`r fig3_meta$B_boot` predictive draws: what it costs to rank villages on an
-estimate of the surface rather than on the fitted surface itself. Point-estimate
-curves are the best case; the band is the cost of estimation error. Numbers
-top-left are rank concordance (AUC) with the treatment-effect (RD) ordering.
-Model: `r ref_display`.
+fig3_gr <- pl3  +
+  coord_fixed(0.61803399) +
+  inset_element(table_grob,
+                left = 0.5, bottom = 0.2,
+                right = 0.9, top = 0.45)
+
+fig3_gr
+```
