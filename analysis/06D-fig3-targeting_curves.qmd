@@ -170,11 +170,11 @@ pl3 <- ggplot(curves_plot,
   # legend key, including the three rules that contribute no block knots.
   geom_point(data = block_knots_ref, size = 1.6, alpha = 0.7, show.legend = FALSE) +
   scale_x_continuous(name = "Doses delivered (% of universal-treatment doses)",
-                     breaks = seq(0, 1, 0.25),
-                     labels = seq(0, 100, 25)) +
+                     breaks = seq(0, 1, 0.1),
+                     labels = seq(0, 100, 10)) +
   scale_y_continuous(name = "Predicted deaths averted (% of universal-treatment total)",
-                     breaks = seq(0, 1, 0.25),
-                     labels = seq(0, 100, 25)) +
+                     breaks = seq(0, 1, 0.1),
+                     labels = seq(0, 100, 10)) +
   scale_colour_manual(values = rule_colours, labels = rule_labels[c("rd", "random")], name = NULL, breaks = c("rd", "random")) +
   scale_linetype_manual(values = rule_lt, breaks = c("rd", "random"), labels = rule_labels[c("rd", "random")], name = NULL) +
   theme_minimal(base_size = 14) +

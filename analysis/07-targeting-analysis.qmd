@@ -115,13 +115,18 @@ nearest_x <- function(target) x_grid[which.min(abs(x_grid - target))]
 
 ```{r models}
 
-# The three treatment-by-space specifications from 02A. gen_krig_int comes
+# The treatment-by-space specifications from 02A that this document runs.
+# gen_krig_int comes
 # first because it is the reference specification the prose quotes and the one
 # the cumulative heat map below is built for; the facet order follows this
 # vector everywhere.
 model_names <- c("fitmort_child_gen_krig_int",
                  # "fitmort_child_doub_matern",
-                 "fitmort_child_gen_krig_spline")
+                 # df = 3 splines (2 interior knots per axis), 02A's sensitivity
+                 # sibling of the df = 4 fit and model M3 in 08-check-linearity.
+                 # Swap back to "fitmort_child_gen_krig_spline" for df = 4; the
+                 # lookup tables below carry entries for both.
+                 "fitmort_child_gen_krig_spline_df3")
 
 # Short keys, as used by preds_ATE.rds and by the lookup tables below. The
 # fitted objects in data/ prefix them with "fitmort_child_".
@@ -131,9 +136,10 @@ model_keys <- sub("^fitmort_child_", "", model_names)
 model_display <- c(
   simp_krig       = "Baseline spatial model",
   gen_krig        = "Spatial trend model",
-  gen_krig_int    = "Spatially heterogeneous ATE model",
+  gen_krig_int    = "Linear ATE model",
   doub_matern     = "Matern treatment interaction model",
-  gen_krig_spline = "Spline treatment interaction model"
+  gen_krig_spline = "Spline ATE model (4 df)",
+  gen_krig_spline_df3 = "Spline ATE model"
 )
 
 if (!all(model_keys %in% names(model_display))) {
@@ -233,7 +239,7 @@ pred_tables <- purrr::map(model_names, function(this_model) {
 
 # Reference-model shorthands. Every quantity in the Data section that does not
 # depend on the specification (doses, coverage, crude rates) is identical across
-# the three tables; the ones that do are reported for both in the surface
+# both tables; the ones that do are reported for each in the surface
 # table below.
 pred_table <- pred_tables[[ref_key]]
 pred_dept  <- aggregate_predictions(pred_table, level = "department")
@@ -389,7 +395,7 @@ p_dose_cum <- ggplot(pred_table, aes(x = "All rounds", y = n_doses)) +
 
 Round 1 sits a little below the later rounds; rounds 2–4 are close to each other. The cumulative panel is $N_i$, the per-village dose count the targeting curves below are budgeted on (the x-axis).
 
-**Predicted mortality surfaces.** Predictions below come from these three fitted models:
+**Predicted mortality surfaces.** Predictions below come from these fitted models:
 
 ```{r model equations}
 #| results: asis
@@ -403,7 +409,8 @@ model_eq <- c(
   gen_krig_int = "\\log(\\mu_i) = \\log(PT_i) + \\beta_0 + \\beta_1 Trt_i + \\beta_2 lat_i + \\beta_3 lon_i + \\beta_4 (Trt_i \\times lat_i) + \\beta_5 (Trt_i \\times lon_i) + w(s_i)",
   doub_matern  = "\\log(\\mu_i) = \\log(PT_i) + \\beta_0 + \\beta_1 Trt_i + \\beta_2 lat_i + \\beta_3 lon_i + \\beta_4 (Trt_i \\times lat_i) + \\beta_5 (Trt_i \\times lon_i) + w(s_i) + u(s_i)\\,Trt_i",
   dist_FE      = "\\log(\\mu_i) = \\log(PT_i) + \\beta_0 + \\beta_1 Trt_i + \\beta_2 lat_i + \\beta_3 lon_i + \\gamma_{d(i)} + w(s_i)",
-  gen_krig_spline = "\\log(\\mu_i) = \\log(PT_i) + \\beta_0 + \\beta_1 Trt_i + s_{lat}(lat_i) + s_{lon}(lon_i) + Trt_i \\times [s_{lat}(lat_i) + s_{lon}(lon_i)] + w(s_i)"
+  gen_krig_spline = "\\log(\\mu_i) = \\log(PT_i) + \\beta_0 + \\beta_1 Trt_i + s_{lat}(lat_i) + s_{lon}(lon_i) + Trt_i \\times [s_{lat}(lat_i) + s_{lon}(lon_i)] + w(s_i)",
+  gen_krig_spline_df3 = "\\log(\\mu_i) = \\log(PT_i) + \\beta_0 + \\beta_1 Trt_i + s_{lat}(lat_i) + s_{lon}(lon_i) + Trt_i \\times [s_{lat}(lat_i) + s_{lon}(lon_i)] + w(s_i)"
 )
 
 model_note <- c(
@@ -411,20 +418,22 @@ model_note <- c(
   gen_krig_int = "One Matern field $w(s_i)$, shared by both arms. It therefore **cancels** in the arm contrast, leaving $\\log(\\hat\\mu^1_i/\\hat\\mu^0_i)$ a deterministic plane in location — so $\\widehat{RD}_i = \\hat\\mu^0_i \\times f(\\text{location}_i)$ exactly, with no component independent of baseline mortality.",
   doub_matern  = "**Two** Matern fields: $w(s_i)$ shared by both arms, plus $u(s_i)$ entering only in the treated arm. The second field does *not* cancel in the contrast, so the predicted effect carries spatial structure of its own rather than being a pure rescaling of baseline mortality.",
   dist_FE      = "One Matern field $w(s_i)$ plus district fixed effects $\\gamma_{d(i)}$.",
-  gen_krig_spline = "Natural cubic splines (4 df per axis) replace the linear lat/lon terms in both the baseline surface and the treatment interaction, so both may curve. The single Matern field is still shared by both arms and still **cancels** in the arm contrast."
+  gen_krig_spline = "Natural cubic splines (4 df per axis) replace the linear lat/lon terms in both the baseline surface and the treatment interaction, so both may curve. The single Matern field is still shared by both arms and still **cancels** in the arm contrast.",
+  gen_krig_spline_df3 = "Natural cubic splines (3 df per axis - two interior knots, one fewer basis column per axis than the df = 4 fit) replace the linear lat/lon terms in both the baseline surface and the treatment interaction, so both may curve. The single Matern field is still shared by both arms and still **cancels** in the arm contrast."
 )
 
 # Longer form of the same structural point, used in the concordance caveat and
 # in the Conclusions. Kept beside model_note so the two cannot disagree, and
 # emitted inline rather than hard-written into the prose, because whether the
 # Matern field cancels in the arm contrast is exactly what changes between
-# specifications — and is the reason all three are shown.
+# specifications — and is the reason more than one is shown.
 model_struct <- c(
   gen_krig     = "This specification has no treatment-by-space term at all, so the fitted rate ratio between arms is constant and $\\widehat{RD}_i \\propto \\hat\\mu^0_i$ exactly. Every concordance below is 1 by construction and carries no information about targeting.",
   gen_krig_int = "The single Matern field is shared by both arms, so it cancels in the contrast and $\\widehat{RD}_i = \\hat\\mu^0_i \\times f(\\text{location}_i)$ exactly, with $f$ smooth and deterministic. Every mis-ranked pair is therefore a pair straddling enough of the fitted treatment-by-space gradient for $f$ to overturn the mortality comparison, and dropping that interaction would make the concordance exactly 1. The number is a statement about the steepness of one interaction term relative to the spread of $\\hat\\mu^0$, not a transportable fact about mortality and treatment effect.",
   doub_matern  = "The second Matern field $u(s_i)$ enters only the treated arm, so — unlike the single-field specifications — it does **not** cancel in the contrast and $\\widehat{RD}_i$ is not a deterministic rescaling of $\\hat\\mu^0_i$. Some of the discordance below is therefore genuine spatial effect heterogeneity rather than an artefact of a linear treatment-by-space gradient, and the concordance is not structurally forced the way it is under the one-field models.",
   dist_FE      = "One Matern field shared by both arms, plus district fixed effects. As in the other single-field specifications the field cancels in the arm contrast, so $\\widehat{RD}_i$ is a deterministic function of $\\hat\\mu^0_i$ and location.",
-  gen_krig_spline = "As in the other single-field specifications the Matern field cancels in the arm contrast, so $\\widehat{RD}_i = \\hat\\mu^0_i \\times f(\\text{location}_i)$ exactly. The only difference from the linear interaction model is that $f$ is now a spline surface rather than a plane, so it can bend; it is still smooth and deterministic, and the concordance is still a statement about the steepness of one fitted treatment-by-space term relative to the spread of $\\hat\\mu^0$. Note that in 02A this specification did **not** improve on the linear interaction (LRT $\\chi^2$ = 18.2 on 12 df, $p$ = 0.11; AIC worse by 5.8), so any difference from those results is within noise."
+  gen_krig_spline = "As in the other single-field specifications the Matern field cancels in the arm contrast, so $\\widehat{RD}_i = \\hat\\mu^0_i \\times f(\\text{location}_i)$ exactly. The only difference from the linear interaction model is that $f$ is now a spline surface rather than a plane, so it can bend; it is still smooth and deterministic, and the concordance is still a statement about the steepness of one fitted treatment-by-space term relative to the spread of $\\hat\\mu^0$. Note that in 02A this specification did **not** improve on the linear interaction (LRT $\\chi^2$ = 18.2 on 12 df, $p$ = 0.11; AIC worse by 5.8), so any difference from those results is within noise.",
+  gen_krig_spline_df3 = "As in the other single-field specifications the Matern field cancels in the arm contrast, so $\\widehat{RD}_i = \\hat\\mu^0_i \\times f(\\text{location}_i)$ exactly. The only difference from the linear interaction model is that $f$ is now a spline surface rather than a plane, so it can bend; it is still smooth and deterministic, and the concordance is still a statement about the steepness of one fitted treatment-by-space term relative to the spread of $\\hat\\mu^0$. Note that in 02A this specification did **not** improve on the linear interaction (LRT $\\chi^2$ = 8.96 on 8 df, $p$ = 0.35; marginal AIC 4990.9 vs 4983.9), so any difference from those results is within noise. It is 02A's sensitivity sibling of the df = 4 spline, kept here because it answers the same curvature question with two fewer parameters per surface."
 )
 
 if (!all(model_keys %in% names(model_eq),
@@ -559,7 +568,7 @@ p_mort <- base_map_facet +
               na.rm = TRUE) +
   geom_sf(data = niger_adm2_sub, fill = NA, colour = "white", linewidth = 0.1) +
   facet_grid(model_label ~ arm, switch = "y",
-             labeller = labeller(model_label = label_wrap_gen(width = 22))) +
+             labeller = labeller(model_label = label_wrap_gen(width = 20))) +
   scale_fill_viridis_c(limits = c(0, 35), breaks = seq(0, 30, by = 10),
                        oob = scales::squish, na.value = NA,
                        guide = fig2_guide("Mortality rate\n(per 1000 person-years)")) +
@@ -657,7 +666,11 @@ corr_annot <- corr_tab %>%
          label = sprintf("n = %s\nweighted rho = %.2f, r = %.2f",
                          scales::comma(n), rho, r))
 
-ggplot(scatter_dat, aes(x = mu0, y = rd)) +
+# Built bare - no title - and titled separately, following the p_curves /
+# p_curves_titled pattern below. The bare object is what the stacked figure
+# further down composes, where a per-panel title would collide with the
+# patchwork tags and the shared annotation.
+p_pred_scatter <- ggplot(scatter_dat, aes(x = mu0, y = rd)) +
   geom_hline(yintercept = 0, linetype = "dashed", colour = "grey50") +
   geom_point(aes(size = size_rel), alpha = 0.35, colour = "#2c7fb8") +
   geom_smooth(aes(weight = person_time), method = "loess", formula = y ~ x,
@@ -665,15 +678,42 @@ ggplot(scatter_dat, aes(x = mu0, y = rd)) +
   geom_text(data = corr_annot, aes(x = -Inf, y = Inf, label = label),
             hjust = -0.08, vjust = 1.15, size = 3.1, colour = "grey25",
             inherit.aes = FALSE) +
+  # width = 20 rather than 24: the row strips are rotated and narrow, and at 24
+  # the "(3 df)" on the spline label is orphaned onto a line of its own.
   facet_grid(model_label ~ level_label, scales = "free",
-             labeller = labeller(model_label = label_wrap_gen(width = 24))) +
-  scale_size_continuous(range = c(0.6, 6), labels = scales::percent) +
+             labeller = labeller(model_label = label_wrap_gen(width = 20))) +
+  # limits and breaks are pinned rather than left to the data. size_rel is a
+  # within-panel proportion, so (0, 1] is its exact domain in both this figure
+  # and the observed-mortality one below - and pinning them is what lets
+  # patchwork recognise the two size guides as identical and collect them into
+  # a single legend in the stacked figure.
+  scale_size_continuous(range = c(0.6, 6), limits = c(0, 1),
+                        breaks = c(0.25, 0.5, 0.75, 1),
+                        labels = scales::percent) +
   labs(x = "Predicted control-arm mortality (deaths per 1000 child-years)",
        y = "Predicted risk difference\n(deaths averted per 1000 child-years)",
        size = "Person-time\n(% of panel maximum)") +
+  # Neutral grey legend keys. The two plots use different point colours on
+  # purpose (fitted vs observed x-axis), but patchwork only merges guides whose
+  # key glyphs are identical - so with the panel colours left in the keys the
+  # stacked figure draws two person-time legends instead of one.
+  guides(size = guide_legend(override.aes = list(colour = "grey45"))) +
   theme_minimal(base_size = 12) +
   theme(legend.position = "bottom",
         strip.text.y    = element_text(size = 9))
+
+p_pred_scatter_titled <- p_pred_scatter +
+  labs(title = "Predicted control-arm mortality vs predicted ATE",
+       subtitle = paste0("Both axes are outputs of the same fit; under both ",
+                         "specifications the Matern field cancels in the arm ",
+                         "contrast, so these are near-deterministic curves.")) +
+  theme(plot.subtitle = element_text(colour = "grey35"))
+
+p_pred_scatter_titled
+
+ggsave(file.path(figure_path, "targeting-scatter-predicted-mortality-vs-ate.png"),
+       plot = p_pred_scatter_titled, bg = "white",
+       width = 13, height = 11, dpi = 300)
 ```
 
 Notes:
@@ -682,6 +722,219 @@ Notes:
 * Point area is person-time relative to the largest unit *in that panel*
 * LOESS fit and the correlations are weighted by person-time
 * The two single-Matérn rows are near-deterministic curves by construction; the two-Matérn row is the one with genuine scatter
+
+### Observed control-arm mortality vs predicted ATE
+
+The figure above puts the model's *own* $\hat\mu^0$ on the x-axis. Under both specifications shown the shared Matérn field cancels in the arm contrast, so $\widehat{RD}_i = \hat\mu^0_i \times f(\text{location}_i)$ exactly and those panels are near-deterministic curves *by construction* — they cannot tell you whether places that actually buried more children are the places the model expects the largest benefit.
+
+Replacing the fitted $\hat\mu^0$ with the **observed** control-arm rate is the empirical version of the same question, and the operationally relevant one: a programme ranking villages on routine mortality data would be ranking on something like this x-axis, not on a fitted surface. Only control villages appear — in a treated village the observed rate was measured under azithromycin, so there is no observed control-arm rate to plot.
+
+```{r observed control mortality vs predicted ate}
+#| fig-width: 13
+#| fig-height: 8
+
+# Observed control-arm deaths per village. Person-time is not taken from here:
+# build_prediction_table() already carries the same pt_year_1to59 as
+# `person_time`, so the rate is formed against that single copy.
+ctrl_deaths <- grappe_dat %>%
+  ungroup() %>%
+  dplyr::filter(isTreated_child == "Control") %>%
+  dplyr::select(site_code, n_deaths_obs = n_deaths_1to59)
+
+# inner_join, not left_join: the treated villages are meant to drop out here,
+# and a left join would carry them through as NA deaths.
+obs_ctrl <- purrr::imap_dfr(pred_tables, function(dat, this_key) {
+  dat %>%
+    dplyr::inner_join(ctrl_deaths, by = "site_code",
+                      relationship = "one-to-one") %>%
+    mutate(model = this_key)
+})
+
+# Aggregation runs over control villages only, so a CSI or department point is
+# that unit's observed *control-arm* rate - pooled deaths over pooled
+# person-time, formed exactly as the crude arm rates above - against the
+# person-time-weighted mean predicted RD of the same villages. Coarsening is
+# what makes the x-axis readable at all: a single village's observed rate is a
+# handful of deaths over a few hundred child-years.
+#
+# pt_total is named separately from person_time so that no summary silently
+# depends on evaluation order inside summarise().
+obs_by_level <- function(dat, level) {
+
+  unit_col <- switch(level,
+                     grappe     = "site_code",
+                     csi        = "csi",
+                     department = "district",
+                     stop("Unknown level: ", level))
+
+  dat %>%
+    mutate(unit = as.character(.data[[unit_col]])) %>%
+    group_by(model, unit) %>%
+    summarise(n_villages = dplyr::n(),
+              deaths_obs = sum(n_deaths_obs),
+              pt_total   = sum(person_time),
+              rd         = stats::weighted.mean(rd, w = person_time),
+              mu0_pred   = stats::weighted.mean(mu0, w = person_time),
+              .groups    = "drop") %>%
+    mutate(level       = level,
+           person_time = pt_total,
+           mu0_obs     = 1000 * deaths_obs / pt_total)
+}
+
+obs_dat <- purrr::map_dfr(level_names, ~ obs_by_level(obs_ctrl, .x))
+
+# One control village accrued zero child-years (and zero deaths), so its
+# observed rate is 0/0. It is dropped explicitly rather than left to ggplot's
+# silent na.rm and weighted_correlation()'s w > 0 filter, so the points drawn,
+# the annotated n and the descriptives quoted below all count the same units.
+# Its CSI and department both contain other control villages, so only the
+# village panel loses a unit. n_no_pt counts rows, i.e. once per model.
+n_no_pt <- sum(!is.finite(obs_dat$mu0_obs) | obs_dat$person_time <= 0)
+
+obs_dat <- obs_dat %>%
+  dplyr::filter(is.finite(mu0_obs), person_time > 0)
+
+# Same weighted statistics as corr_tab above, so the two figures' annotations
+# are directly comparable: only the x variable has changed.
+obs_corr <- obs_dat %>%
+  group_by(model, level) %>%
+  group_modify(~ weighted_correlation(x = .x$mu0_obs, y = .x$rd,
+                                      w = .x$person_time)) %>%
+  ungroup()
+
+obs_corr_of <- function(this_level, what = "r", key = ref_key) {
+  obs_corr[[what]][obs_corr$model == key & obs_corr$level == this_level]
+}
+
+pred_corr_of <- function(this_level, what = "r", key = ref_key) {
+  corr_tab[[what]][corr_tab$model == key & corr_tab$level == this_level]
+}
+
+# Village-level descriptives for the prose. The zero-death share is the reason
+# the village panel looks the way it does: a large block of points sits exactly
+# on x = 0, and no ranking rule built on one village-year of observed deaths
+# can separate them.
+obs_village <- obs_dat %>% dplyr::filter(model == ref_key, level == "grappe")
+
+n_ctrl_villages <- nrow(obs_village)
+pct_zero_deaths <- 100 * mean(obs_village$deaths_obs == 0)
+```
+
+```{r observed control mortality plot}
+#| fig-width: 13
+#| fig-height: 8
+
+# Point size is scaled within panel for the same reason as the figure above:
+# person-time spans two orders of magnitude within the village panel and
+# another between villages and departments.
+obs_plot <- obs_dat %>%
+  group_by(model, level) %>%
+  mutate(size_rel = person_time / max(person_time)) %>%
+  ungroup() %>%
+  mutate(model_label = as_model_label(model),
+         level_label = factor(level_display[level],
+                              levels = unname(level_display[level_names])))
+
+obs_annot <- obs_corr %>%
+  mutate(model_label = as_model_label(model),
+         level_label = factor(level_display[level],
+                              levels = unname(level_display[level_names])),
+         label = sprintf("n = %s\nweighted rho = %.2f, r = %.2f",
+                         scales::comma(n), rho, r))
+
+# Green rather than the blue of the figure above: the x-axis is observed data
+# here, not a model output, and the two figures are otherwise identical enough
+# to be confused at a glance.
+p_obs_ctrl <- ggplot(obs_plot, aes(x = mu0_obs, y = rd)) +
+  geom_hline(yintercept = 0, linetype = "dashed", colour = "grey50") +
+  geom_point(aes(size = size_rel), alpha = 0.35, colour = "#238b45") +
+  geom_smooth(aes(weight = person_time), method = "loess", formula = y ~ x,
+              se = FALSE, colour = "#e84d60", linewidth = 0.8, alpha = 0.5) +
+  geom_text(data = obs_annot, aes(x = -Inf, y = Inf, label = label),
+            hjust = -0.08, vjust = 1.15, size = 3.1, colour = "grey25",
+            inherit.aes = FALSE) +
+  # width = 20 rather than 24: the row strips are rotated and narrow, and at 24
+  # the "(3 df)" on the spline label is orphaned onto a line of its own.
+  facet_grid(model_label ~ level_label, 
+             scales = "free_x",
+             switch = "y",
+             labeller = labeller(model_label = label_wrap_gen(width = 20))) +
+  # Pinned to match p_pred_scatter's size scale exactly, so patchwork collects
+  # one shared legend for the stacked figure instead of drawing two.
+  scale_size_continuous(range = c(0.6, 6), limits = c(0, 1),
+                        breaks = c(0.25, 0.5, 0.75, 1),
+                        labels = scales::percent) +
+  labs(x = "Observed control-arm mortality (deaths per 1000 child-years)",
+       y = "Predicted risk difference\n(deaths averted per 1000 child-years)",
+       size = "Person-time\n(% of panel maximum)") +
+  # Same neutral keys as p_pred_scatter, for the same guide-collection reason.
+  guides(size = guide_legend(override.aes = list(colour = "grey45"))) +
+  theme_minimal(base_size = 12) +
+  theme(legend.position = "bottom",
+        strip.text.y    = element_text(size = 9))
+
+p_obs_ctrl_titled <- p_obs_ctrl +
+  labs(title = "Observed control-arm mortality vs predicted ATE, control villages only",
+       subtitle = paste0("Red lines are LOESS curves")) +
+  theme(plot.subtitle = element_text(colour = "grey35"))
+
+p_obs_ctrl_titled
+
+ggsave(file.path(figure_path, "observed-mortality-vs-ate.png"),
+       plot = p_obs_ctrl_titled, bg = "white", width = 13, height = 8, dpi = 300)
+```
+
+`r scales::comma(n_ctrl_villages)` control villages enter this figure — every control village that accrued person-time. `r sprintf("%.0f", pct_zero_deaths)`% of them recorded **zero** child deaths across the whole trial period, so that share of the village panel sits exactly on $x = 0$ and cannot be ranked on observed mortality at all.
+
+The relationship survives the substitution but attenuates, which is what sampling noise in a rate built on a handful of deaths would do to it. Under `r ref_display`, the person-time-weighted $r$ against the observed control-arm rate is `r sprintf("%.2f", obs_corr_of("grappe"))` at village level, against `r sprintf("%.2f", pred_corr_of("grappe"))` for the fitted $\hat\mu^0$ in the figure above. Coarsening recovers part of the gap — `r sprintf("%.2f", obs_corr_of("csi"))` at the CSI scale, `r sprintf("%.2f", obs_corr_of("department"))` at the department scale — consistent with the village-level attenuation being noise in the x-axis rather than absence of signal. The department number rests on `r obs_corr_of("department", "n")` units and should be read as such.
+
+This is a check on the fitted relationship, not a targeting rule in its own right: the observed rate is one noisy realisation of the process the model smooths, and a rule ranked on it would inherit that noise (and would exclude, by construction, exactly the villages that were treated). The targeting curves below are still built on $\hat\mu^0$.
+
+### Both mortality axes, stacked
+
+The two figures above share a y-axis and differ only in what sits on the x. Stacking them is the direct read of how much the mortality/effect relationship depends on mortality being a model output rather than a measurement.
+
+```{r stacked mortality vs ate}
+#| fig-width: 13
+#| fig-height: 16
+
+# The two panels are the bare (untitled) plot objects built above, so the
+# stacked figure and the two standalone saves cannot drift apart - there is one
+# definition of each panel, not a re-specification here.
+#
+# guides = "collect" gives one shared person-time legend. It only works because
+# both size scales were pinned to limits = c(0, 1) with the same breaks; left
+# to the data the two guides differ in their break values and patchwork draws
+# both.
+#
+# Deliberately NOT one facet_grid with four rows. facet_grid(scales = "free")
+# frees x by column and y by row, so a four-row grid would force the fitted and
+# observed rows onto a shared x scale per column - and the observed rate runs to
+# roughly twice the fitted surface's maximum, which would squash the fitted rows
+# into the left third of every panel. Two stacked plots keep each x scale free.
+p_scatter_stacked <- (p_pred_scatter / p_obs_ctrl) +
+  plot_layout(heights = c(1, 1), guides = "collect") +
+  plot_annotation(
+    tag_levels = "a",
+    title = "Mortality vs predicted ATE: fitted and observed mortality on the x-axis",
+    subtitle = paste0("(a) predicted control-arm mortality, all ",
+                      scales::comma(n_grappes), " villages - both axes from the ",
+                      "same fit, so the relationship is near-deterministic.\n",
+                      "(b) observed control-arm mortality, the ",
+                      scales::comma(n_ctrl_villages), " control villages only - ",
+                      "x is data. Same y-axis and same weighted statistics in both."),
+    theme = theme(plot.title    = element_text(size = 15, face = "bold"),
+                  plot.subtitle = element_text(size = 11, colour = "grey35"))) &
+  theme(legend.position = "bottom")
+
+p_scatter_stacked
+
+ggsave(file.path(figure_path, "targeting-scatter-mortality-vs-ate-stacked.png"),
+       plot = p_scatter_stacked, bg = "white",
+       width = 13, height = 16, dpi = 300)
+```
+
+Reading down a column: the fitted panel is the model's internal consistency, the observed panel is the same comparison with the x-axis replaced by data. The village column is where they diverge most, and the department column is where they agree most closely — which is the signature of noise in the observed rate rather than a different underlying relationship.
 
 ------------------------------------------------------------------------
 
@@ -713,8 +966,8 @@ curves <- purrr::imap_dfr(pred_tables, function(dat, this_key) {
 
 # Display labels and colours for the rules, defined here because this is the
 # first chunk that shows a rule to the reader; every figure below reuses them.
-rule_labels <- c(rd          = "Treatment effect (RD), grappe",
-                 mort_grappe = "Mortality, grappe",
+rule_labels <- c(rd          = "Treatment effect (RD), village",
+                 mort_grappe = "Mortality, village",
                  mort_csi    = "Mortality, CSI",
                  mort_dept   = "Mortality, department",
                  random      = "Population-proportional")
@@ -819,27 +1072,25 @@ block_knots <- purrr::imap_dfr(pred_tables, function(dat, this_key) {
 # and now lives in its own section at the end. Numbers only, no rule names: two
 # facets leave little panel width and the shared legend below is the key.
 annot_x       <- 0.02
-annot_step    <- 0.075
+annot_step    <- 0.05
 annot_x_right <- 0.16   # right edge of the annotation column, for the headroom check
 annot_pad     <- 0.05
 
-annot_headroom <- curves_plot %>%
-  dplyr::filter(x <= annot_x_right) %>%
-  summarise(v = max(prop_averted, na.rm = TRUE)) %>%
-  pull(v)
+annot_headroom <- 0.9
 
 # +1 step over the rule rows leaves room for the header line above them.
 n_annot_rows <- 4                          # rd + the three mortality rules
-annot_bottom <- annot_headroom + annot_pad
-annot_top    <- annot_bottom + (n_annot_rows + 1) * annot_step
+annot_top    <- 0.95
 
 area_annot <- area_ratio_tab %>%
   dplyr::filter(rule != "random") %>%
-  mutate(rule = factor(rule, levels = names(rule_labels))) %>%
-  arrange(model, rule) %>%
+  dplyr::filter(rule != "rd") %>%
+  mutate(rule_name = factor(rule, levels = names(rule_labels), labels = rule_labels)) %>%
+  mutate(rule_num = ifelse(rule == "mort_grappe", 1L, ifelse(rule == "mort_csi", 2L, 3L))) %>%
+  arrange(model, rule_num) %>%
   group_by(model) %>%
-  mutate(y     = annot_top - annot_step * (dplyr::row_number() + 1),
-         label = sprintf("%.2f", area_ratio)) %>%
+  mutate(y     = annot_top - annot_step * (dplyr::row_number()),
+         label = sprintf("%s %.2f", rule_name, area_ratio)) %>%
   ungroup() %>%
   mutate(model_label = as_model_label(model))
 
@@ -855,7 +1106,7 @@ p_curves <- ggplot(curves_plot, aes(x = x, y = prop_averted,
   geom_point(data = block_knots, size = 1.1, alpha = 0.7,
              show.legend = FALSE) +
   annotate("text", x = annot_x, y = annot_top,
-           label = "Benefit-area retained (vs RD)",
+           label = "Heterogeneity captured",
            hjust = 0, vjust = 1, size = 3.0, fontface = "bold",
            colour = "grey25") +
   geom_text(data = area_annot, aes(y = y, label = label, colour = rule),
@@ -866,12 +1117,13 @@ p_curves <- ggplot(curves_plot, aes(x = x, y = prop_averted,
   scale_x_continuous(labels = scales::percent) +
   scale_y_continuous(
     labels   = scales::percent,
-    sec.axis = sec_axis(~ . * total_averted, name = "Predicted deaths averted (count)",
-                        labels = scales::comma)) +
+    # sec.axis = sec_axis(~ . * total_averted, name = "Predicted deaths averted (count)",
+    #                     labels = scales::comma)
+    )+
   scale_colour_manual(values = rule_colours, labels = rule_labels) +
   labs(x = "Doses delivered (% of all doses)",
        y = "Predicted deaths averted (% of universal-treatment total)",
-       colour = NULL) +
+       colour = "Ranking by") +
   theme_minimal(base_size = 12) +
   theme(legend.position = "bottom",
         legend.key      = element_blank(),
@@ -879,10 +1131,8 @@ p_curves <- ggplot(curves_plot, aes(x = x, y = prop_averted,
   guides(colour = guide_legend(nrow = 2))
 
 p_curves_titled <- p_curves +
-  labs(title = "Targeting curves under the two treatment-by-space specifications",
-       subtitle = paste0("Numbers top-left are the targeting-curve area ratio: the ",
-                         "share of the achievable above-random benefit-area each ",
-                         "rule retains vs the RD envelope."))
+  labs(title = "Targeting curves under the two treatment-by-space specifications, all 1390 villages",
+       subtitle = paste0("Heterogeneity captured (area ratio): ratio of the area between a mortality-based curve and the diagonal to the\narea between the maximum-attainable (ATE-based ranking) curve and the diagonal"))
 
 p_curves_titled
 
@@ -1024,7 +1274,7 @@ The rank-based concordance between the mortality and effect orderings — a comp
 
 ### Caveats
 
-1. **How much of the agreement is structural depends on the specification, which is why both are shown.** Both specifications shown are single-Matérn: the shared field cancels in the arm contrast, so $\widehat{RD}_i$ is a deterministic rescaling of $\hat\mu^0_i$ and the whole targeting comparison rests on a single treatment-by-space term — modestly supported in the linear case (LRT $\chi^2$ = 8.1 on 2 df, $p$ = 0.017; $\Delta$AIC $\approx$ 4) and not supported at all in the spline case (LRT $\chi^2$ = 18.2 on 12 df, $p$ = 0.11). The two-Matérn specification (`doub_matern`), which gives the effect its own spatial field and does not force the proportionality, is fit elsewhere in the repo and can be added back as a sensitivity; it is not run here.
+1. **How much of the agreement is structural depends on the specification, which is why both are shown.** Both specifications shown are single-Matérn: the shared field cancels in the arm contrast, so $\widehat{RD}_i$ is a deterministic rescaling of $\hat\mu^0_i$ and the whole targeting comparison rests on a single treatment-by-space term — modestly supported in the linear case (LRT $\chi^2$ = 8.1 on 2 df, $p$ = 0.017; $\Delta$AIC $\approx$ 4) and not supported at all in the spline case (df = 3 splines: LRT $\chi^2$ = 8.96 on 8 df, $p$ = 0.35; the df = 4 sibling gives $\chi^2$ = 18.2 on 12 df, $p$ = 0.11). The two-Matérn specification (`doub_matern`), which gives the effect its own spatial field and does not force the proportionality, is fit elsewhere in the repo and can be added back as a sensitivity; it is not run here.
 2. **These are point estimates on the fitted surface, with no uncertainty band.** This version reports the curves, area ratios, concordance and correlations as point estimates only; the predictive-draw bands of earlier versions have been removed. The estimates are also an upper bound: predictions are made at the villages whose own outcomes informed the fit, so a rule ranking on those in-sample predictions does better than one ranking on a genuinely out-of-sample estimate would. The predicted-harm villages should not be read as evidence of harm — the trial as a whole showed benefit.
 
 ### Still deferred
