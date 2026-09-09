@@ -227,11 +227,13 @@ mod_rr_pred_df <- as.data.frame(mod_rr_pred_rast, xy = TRUE, na.rm = FALSE)
 model_rr <- base_map +
     geom_raster(data = mod_rr_pred_df, aes(x = x, y = y, fill = rate_ratio), na.rm = TRUE) +
     geom_sf(data = niger_adm2_sub, fill = NA, color = "grey20", size = 0.15) +
-    scale_fill_gradient2(low = muted("#009392FF"), 
-                            mid = "white", 
-                            high = muted("#D0587EFF"), 
-                         transform = "log",
-                            midpoint = 1, 
+    # Linear, like every scale in fig 2. A log transform here would put RR = 1
+    # at 63% of the bar rather than the midpoint and would stop the pink arm
+    # short of saturation.
+    scale_fill_gradient2(low = muted("#009392FF"),
+                            mid = "white",
+                            high = muted("#D0587EFF"),
+                            midpoint = 1,
                             limits = c(0.5, 1.5),
                             na.value = NA,
                             breaks = seq(0.5, 1.5, by = 0.25),
@@ -257,3 +259,142 @@ ggsave(filename = here("results", "manuscript", "supp_fig4-modeled_ATE_rate_rati
 
 ```
 
+# Supp Fig 4b: predicted surfaces across the model-building sequence
+
+A 4x4 grid of predicted surfaces: the four models of the primary model-building
+sequence down the rows, the four predicted quantities across the columns. Reading
+down a column shows what changes as the treatment contrast is progressively freed
+to vary in space.
+
+Note that the first two models have no treatment x location interaction, so their
+rate ratio is constant by construction (0.84 in both) and their ATE surfaces vary
+only through the baseline mortality rate. The flat panels in the last column of
+rows 1-2 are the expected result, not a rendering failure.
+
+```{r Supp Fig 4b surface grid}
+
+# Row order and strip labels for the model-building sequence. Names are the
+# `model` values in preds_ATE.rds; the vector doubles as the factor level order
+# and as the facet labeller.
+seq_labs <- c(
+  "simp_krig"           = "Baseline\nspatial model",
+  "gen_krig"            = "Spatial trends\nmodel",
+  "gen_krig_int"        = "Linear ATE\nmodel",
+  "gen_krig_spline_df3" = "Spline ATE\nmodel"
+)
+
+# rasterise_surface(): pull one model's grid column, rasterise to WGS84 and
+# rename it to `value` so all four columns share plotting code. Local helper
+# (used 16x below); kept here rather than in 0-functions.R because it is
+# specific to the shape of this script's ate_preds object.
+rasterise_surface <- function(preds_sf, model_name, colname) {
+  one <- preds_sf %>%
+    dplyr::filter(model == model_name) %>%
+    dplyr::select(dplyr::all_of(colname))
+  rast <- make_raster_map(one, proj_crs, global_crs, colname)
+  as.data.frame(rast, xy = TRUE, na.rm = FALSE) %>%
+    dplyr::rename(value = dplyr::all_of(colname))
+}
+
+# Lightweight base for a 16-panel grid: no per-panel axis text / scale bar /
+# north arrow (the base_map above would repeat all of those 16 times). Model
+# identity is a left-side strip; quantity is the column title.
+mini_base <- ggplot() +
+  geom_sf(data = niger_adm2_sub, fill = "white", color = "black", size = 0.15) +
+  theme_minimal(base_size = 9) +
+  theme(
+    axis.text = element_blank(), axis.title = element_blank(),
+    axis.ticks = element_blank(), panel.grid = element_blank(),
+    legend.position = "bottom",
+    legend.title = element_text(size = 7, hjust = 0.5),
+    legend.text = element_text(size = 6),
+    plot.title = element_text(hjust = 0.5, face = "bold", size = 10),
+    strip.text.y.left = element_text(angle = 0, face = "bold", size = 9)
+  )
+
+# Manuscript colour scales, matching 06B-fig2-primary_maps.qmd and Supp Fig 4
+# above: viridis for mortality, blue-white-red for the ATE rate difference, log
+# teal-white-pink for the rate ratio. oob = squish keeps the few cells beyond a
+# limit at the end colour rather than dropping them (the spline ATE surface
+# dips just past -13).
+scale_mort <- scale_fill_viridis_c(
+  limits = c(0, 35), breaks = seq(0, 30, by = 10),
+  oob = scales::squish, na.value = NA, name = "Mortality rate\n(per 1000 py)")
+
+scale_ate <- scale_fill_gradient2(
+  low = muted("dodgerblue"), mid = "white", high = muted("red"),
+  midpoint = 0, limits = c(-13, 3), breaks = seq(-10, 0, by = 5),
+  oob = scales::squish, na.value = NA, name = "ATE: rate difference\n(per 1000 py)")
+
+# Linear, unlike Supp Fig 4 above, which log-transforms this scale. Nothing in
+# fig 2 uses a transform, so a log bar here would be the odd one out: its ticks
+# are unevenly spaced (RR = 1 lands at 63% of the bar, not the midpoint) and the
+# pink arm never saturates. Asymmetric limits around the midpoint are fine and
+# are what fig 2's ATE panels already do (-13 to +3 around 0).
+scale_rr <- scale_fill_gradient2(
+  low = muted("#009392FF"), mid = "white", high = muted("#D0587EFF"),
+  midpoint = 1, limits = c(0.5, 1.5),
+  breaks = seq(0.5, 1.5, by = 0.25), oob = scales::squish, na.value = NA,
+  name = "Rate ratio\n(treated / control)")
+
+# make_surface_column(): one faceted column (models down the rows) for a single
+# predicted quantity, with that quantity's colour scale. `first = TRUE` keeps
+# the left-side model labels; later columns drop the strip entirely and the
+# extra width is given back to column 1 via plot_layout() below. Carrying an
+# invisible strip in every column instead (the obvious approach) subtracts the
+# width of "Spatial trends model" from all four columns, which shrinks every map
+# to about half size and leaves the gutters the figure is trying to avoid.
+make_surface_column <- function(colname, fill_scale, col_title, first = FALSE) {
+  df <- purrr::map_dfr(names(seq_labs), function(mod) {
+    rasterise_surface(ate_preds, mod, colname) %>% mutate(model = mod)
+  }) %>%
+    mutate(model = factor(model, levels = names(seq_labs)))
+
+  p <- mini_base +
+    geom_raster(data = df, aes(x = x, y = y, fill = value), na.rm = TRUE) +
+    geom_sf(data = niger_adm2_sub, fill = NA, color = "grey30", size = 0.1) +
+    facet_wrap(~ model, ncol = 1, strip.position = "left",
+               labeller = as_labeller(seq_labs)) +
+    fill_scale +
+    ggtitle(col_title) +
+    guides(fill = guide_colorbar(
+      title.position = "top", title.hjust = 0.5,
+      barheight = unit(6, "pt"), barwidth = unit(72, "pt"),
+      ticks.colour = "white", frame.colour = "white"))
+
+  if (!first) p <- p + theme(strip.text.y.left = element_blank())
+  p
+}
+
+# Column titles are deliberately short: "(treated-control)" and
+# "(treated/control)" would each be wider than the map beneath them, and the
+# colourbar titles already carry that detail. The leading newline on the
+# one-word titles keeps all four baselines on the same line.
+supp_surface_grid <- (
+  make_surface_column("predControl",   scale_mort, "Control\nmortality", first = TRUE) |
+  make_surface_column("predTreatment", scale_mort, "Treatment\nmortality") |
+  make_surface_column("ATE",           scale_ate,  "\nATE") |
+  # Extra right margin on the last column: its colourbar runs to 1.5, whose
+  # label otherwise clips against the edge of the saved canvas.
+  (make_surface_column("rate_ratio", scale_rr, "\nRate ratio") +
+     theme(plot.margin = margin(5.5, 14, 5.5, 5.5)))
+) +
+  # Column 1 carries the row labels, so it needs the extra width the other three
+  # columns no longer spend on a strip. Panels are height-constrained at this
+  # canvas size, so all four columns still get identical panel heights and the
+  # rows stay aligned.
+  plot_layout(widths = c(1.45, 1, 1, 1))
+
+supp_surface_grid
+
+ggsave(
+  filename = here("results", "manuscript", "supp_fig4b-surface_grid.png"),
+  plot = supp_surface_grid,
+  width = 7,
+  height = 5.5,
+  units = "in",
+  dpi = 300,
+  bg = "white"
+)
+
+```
