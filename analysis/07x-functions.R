@@ -439,8 +439,8 @@ rank_clusters <- function(dat,
 #--------------------------------------
 # compute_targeting_curve()
 #
-# Cumulative predicted deaths averted against cumulative doses delivered for
-# one ranking rule, evaluated on a caller-supplied shared x-grid.
+# Cumulative predicted deaths averted against cumulative person-time covered
+# for one ranking rule, evaluated on a caller-supplied shared x-grid.
 #
 # The y-axis is a percentage of the universal-treatment total, so any common
 # scaling of the benefit cancels and the curve is a pure share. Note that
@@ -453,7 +453,7 @@ rank_clusters <- function(dat,
 # - dat:    grappe-level tibble from build_prediction_table().
 # - rule:   character; passed to rank_clusters().
 # - x_grid: numeric vector of cumulative coverage values in [0, 1] expressed
-#           as a share of all doses delivered, the shared grid all rules are
+#           as a share of all person-time, the shared grid all rules are
 #           evaluated on (default seq(0, 1, by = 0.005)).
 #
 # Details:
@@ -482,20 +482,20 @@ rank_clusters <- function(dat,
 compute_targeting_curve <- function(dat, rule, x_grid = seq(0, 1, by = 0.005)) {
 
   if (any(x_grid < 0 | x_grid > 1)) {
-    stop("x_grid must lie in [0, 1]; it is a proportion of doses delivered.")
+    stop("x_grid must lie in [0, 1]; it is a proportion of person-time.")
   }
 
   ranked <- rank_clusters(dat, rule = rule)
 
   curve_one <- function(rep_dat) {
 
-    total_doses   <- sum(rep_dat$n_doses, na.rm = TRUE)
+    total_pt      <- sum(rep_dat$person_time, na.rm = TRUE)
     total_averted <- sum(rep_dat$deaths_averted, na.rm = TRUE)
 
-    if (total_doses <= 0 || total_averted == 0) {
+    if (total_pt <= 0 || total_averted == 0) {
       warning("Degenerate totals for rule '", rule, "'; returning NA curve.")
       return(tibble::tibble(x = x_grid, prop_averted = NA_real_,
-                            doses_delivered = NA_real_,
+                            person_time = NA_real_,
                             deaths_averted = NA_real_))
     }
     if (total_averted < 0) {
@@ -505,7 +505,7 @@ compute_targeting_curve <- function(dat, rule, x_grid = seq(0, 1, by = 0.005)) {
 
     knots <- rep_dat %>%
       arrange(rank_order) %>%
-      mutate(cum_x = cumsum(n_doses) / total_doses,
+      mutate(cum_x = cumsum(person_time) / total_pt,
              cum_y = cumsum(deaths_averted) / total_averted) %>%
       dplyr::filter(block_boundary)
 
@@ -520,7 +520,7 @@ compute_targeting_curve <- function(dat, rule, x_grid = seq(0, 1, by = 0.005)) {
                                    rule = 2,
                                    ties = "ordered")$y
     ) %>%
-      mutate(doses_delivered = x * total_doses,
+      mutate(person_time    = x * total_pt,
              deaths_averted  = prop_averted * total_averted)
   }
 
@@ -530,7 +530,7 @@ compute_targeting_curve <- function(dat, rule, x_grid = seq(0, 1, by = 0.005)) {
       curve_one(rep_dat) %>%
         mutate(replicate = rep_dat$replicate[1], rule = rule)
     }) %>%
-    dplyr::select(replicate, rule, x, doses_delivered, prop_averted,
+    dplyr::select(replicate, rule, x, person_time, prop_averted,
                   deaths_averted)
 }
 

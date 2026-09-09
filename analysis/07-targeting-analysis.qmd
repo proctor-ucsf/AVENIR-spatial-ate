@@ -90,9 +90,11 @@ library(spaMM)
 # Note: the three prediction inputs read below are built by `07x-data_prep.R`,
 # which is not part of run-all.R. Run it once before rendering this document.
 #
-# No set.seed() here, and the document is fully deterministic: every number is a
-# functional of the fitted surface, with no simulation step. The `random` rule is
-# the 45-degree line by construction, not by simulation.
+# No set.seed() here, and the document is still reproducible: the only
+# stochastic step is the predictive bootstrap draw, which sets `boot_seed`
+# inside predictive_draw_tables() and is read back from a cached .rds. Rendering
+# this document twice cannot move a number. The `random` rule remains
+# person-time-proportional by construction, not by simulation.
 
 # Protection conferred by one AVENIR distribution round, in years, assumed
 # common across rounds. The Data section checks the assumption against observed
@@ -100,8 +102,9 @@ library(spaMM)
 # trial actually accrued.
 phase_years <- 0.5
 
-# Shared x-grid for every targeting curve, on the proportion-of-doses scale.
-# Fixed rather than at observed knots so all rules share one grid.
+# Shared x-grid for every targeting curve, on the proportion-of-person-time
+# scale. Fixed rather than at observed knots so that bootstrap replicates can be
+# summarised pointwise into quantile ribbons with no interpolation mismatch.
 x_grid <- seq(0, 1, by = 0.005)
 
 # Coverage levels reported in the tables below.
@@ -187,9 +190,8 @@ dose_dat   <- readRDS(here("data", "grappe_dose_counts_by_phase.rds"))
 # table and checking them on load is what stops a later edit to phase_years,
 # either CRS, or the model list from silently leaving every number in this
 # document computed under the old settings. `exposure` is part of the stamp so a
-# table built under the earlier doses-delivered benefit denominator cannot be
-# reused now that deaths averted use observed person-time (the curve's x-axis
-# budget is doses; the benefit exposure is person-time).
+# table built under the earlier doses-delivered denominator cannot be reused now
+# that benefit and the curve budget are both observed person-time.
 pred_params_for <- function(this_model) {
   list(model       = this_model,
        exposure    = "observed_person_time",
@@ -245,6 +247,82 @@ pred_table <- pred_tables[[ref_key]]
 pred_dept  <- aggregate_predictions(pred_table, level = "department")
 ```
 
+```{r bootstrap draws, eval=FALSE}
+
+# Predictive-draw bootstrap, one set of B replicates per model. This used to sit
+# in a separate prep script that had to be remembered and run first; it is
+# inlined here so the document owns every input it reads, behind the same
+# flag-and-stamp pattern as the prediction tables above.
+#
+# See `predictive_draw_tables()` for the scheme: B draws from the fitted model's
+# JOINT predictive distribution over villages x both arms, no refitting. The
+# joint part is not a detail. rd_i = mu0_i - mu1_i and the shared Matern field
+# is common to both arms, so it cancels in that contrast; drawing the arms
+# independently would break the cancellation and inflate the rd ribbon by a
+# large factor. Measured cross-arm correlation for one village is ~0.79.
+#
+# WHY NOT A REFIT BOOTSTRAP: doub_matern takes 2.77 h per fit, so B refits is
+# not a feasible design at any useful B.
+boot_params_for <- function(this_model) {
+  list(model       = this_model,
+       B           = B_boot,
+       phase_years = phase_years,
+       exposure    = "observed_person_time",
+       seed        = boot_seed,
+       scheme      = "predictive_draw_no_refit")
+}
+
+boot_tables <- purrr::map2(model_names, model_keys, function(this_model, this_key) {
+
+  boot_path   <- here("data", paste0("targeting_boot_", this_model, ".rds"))
+  boot_params <- boot_params_for(this_model)
+
+  if (rebuild_targeting_boot_flag || !file.exists(boot_path)) {
+
+    spamm_fit <- readRDS(here("data", paste0(this_model, ".rds")))
+
+    tic(paste("Predictive bootstrap:", this_model))
+    boot_table <- predictive_draw_tables(
+      spamm_model_fit = spamm_fit,
+      pred_table      = pred_tables[[this_key]],
+      grappe_dat      = grappe_dat,
+      B               = B_boot,
+      phase_years     = phase_years,
+      global_crs      = global_crs,
+      proj_crs        = proj_crs,
+      seed            = boot_seed
+    )
+    toc()
+
+    attr(boot_table, "boot_params") <- boot_params
+    saveRDS(boot_table, boot_path)
+
+    boot_table
+
+  } else {
+
+    boot_table <- readRDS(boot_path)
+
+    # The filename alone does not prove provenance. The stamp records the model
+    # the draws came from, so check that rather than trusting the path - a stale
+    # cache under the right name would otherwise draw a ribbon from one model
+    # around another model's curve.
+    if (!identical(attr(boot_table, "boot_params"), boot_params)) {
+      stop("The cached bootstrap at ", boot_path, " was drawn under different ",
+           "settings than the ones declared above (stamp: ",
+           paste(names(attr(boot_table, "boot_params")),
+                 unlist(attr(boot_table, "boot_params")),
+                 sep = " = ", collapse = ", "),
+           "). Set rebuild_targeting_boot_flag <- TRUE in 0-config.R.")
+    }
+
+    boot_table
+  }
+}) %>%
+  setNames(model_keys)
+
+stopifnot(purrr::map_int(boot_tables, ~ dplyr::n_distinct(.x$replicate)) == B_boot)
+```
 
 ```{r descriptives}
 
@@ -393,7 +471,7 @@ p_dose_cum <- ggplot(pred_table, aes(x = "All rounds", y = n_doses)) +
   plot_annotation(title = "Doses delivered to children 1-59 months, per village")
 ```
 
-Round 1 sits a little below the later rounds; rounds 2–4 are close to each other. The cumulative panel is $N_i$, the per-village dose count the targeting curves below are budgeted on (the x-axis).
+Round 1 sits a little below the later rounds; rounds 2–4 are close to each other. The cumulative panel is $N_i$, the delivery volume per village; the curves below are budgeted in person-time rather than in these doses.
 
 **Predicted mortality surfaces.** Predictions below come from these fitted models:
 
@@ -948,11 +1026,11 @@ Five ranking rules, all evaluated on the same x-grid, under each of the two mode
 | `mort_grappe` | descending $\hat\mu^0_i$ | the operational rule of interest |
 | `mort_csi` | CSIs as blocks; PT-weighted $\hat\mu^0$ | coarser targeting |
 | `mort_dept` | departments as blocks; PT-weighted $\hat\mu^0$ | coarsest targeting |
-| `random` | population-proportional | no-information reference (45° line) |
+| `random` | person-time-proportional | no-information reference (45° line) |
 
-The x-axis budget is **doses delivered**: villages are added in each rule's rank order, and the x-coordinate is the cumulative share of all doses. The benefit accrued (y-axis) is still $\widehat{RD}_i \cdot \text{pt}_i / 1000$ — deaths averted converted through each village's observed person-time.
+The x-axis budget is **person-time**: villages are added in each rule's rank order, and the x-coordinate is the cumulative share of the region's child-years at risk.
 
-`rd`: the effect-ranked gold standard. It orders villages by the largest predicted benefit first, giving the upper reference curve every feasible rule is compared against. (Because the budget is doses while benefit uses observed person-time, this is a near- rather than exactly-optimal envelope; the two exposures track each other village-by-village at r ≈ 0.99, so in practice `rd` sits above every feasible rule.)
+`rd`: Upper envelope. Deaths averted per child-year of exposure in village $i$ is $\widehat{RD}_i / 1000$, so ordering by $\widehat{RD}$ *is* ordering by benefit per unit person-time — the optimal greedy order.
 
 ```{r targeting curves}
 
@@ -970,7 +1048,7 @@ rule_labels <- c(rd          = "Treatment effect (RD), village",
                  mort_grappe = "Mortality, village",
                  mort_csi    = "Mortality, CSI",
                  mort_dept   = "Mortality, department",
-                 random      = "Population-proportional")
+                 random      = "Person-time-proportional")
 
 # The three mortality rules are one family read as a sequence - village, CSI,
 # department - so they get a single qualitative ramp rather than three unrelated
@@ -1019,7 +1097,196 @@ area_ratio_tab <- curves %>%
 ```
 
 
-```{r curve accessors}
+Every curve above is a functional of the predicted surface $(\hat\mu^0_i, \hat\mu^1_i)$, so its uncertainty is inherited from the uncertainty in that surface. Rather than refit the model — the two-Matérn specification takes **2.77 hours per fit**, so a refit bootstrap at any useful $B$ is not a feasible design — we draw $B$ = `r B_boot` samples of the linear predictor from its joint predictive distribution, holding the covariance parameters ($\rho$, $\nu$, $\lambda$) at their point estimates. This is the same machinery `02B-posterior-prob-sim.Rmd` uses for the posterior probability maps.
+
+Three properties of the scheme matter for reading the bands:
+
+* **The draw is joint across villages *and* arms.** $\widehat{RD}_i = \hat\mu^0_i - \hat\mu^1_i$, and the shared Matérn field is common to both arms, so it cancels in that contrast. Drawing the arms independently would destroy the cancellation and inflate the $\widehat{RD}$ band enormously — the measured cross-arm correlation for a single village under the two-Matérn model is about 0.79.
+* **The bands are pointwise, not simultaneous.** Each coverage level is summarised on its own, so a band covers the curve at any *single* budget at the nominal `r scales::percent(ci_level)` rate, not the whole curve jointly. A simultaneous band would be wider.
+* **Ranking and scoring are separated.** Each replicate orders villages by its own draw but accrues benefit from the point-estimate surface. Doing otherwise makes the effect-ranked envelope select on the quantity it scores, which inflates it (see `degradation_tables()`). Every interval quoted in this document uses the separated version, so every band is a one-sided **degradation** band: the point estimate is the best case and the band is what estimation error costs.
+
+Because the covariance parameters are held fixed, these intervals are **mildly optimistic** — they do not carry the uncertainty in the range and smoothness of the Matérn field itself. They also carry no uncertainty from the choice of specification, which is exactly why the three models are shown side by side rather than pooled.
+
+```{r uncertainty summaries}
+
+# The O(n^2) concordance loop is the expensive step in this document: 3 rules x
+# B replicates x 3 models, each building 1400x1400 outer products. Every
+# summary derived from the draws is therefore computed once and cached.
+#
+# Unlike the two caches above, a stamp mismatch here RECOMPUTES rather than
+# stops. Those two are provenance-critical - a wrong one silently attaches a
+# ribbon to the wrong model - while everything here is a pure function of the
+# draws plus grid settings the document declares itself, so a mismatch just
+# means the grid moved and the right response is to redo the arithmetic.
+unc_path <- here("data", "targeting_uncertainty_summaries.rds")
+
+unc_params <- list(models      = model_names,
+                   B           = B_boot,
+                   seed        = boot_seed,
+                   phase_years = phase_years,
+                   exposure    = "observed_person_time",
+                   x_grid      = x_grid,
+                   ci_level    = ci_level,
+                   eff_floor   = eff_floor)
+
+unc <- if (!rebuild_targeting_boot_flag && file.exists(unc_path) &&
+           identical(attr(readRDS(unc_path), "unc_params"), unc_params)) {
+  readRDS(unc_path)
+} else {
+  NULL
+}
+
+if (is.null(unc)) {
+
+  tic("Bootstrap summaries")
+
+  # DEGRADATION tables: rank villages by the replicate's noisy draw, but accrue
+  # benefit from the point-estimate surface. A noisier draw can only give a
+  # worse ordering, so these curves sit at or below the point estimate and the
+  # band answers "what does estimation error cost?".
+  deg_curves <- purrr::imap_dfr(boot_tables, function(bt, this_key) {
+    deg_tables <- degradation_tables(bt, pred_tables[[this_key]],
+                                     score = "curve")
+    purrr::map_dfr(targeting_rules,
+                   ~ compute_targeting_curve(deg_tables, rule = .x,
+                                             x_grid = x_grid)) %>%
+      mutate(model = this_key)
+  })
+
+  # Pointwise, NOT simultaneous: each x is summarised on its own, so the band
+  # covers the curve at any single coverage level at the nominal rate but not
+  # the whole curve jointly.
+  deg_ribbon <- deg_curves %>%
+    group_by(model, rule, x) %>%
+    summarise(lower  = unname(quantile(prop_averted, ci_probs[1], na.rm = TRUE)),
+              upper  = unname(quantile(prop_averted, ci_probs[2], na.rm = TRUE)),
+              median = median(prop_averted, na.rm = TRUE),
+              .groups = "drop")
+
+  # Efficiency ratio replicates, on the same degradation footing.
+  #
+  # The denominator is the POINT-ESTIMATE envelope, i.e. the best achievable
+  # benefit on the reference surface, held fixed across replicates. Dividing
+  # each replicate by its own within-replicate envelope inflates it (the
+  # winner's curse in degradation_tables()) and drags the whole ratio band
+  # below the point estimate, putting the point ratio outside its own interval.
+  point_envelope <- curves %>%
+    dplyr::filter(rule == "rd") %>%
+    dplyr::select(model, x, y_rd = prop_averted)
+
+  eff_ribbon <- deg_curves %>%
+    dplyr::filter(rule != "rd", x >= eff_floor) %>%
+    dplyr::left_join(point_envelope, by = c("model", "x")) %>%
+    mutate(efficiency_ratio = prop_averted / y_rd) %>%
+    group_by(model, rule, x) %>%
+    summarise(lower = unname(quantile(efficiency_ratio, ci_probs[1], na.rm = TRUE)),
+              upper = unname(quantile(efficiency_ratio, ci_probs[2], na.rm = TRUE)),
+              .groups = "drop")
+
+  # Ordering stability at the headline coverage. Because every rule in a given
+  # replicate is computed from the SAME draw of the surface, a *difference*
+  # between two rules can be much better determined than either level - or much
+  # worse. Both happen here, so both are reported rather than asserting the
+  # convenient one.
+  at_30 <- deg_curves %>%
+    dplyr::filter(x == nearest_x(0.30)) %>%
+    dplyr::select(model, replicate, rule, prop_averted) %>%
+    tidyr::pivot_wider(names_from = rule, values_from = prop_averted)
+
+  # Sanity check on the selection correction: the point-estimate curve must not
+  # float off the top of the degradation band. Allow a small tolerance for the
+  # block rules, whose ordering can occasionally improve under a perturbed
+  # ranking when a block boundary shifts.
+  deg_above <- curves %>%
+    dplyr::left_join(deg_ribbon, by = c("model", "rule", "x")) %>%
+    dplyr::filter(x > 0, x < 1) %>%
+    group_by(model) %>%
+    summarise(share_below = mean(prop_averted < lower, na.rm = TRUE),
+              .groups = "drop")
+
+  # Concordance CIs, on the same footing as the degradation band: the rule
+  # orders villages by the replicate's noisy mu0, and that ordering is judged
+  # against the REFERENCE rd ordering. Judging a draw's ranking against its own
+  # rd would let the shared noise in mu0 and rd (they are strongly correlated,
+  # rd = mu0 - mu1) inflate the agreement.
+  #
+  # rule_concordance() is O(n^2) and caps n at max_n, so it must be called once
+  # per replicate rather than on the stacked table - a stacked call would both
+  # blow the cap and build outer products across replicates, silently comparing
+  # villages from different draws.
+  conc_ci <- purrr::imap_dfr(boot_tables, function(bt, this_key) {
+    conc_tables <- degradation_tables(bt, pred_tables[[this_key]],
+                                      score = "concordance")
+    reps <- split(conc_tables, conc_tables$replicate)
+
+    purrr::map_dfr(setdiff(targeting_rules, c("rd", "random")),
+                   function(this_rule) {
+      tibble::tibble(
+        model = this_key,
+        rule  = this_rule,
+        auc   = purrr::map_dbl(reps, ~ rule_concordance(.x, rule = this_rule)))
+    })
+  }) %>%
+    group_by(model, rule) %>%
+    summarise(lower = unname(quantile(auc, ci_probs[1], na.rm = TRUE)),
+              upper = unname(quantile(auc, ci_probs[2], na.rm = TRUE)),
+              .groups = "drop")
+
+  # Correlation CIs, at all three scales. Posterior rather than degradation: a
+  # correlation does not rank and score on the same quantity, so it carries no
+  # winner's curse and the within-replicate interval is the right one here.
+  corr_ci <- purrr::imap_dfr(boot_tables, function(bt, this_key) {
+    reps <- split(bt, bt$replicate)
+    purrr::map_dfr(level_names, function(this_level) {
+      purrr::map_dfr(reps, function(rep_dat) {
+        agg <- aggregate_predictions(rep_dat, level = this_level)
+        weighted_correlation(x = agg$mu0, y = agg$rd, w = agg$person_time)
+      }) %>%
+        mutate(model = this_key, level = this_level, .before = 1)
+    })
+  }) %>%
+    group_by(model, level) %>%
+    summarise(rho_lower = unname(quantile(rho, ci_probs[1], na.rm = TRUE)),
+              rho_upper = unname(quantile(rho, ci_probs[2], na.rm = TRUE)),
+              r_lower   = unname(quantile(r,   ci_probs[1], na.rm = TRUE)),
+              r_upper   = unname(quantile(r,   ci_probs[2], na.rm = TRUE)),
+              .groups   = "drop")
+
+  toc()
+
+  unc <- list(deg_ribbon = deg_ribbon, eff_ribbon = eff_ribbon,
+              at_30 = at_30, deg_above = deg_above,
+              conc_ci = conc_ci, corr_ci = corr_ci)
+
+  attr(unc, "unc_params") <- unc_params
+  saveRDS(unc, unc_path)
+}
+
+deg_ribbon <- unc$deg_ribbon
+eff_ribbon <- unc$eff_ribbon
+at_30      <- unc$at_30
+conc_ci    <- unc$conc_ci
+corr_ci    <- unc$corr_ci
+
+# stop(), not warning(): the YAML sets warning: false for the whole document, so
+# a warning here would be swallowed and the check would be dead code. The
+# tolerance is there because a block rule's ordering can occasionally improve
+# under a perturbed ranking when a block boundary shifts; past that, the bands
+# are not measuring what the text says they measure.
+if (any(unc$deg_above$share_below > 0.05)) {
+  stop("The point-estimate curve falls below the degradation band at more ",
+       "than 5% of grid points for: ",
+       paste(unc$deg_above$model[unc$deg_above$share_below > 0.05],
+             collapse = ", "),
+       "; the selection correction in degradation_tables() is not working as ",
+       "intended and every band below is suspect.")
+}
+
+curves_ci <- curves %>%
+  dplyr::left_join(deg_ribbon, by = c("model", "rule", "x"))
+```
+
+```{r uncertainty accessors}
 
 # Every accessor defaults to the reference specification, so an inline number in
 # the prose is that model's unless a key is passed explicitly.
@@ -1053,7 +1320,7 @@ block_knots <- purrr::imap_dfr(pred_tables, function(dat, this_key) {
   purrr::map_dfr(c("mort_csi", "mort_dept"), function(this_rule) {
     rank_clusters(dat, rule = this_rule) %>%
       arrange(rank_order) %>%
-      mutate(x = cumsum(n_doses) / sum(n_doses),
+      mutate(x = cumsum(person_time) / sum(person_time),
              prop_averted = cumsum(deaths_averted) / sum(deaths_averted)) %>%
       dplyr::filter(block_boundary) %>%
       dplyr::select(rule, x, prop_averted)
@@ -1145,6 +1412,67 @@ ggsave(file.path(figure_path, "targeting-curves.png"),
        plot = p_curves, bg = "white", width = 13, height = 5.6, dpi = 300)
 ```
 
+<!-- POSTERIOR BAND — commented out. The alternative band computes each replicate's
+curve entirely within that replicate, which answers "what might the true curve
+be" rather than "what does estimation error cost". For the `rd` envelope it does
+not contain the point-estimate line at all, because of a winner's curse specific
+to that rule: it ranks villages by RD and then accumulates RD, selecting on the
+very quantity it scores, so any noise pushes upward-perturbed villages to the
+front of the queue where they are credited with their inflated values. Every
+replicate is noisier than the plug-in surface, which is a shrunken posterior
+mean, so every replicate envelope rises above it. The mortality rules rank on
+mu0 and score on RD, so selection acts on a different variable and they are
+unaffected. The degradation band above is the one to use for the programme
+question. The code is retained below, disabled, in case the comparison is wanted
+again. -->
+
+```{r posterior band figure}
+#| eval: false
+#| include: false
+
+# boot_curves <- purrr::imap_dfr(boot_tables, function(bt, this_key) {
+#   purrr::map_dfr(targeting_rules,
+#                  ~ compute_targeting_curve(bt, rule = .x, x_grid = x_grid)) %>%
+#     mutate(model = this_key)
+# })
+#
+# boot_ribbon <- boot_curves %>%
+#   group_by(model, rule, x) %>%
+#   summarise(post_lower  = unname(quantile(prop_averted, ci_probs[1], na.rm = TRUE)),
+#             post_upper  = unname(quantile(prop_averted, ci_probs[2], na.rm = TRUE)),
+#             post_median = median(prop_averted, na.rm = TRUE),
+#             .groups = "drop")
+#
+# p_posterior <- curves %>%
+#   dplyr::left_join(boot_ribbon, by = c("model", "rule", "x")) %>%
+#   mutate(rule = factor(rule, levels = names(rule_labels)),
+#          model_label = as_model_label(model)) %>%
+#   ggplot(aes(x = x, colour = rule, group = rule)) +
+#   geom_ribbon(aes(ymin = post_lower, ymax = post_upper, fill = rule),
+#               alpha = 0.15, colour = NA, show.legend = FALSE) +
+#   scale_fill_manual(values = rule_colours) +
+#   geom_hline(yintercept = 1, linetype = "dashed", colour = "grey50") +
+#   # point estimate solid, posterior median dotted: for every rule except rd the
+#   # two are nearly indistinguishable, which is itself the point
+#   geom_line(aes(y = prop_averted), linewidth = 0.9) +
+#   geom_line(aes(y = post_median), linewidth = 0.6, linetype = "dotted") +
+#   facet_wrap(~ model_label, nrow = 1) +
+#   scale_x_continuous(labels = scales::percent) +
+#   scale_y_continuous(labels = scales::percent) +
+#   scale_colour_manual(values = rule_colours, labels = rule_labels) +
+#   labs(x = "Cumulative proportion of person-time",
+#        y = "Cumulative proportion of mortality reduction",
+#        colour = NULL,
+#        title = "Posterior band: curves computed within each replicate",
+#        subtitle = "Solid = point estimate, dotted = posterior median.") +
+#   theme_minimal(base_size = 12) +
+#   theme(legend.position = "bottom")
+#
+# p_posterior
+#
+# ggsave(file.path(figure_path, "targeting-posterior-band.png"),
+#        plot = p_posterior, bg = "white", width = 13, height = 5.6, dpi = 300)
+```
 
 Block rules order villages arbitrarily within a block (CSI/dept), so only block boundaries are interpretable: the curve is the linear interpolation between boundary knots, and those knots are the points drawn on the two block-rule curves.
 
@@ -1195,7 +1523,7 @@ p_curve_grid <- ggplot(curve_grid, aes(x = coverage, y = rule, fill = pct)) +
   # Title and subtitle are wrapped explicitly: ggplot truncates rather than
   # reflowing, and naming the specification is long enough to run off a
   # 10-inch panel on one line.
-  labs(x = "Doses delivered (% of all doses)", y = NULL,
+  labs(x = "Cumulative proportion of person-time", y = NULL,
        fill = "% of universal-treatment total",
        title = paste0("Cumulative predicted deaths averted\n",
                       ref_display, " (", ref_key, ") only"),
@@ -1252,17 +1580,92 @@ rd_peak_at <- peak_at_of("rd")
 
 The x-axis is the cumulative share of all doses delivered, accrued as villages are added in each rule's rank order. There is no 100% column because there is nothing to compare there: at full coverage every rule averts the same `r scales::comma(total_averted, accuracy = 1)` deaths by construction.
 
-My interpretation of the heatmap (all numbers `r ref_display`): Treating the highest-mortality villages up to 30% of all doses is predicted to avert `r sprintf("%.0f", mort_g_at_30)`% of the deaths that treating everyone would avert (`r scales::comma(averted_at_30, accuracy = 1)` deaths), against `r sprintf("%.0f", rd_at_30)`% for the treatment effect-ranked gold standard and 30% for population-proportional random allocation. The same 30% mortality rule applied in blocks gives `r sprintf("%.0f", mort_csi_at_30)`% at the CSI scale and `r sprintf("%.0f", mort_d_at_30)`% at the department scale, indicating that targetting at the village-level is more effective than coarser targetting.
+My interpretation of the heatmap (all numbers `r ref_display`): Treating the highest-mortality villages up to 30% of the region's child person-time is predicted to avert `r sprintf("%.0f", mort_g_at_30)`% of the deaths that treating everyone would avert (`r scales::comma(averted_at_30, accuracy = 1)` deaths), against `r sprintf("%.0f", rd_at_30)`% for the treatment effect-ranked gold standard and 30% for person-time-proportional random allocation. The same 30% mortality rule applied in blocks gives `r sprintf("%.0f", mort_csi_at_30)`% at the CSI scale and `r sprintf("%.0f", mort_d_at_30)`% at the department scale, indicating that targetting at the village-level is more effective than coarser targetting.
 
 The `rd` curve reaches its maximum of `r sprintf("%.0f", rd_peak)`% of the universal-treatment total at `r scales::percent(rd_peak_at, accuracy = 1)` coverage, then returns to 100% at full coverage by construction. The excess above 100% is the predicted cost of treating the villages the model expects harm in; it is not a recommendation to withhold treatment from them.
 
 
+**But some comparisons survive the uncertainty and others do not, and the difference is not what you would guess from the bands alone.** Every rule within a replicate is computed from the same draw of the surface, so a *difference* between two rules can be much better or much worse determined than either level:
+
+* **Targeting scale is robust.** The village rule beats the department rule in `r scales::percent(p_village_beats_dept, accuracy = 0.1)` of draws, and that difference has a *narrower* interval (`r sprintf("%.2f", width_diff_village_dept)` wide) than the village curve's own level (`r sprintf("%.2f", width_level_village)`). The shared surface uncertainty largely cancels. The village-versus-CSI comparison is weaker, holding in `r scales::percent(p_village_beats_csi, accuracy = 0.1)` of draws.
+* **The headline gap is not robust.** The distance between the effect-ranked envelope and the village mortality rule has an interval `r sprintf("%.2f", width_diff_rd_village)` wide — *wider* than the village level itself. Uncertainty does not cancel in that contrast, because the envelope and the mortality rule respond differently to the same perturbation of the surface.
+
+So "targeting at village scale beats department scale" is well supported here, while "mortality-based targeting recovers most of what effect-based targeting could" is a point estimate with a great deal of noise around it.
+
+**Relative efficiency** We're defining it to be the efficiency of the given rule relative to the RD one: $R_r(x) = y_r(x) / y_{\text{rd}}(x)$ on the shared grid, the fraction of achievable benefit retained by a rule a programme could actually apply, at a given coverage. Bounded above by 1 by construction, and $\to 1$ as $x \to 1$. Unstable as $x \to 0$, so the grid is read from `r scales::percent(eff_floor)` of person-time upwards.
+
+```{r efficiency curves}
+#| fig-width: 13
+#| fig-height: 5.4
+
+envelope <- curves %>%
+  dplyr::filter(rule == "rd") %>%
+  dplyr::select(model, x, y_rd = prop_averted)
+
+efficiency <- curves %>%
+  dplyr::filter(rule != "rd", x >= eff_floor) %>%
+  dplyr::left_join(envelope, by = c("model", "x")) %>%
+  mutate(efficiency_ratio = prop_averted / y_rd)
+
+# Sanity check: no feasible rule may beat the envelope.
+stopifnot(all(efficiency$efficiency_ratio <= 1 + 1e-8, na.rm = TRUE))
+
+eff_at <- function(rule_name, coverage, key = ref_key) {
+  efficiency$efficiency_ratio[efficiency$model == key &
+                                efficiency$rule == rule_name &
+                                efficiency$x == nearest_x(coverage)]
+}
+
+eff_g_at_30   <- eff_at("mort_grappe", 0.30)
+eff_csi_at_30 <- eff_at("mort_csi", 0.30)
+eff_d_at_30   <- eff_at("mort_dept", 0.30)
+
+eff_g_min <- min(efficiency$efficiency_ratio[efficiency$model == ref_key &
+                                               efficiency$rule == "mort_grappe"],
+                 na.rm = TRUE)
+
+p_efficiency <- efficiency %>%
+  dplyr::left_join(eff_ribbon, by = c("model", "rule", "x")) %>%
+  mutate(rule        = factor(rule, levels = names(rule_labels)),
+         model_label = as_model_label(model)) %>%
+  ggplot(aes(x = x, y = efficiency_ratio, colour = rule, group = rule)) +
+  geom_ribbon(aes(ymin = lower, ymax = upper, fill = rule),
+              alpha = 0.15, colour = NA, show.legend = FALSE) +
+  scale_fill_manual(values = rule_colours) +
+  geom_hline(yintercept = 1, linetype = "dashed", colour = "grey50") +
+  geom_line(linewidth = 0.9) +
+  facet_wrap(~ model_label, nrow = 1,
+             labeller = label_wrap_gen(width = 30)) +
+  scale_x_continuous(labels = scales::percent) +
+  # No hard y-limits: a fixed lower bound of 0 would silently drop points from
+  # a block with negative predicted deaths averted, which is not hypothetical
+  # here - the last-ranked department has one.
+  scale_y_continuous(labels = scales::percent) +
+  # No drop = FALSE: `rd` is the denominator of this ratio, not a line on the
+  # plot, and forcing its unused factor level into the scale would put an
+  # "Effect (RD)" key in the legend with nothing drawn against it.
+  scale_colour_manual(values = rule_colours, labels = rule_labels) +
+  labs(x = "Cumulative proportion of person-time",
+       y = "Relative efficiency \n(share of RD-ranked rule retained)",
+       colour = NULL,
+       title = "Efficiency of feasible rules relative to the gold standard") +
+  theme_minimal(base_size = 12) +
+  theme(legend.position = "bottom",
+        panel.spacing   = grid::unit(1, "lines"))
+
+p_efficiency
+
+ggsave(file.path(figure_path, "targeting-efficiency.png"),
+       plot = p_efficiency, bg = "white", width = 13, height = 5.4, dpi = 300)
+```
+
+Every feasible rule converges to the envelope at full coverage by construction, so the informative region is the left half, where the rules are actually distinguishable. The department curve's rise toward the envelope on the right is likely due to harm-cancellation (Boboye's positive ATE), and potentially not a scale at which department targeting becomes competitive.
 
 ------------------------------------------------------------------------
 
 ## Conclusions
 
-All figures are given for two specifications (the linear and spline treatment-by-space interaction models); the numbers quoted here are `r ref_display` (`r ref_key`) unless stated otherwise.
+**Rank concordance.** $C$ is the AUROC of a targeting rule against the predicted-effect ranking, so every rule gets its own. Draw two villages at random, weighted by person-time; $C$ is the person-time-weighted probability that the rule ranks ahead whichever of the two has the larger predicted $\widehat{RD}$, with ties contributing 0.5.
 
 **Mortality-based targeting recovers most, but not all, of what effect-based targeting could.** The village mortality rule retains `r sprintf("%.0f", 100 * area_of("mort_grappe"))`% of the achievable above-random benefit-area — the targeting-curve area ratio, measured against the effect-ranked (RD) envelope. Read at a fixed budget, treating the highest-mortality villages up to 30% of all doses averts `r sprintf("%.0f", mort_g_at_30)`% of the universal-treatment total, against `r sprintf("%.0f", rd_at_30)`% for the effect-ranked gold standard.
 
@@ -1328,7 +1731,7 @@ pair_gap <- local({
 })
 ```
 
-Under `r ref_display`, the village-level mortality rule scores `r sprintf("%.2f", conc_grappe)`: draw two villages at random, weighted by person-time, and the rule orders them correctly — higher predicted benefit first — about `r scales::percent(conc_grappe, accuracy = 1)`^★^ of the time. It nonetheless retains far more of the benefit-area than that rank statistic suggests (area ratio `r sprintf("%.2f", area_of("mort_grappe"))`), because the pairs it mis-ranks carry little at stake: `r scales::percent(conc_wrong_share, accuracy = 0.1)` of pairs go the wrong way but carry only `r scales::percent(pair_gap$stake_wrong, accuracy = 0.1)` of the total pairwise benefit difference.
+Under `r ref_display`, the village-level mortality rule scores `r sprintf("%.2f", conc_grappe)`. Read literally: draw two villages at random, weighted by person-time, and the rule puts them in the correct order — higher predicted benefit first — about `r scales::percent(conc_grappe, accuracy = 1)`^★^ of the time.
 
 **How much of that is structural, specification by specification.**
 
