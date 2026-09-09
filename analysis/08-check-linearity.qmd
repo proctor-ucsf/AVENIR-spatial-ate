@@ -256,8 +256,9 @@ make_surface_column <- function(colname, fill_scale, col_title, first = FALSE) {
   p
 }
 # Manuscript colour scales (matching 06B-fig2-primary_maps.qmd): viridis for
-# mortality, blue-white-red for the ATE rate difference, log teal-white-pink for
-# the rate ratio. oob = squish keeps the few cells beyond a limit at the end
+# mortality, blue-white-red for the ATE rate difference, teal-white-pink for
+# the rate ratio. All linear: nothing in fig 2 uses a transform.
+# oob = squish keeps the few cells beyond a limit at the end
 # colour rather than dropping them (M4/M5 ATE peak just above +3).
 scale_mort <- scale_fill_viridis_c(
   limits = c(0, 35), breaks = seq(0, 30, by = 10),
@@ -268,7 +269,7 @@ scale_ate <- scale_fill_gradient2(
   oob = scales::squish, na.value = NA, name = "ATE: rate difference\n(per 1000 py)")
 scale_rr <- scale_fill_gradient2(
   low = muted("#009392FF"), mid = "white", high = muted("#D0587EFF"),
-  transform = "log", midpoint = 1, limits = c(0.5, 1.5),
+  midpoint = 1, limits = c(0.5, 1.5),
   breaks = seq(0.5, 1.5, by = 0.25), oob = scales::squish, na.value = NA,
   name = "Rate ratio\n(treated / control)")
 surface_grid <- (
@@ -281,6 +282,67 @@ surface_grid
 ggsave(
   filename = here("results", "figs", "linearity-surface-grid-5x4.png"),
   plot = surface_grid, width = 8, height = 9.75, units = "in", dpi = 300, bg = "white")
+```
+
+## Linear vs. spline surfaces
+
+The grid above cut down to two rows: the primary linear-interaction surface on
+top and the additive natural-spline surface (df = 3) below. If the plane were
+missing real structure, these two rows would not look alike.
+
+This is an internal diagnostic. The supplement carries a four-row version of the
+same comparison — these two models plus the two simpler models that precede them
+in the model-building sequence — built as Supp Fig 4b in `06C-supp_mtrl.qmd`.
+
+```{r spline surface pair}
+# Same scaffolding as the 5x4 diagnostic grid (mini_base, rasterise_surface,
+# scale_mort / scale_ate / scale_rr are all defined in the chunk above), just
+# two rows. Row labels drop the M1/M3 shorthand so the figure reads without the
+# model-numbering table this script uses internally.
+pair_labs <- c("gen_krig_int" = "linear", "gen_krig_spline_df3" = "splines df3")
+
+# make_pair_column(): one faceted column (linear on top, splines below) for a
+# single predicted quantity. `first = TRUE` keeps the left-side row labels;
+# later columns hide them with an invisible strip so row heights stay aligned
+# across the patchwork.
+make_pair_column <- function(colname, fill_scale, col_title, first = FALSE) {
+  df <- purrr::map_dfr(names(pair_labs), function(mod) {
+    rasterise_surface(preds4, mod, colname) %>% mutate(model = mod)
+  }) %>%
+    mutate(model = factor(model, levels = names(pair_labs)))
+
+  p <- mini_base +
+    geom_raster(data = df, aes(x = x, y = y, fill = value), na.rm = TRUE) +
+    geom_sf(data = niger_adm2_sub, fill = NA, color = "grey30", size = 0.1) +
+    facet_wrap(~ model, ncol = 1, strip.position = "left",
+               labeller = as_labeller(pair_labs)) +
+    fill_scale +
+    ggtitle(col_title) +
+    guides(fill = guide_colorbar(
+      title.position = "top", title.hjust = 0.5,
+      barheight = unit(6, "pt"), barwidth = unit(95, "pt"),
+      ticks.colour = "white", frame.colour = "white"))
+
+  if (!first) p <- p + theme(strip.text.y.left = element_text(color = NA))
+  p
+}
+
+spline_surface_grid <- (
+  make_pair_column("predControl",   scale_mort, "Control\nmortality", first = TRUE) |
+  make_pair_column("predTreatment", scale_mort, "Treatment\nmortality") |
+  make_pair_column("ATE",           scale_ate,  "ATE\n(treated-control)") |
+  # Extra right margin on the last column: its colourbar runs to 1.5, whose
+  # label otherwise clips against the edge of the saved canvas.
+  (make_pair_column("rate_ratio", scale_rr, "Rate ratio\n(treated/control)") +
+     theme(plot.margin = margin(5.5, 12, 5.5, 5.5)))
+)
+
+spline_surface_grid
+
+ggsave(
+  filename = here("results", "figs", "linearity-spline-surface-pair.png"),
+  plot = spline_surface_grid,
+  width = 8, height = 4.6, units = "in", dpi = 300, bg = "white")
 ```
 
 ## Surface correlation matrix
@@ -326,9 +388,12 @@ matern_field1 <- function(fit) {
 # reports (fixef + lambda + corrPars): the df that goes WITH the AIC column.
 param_k <- function(fit) sum(unlist(fit$dfs))
 
-# Nested LRT, M3 vs M1 (8 df): M1 is nested in M3 — the df = 3 ns() bases span the
-# linear plane, exactly as M2's df = 4 bases do. (No M2-vs-M1 LRT is tabulated
-# because M2 is the same nested-in-M1 shape at df = 12; the surfaces and AIC carry it.)
+# Nested LRTs for the two spline models. M1 is nested in both: an ns() basis with
+# intercept = FALSE, plus the model intercept, spans the linear function, so the
+# df = 4 and df = 3 bases each contain the plane. spaMM::LRT() refuses these
+# (it matches fixed-effect term labels, and `ns(lat, df = 3)1` shares none with
+# `lat`), hence lrt_manual(). df = 12 for M2 (18 - 6 fixef), 8 for M3 (14 - 6).
+lrt_m2 <- lrt_manual(m2, m1)
 lrt_m3 <- lrt_manual(m3, m1)
 
 # Nested LRT, M4 vs M1 (3 df): M1 is nested in M4 (linear terms retained).
@@ -364,9 +429,10 @@ model_comparison <- bind_rows(
   mutate(
     aic    = c(AIC(m1)[1], AIC(m2)[1], AIC(m3)[1], AIC(m4)[1], AIC(m5)[1]),
     params = c(param_k(m1), param_k(m2), param_k(m3), param_k(m4), param_k(m5)),
-    # lrt_vs_m1_chi2 = c(NA, NA, lrt_m3$chi2_LR, lrt_m4$chi2_LR, chi2_m5),
-    # lrt_vs_m1_df   = c(NA, NA, lrt_m3$df,      lrt_m4$df,      1),
-    lrt_vs_m1_p    = c(NA, NA, lrt_m3$p_value, lrt_m4$p_value, p_m5_mixture)
+    # M1 is the reference, so its own row has no test.
+    # lrt_vs_m1_chi2 = c(NA, lrt_m2$chi2_LR, lrt_m3$chi2_LR, lrt_m4$chi2_LR, chi2_m5),
+    # lrt_vs_m1_df   = c(NA, lrt_m2$df,      lrt_m3$df,      lrt_m4$df,      1),
+    lrt_vs_m1_p    = c(NA, lrt_m2$p_value, lrt_m3$p_value, lrt_m4$p_value, p_m5_mixture)
   ) %>%
   dplyr::select(model = label, aic, params,
                 # lrt_vs_m1_chi2, lrt_vs_m1_df, 
@@ -462,6 +528,7 @@ linearity_check <- list(
   surface_cor_matrix = surface_cor_matrix,
   # 4.4 model comparison
   model_comparison  = model_comparison,
+  lrt_m2_vs_m1      = lrt_m2,
   lrt_m3_vs_m1      = lrt_m3,
   lrt_m4_vs_m1      = lrt_m4,
   lrt_m5_vs_m1      = tibble(chi2_LR = chi2_m5, df = 1, p_value_mixture = p_m5_mixture),
