@@ -256,7 +256,7 @@ mod_post_prob_map <- base_map +
                       na.value = NA,
                       direction = -1,
                       # breaks = seq(0,10,by=2),
-                      guide = guide_colorbar(title="Simulated posterior probability\n(mortality ATE < 0)",  
+                      guide = guide_colorbar(title="Simulated probability\n(mortality ATE < 0)",  
                                           title.position = "top",
                                           title.hjust = 0.5,
                                           label.position = "bottom",

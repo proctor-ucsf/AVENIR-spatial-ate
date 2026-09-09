@@ -75,7 +75,7 @@ b_boxgrid <- readRDS(here("data", "boxgrid.rds"))
 # gen_krig: generalized kriging without treatment×location interaction
 # gen_krig_int: generalized kriging with treatment×lat and treatment×lon interactions
 fitmort_child_gen_krig_int <- readRDS(here("data", "fitmort_child_gen_krig_int.rds"))
-fitmort_child_gen_krig <- readRDS(here("data", "fitmort_child_gen_krig.rds"))
+# fitmort_child_gen_krig <- readRDS(here("data", "fitmort_child_gen_krig.rds"))
 ```
 
 ---
@@ -135,6 +135,15 @@ if(re_simulate){
   # simulated_responses_gen_krig <- readRDS(here("data", "simulated_responses_gen_krig.rds"))
   simulated_responses_gen_krig_int <- readRDS(here("data", "simulated_responses_gen_krig_int.rds"))
 }
+
+cvec <- cbind(1, newdat$lat, newdat$lon)      # centered as fitted
+b    <- fixef(fitmort_child_gen_krig_int)[c("isTreated_childTreatment",
+                                            "I((lat - 1448231)/1000):isTreated_childTreatment",
+                                            "I((lon - 552981)/1000):isTreated_childTreatment")]
+V    <- vcov(fitmort_child_gen_krig_int)[names(b), names(b)]
+eta  <- as.vector(cvec %*% b)
+se   <- sqrt(rowSums((cvec %*% V) * cvec))
+p_benefit <- pnorm(-eta / se)
 
 ```
 
