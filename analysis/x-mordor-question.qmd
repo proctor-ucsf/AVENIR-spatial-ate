@@ -47,6 +47,36 @@ pre { /* Code block - determines code spacing between lines */
 }
 </style>
 
+<!--
+#--------------------------------------------
+#
+# AVENIR-spatial-ate/analysis/x-mordor-question.qmd
+#
+# SIDE ANALYSIS - not a pipeline step, deliberately excluded from run-all.R.
+#
+# Three districts (Boboye, Falmey, Loga) overlapped the earlier MORDOR mass
+# azithromycin trial, so their background mortality may be depressed by prior
+# MDA and their treatment effect attenuated. This document asks whether the
+# ATE differs between MORDOR and non-MORDOR districts, by *adjusting*: it
+# fuzzy-matches AVENIR villages to MORDOR villages on name and distance, then
+# refits the primary specification with a MORDOR indicator and interaction.
+#
+# x-district-exclusion-check.qmd is the complementary approach - it *removes*
+# those districts and refits.
+#
+# Requires the MORDOR GPS extracts under data/untouched/from-mordor/, which
+# are not produced by any script in this repo.
+#
+# Inputs:  data/untouched/from-mordor/{morb,main}_gps.rds,
+#          data/grappe_mortality_data.rds
+# Outputs: results/manuscript/supp_fig4-mordor.png (NOTE: shares the
+#          "supp_fig4" prefix with 08D's supp_fig4-modeled_ATE_rate_ratios.png
+#          but is a different figure; confirm the supplement's numbering
+#          before using either)
+#
+#--------------------------------------------
+-->
+
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 

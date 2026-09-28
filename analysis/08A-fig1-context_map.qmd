@@ -1,5 +1,5 @@
 ---
-title: "06A-context-map"
+title: "08A — Figure 1: study area context map"
 date: today
 # author: "Ariktha Srivathsan"
 format:
@@ -15,6 +15,32 @@ execute:
   warning: false
   message: false
 ---
+
+<!--
+#--------------------------------------------
+#
+# AVENIR-spatial-ate/analysis/08A-fig1-context_map.qmd
+#
+# Manuscript Figure 1: study area context map. A national map of Niger with
+# the study region marked, plus a zoomed panel showing the grappes with their
+# randomization arm. Presentation only - no model is attached and nothing is
+# estimated here.
+#
+# Two layouts are written and both are kept; confirm which one the current
+# manuscript draft uses before regenerating:
+#   fig1-context-map-2.png     single panel - grappe map with the Niger inset
+#   fig1-context-map-dosso.png two panels (A/B) - the same map plus the Dosso
+#                              mortality panel, built as `alt_fig1`
+#
+# Inputs:  data/untouched/ner_admin_boundaries/ner_admin{1,2}.shp
+#          data/grappe_mortality_data_all_rands.rds  (all randomizations, so
+#                                                     Fig 1 shows the whole trial)
+#          data/niger_adm2_sub.rds
+# Outputs: results/manuscript/fig1-context-map-2.png
+#          results/manuscript/fig1-context-map-dosso.png
+#
+#--------------------------------------------
+-->
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)

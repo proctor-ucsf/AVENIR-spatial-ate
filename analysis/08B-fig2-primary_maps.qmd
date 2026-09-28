@@ -1,5 +1,5 @@
 ---
-title: "06b-primary-results-maps"
+title: "08B — Figure 2: primary spatial maps"
 date: today
 # author: "Ariktha Srivathsan"
 format:
@@ -15,6 +15,36 @@ execute:
   warning: false
   message: false
 ---
+
+<!--
+#--------------------------------------------
+#
+# AVENIR-spatial-ate/analysis/08B-fig2-primary_maps.qmd
+#
+# Manuscript Figure 2: the six primary maps, composed with patchwork and
+# lettered A-F. Presentation only - no model is attached and nothing is
+# estimated here; every panel reads a cached object.
+#
+# Tags follow the order plots are added to the patchwork, which fills by row
+# over three columns: mortality across the top, effect across the bottom.
+#
+#   A  district-level observed mortality, control arm   (from 01)
+#   B  grappe-level predicted mortality surface         (from 02A)
+#   C  CSI-level predicted mortality surface            (from 03)
+#   D  district-level observed ATE                      (from 01)
+#   E  grappe-level predicted ATE surface               (from 02A)
+#   F  posterior probability that the ATE < 0           (from 02B)
+#
+# The chunks below are named for the panel each builds, so chunk "Panel D"
+# builds the plot that carries tag D.
+#
+# Inputs:  data/grappe_mortality_data.rds, data/niger_adm2_sub.rds,
+#          data/district_ATE_means.rds, data/preds_ATE.rds,
+#          data/csi_preds_mort.rds, data/post_prob_dat.rds
+# Outputs: results/manuscript/fig2-primary_maps-white.png
+#
+#--------------------------------------------
+-->
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)

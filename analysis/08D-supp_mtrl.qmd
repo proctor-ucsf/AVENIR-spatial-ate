@@ -1,5 +1,5 @@
 ---
-title: "06c-supp-mtrl"
+title: "08D — Supplementary material figures and tables"
 date: today
 # author: "Ariktha Srivathsan"
 format:
@@ -15,6 +15,38 @@ execute:
   warning: false
   message: false
 ---
+
+<!--
+#--------------------------------------------
+#
+# AVENIR-spatial-ate/analysis/08D-supp_mtrl.qmd
+#
+# Supplementary material: the supplementary table and figures. Presentation
+# only - no model is attached and nothing is estimated here.
+#
+#   Supp Table 1  district-level mortality and ATE summaries
+#   Supp Fig 1    district mortality rates by arm
+#   Supp Fig 2    district ATEs
+#   Supp Fig 3    CSI and grappe locations
+#   Supp Fig 4    modelled ATE rate ratios
+#   Supp Fig 4b   predicted surfaces across the model-building sequence (4x4)
+#
+# Supp Fig 4b is the supplement's version of the diagnostic grid in
+# 06-check-linearity.qmd: four models rather than five, and rebuilt here so the
+# supplement does not depend on that script's internal M1-M5 numbering.
+#
+# Inputs:  data/district_ATE_means.rds,
+#          data/district_mortality_means_by_{treatment_group,randomization_arm}.rds,
+#          data/niger_adm2_sub.rds, data/grappe_mortality_data.rds,
+#          data/csi_dat.rds, data/preds_ATE.rds
+# Outputs: results/manuscript/supp_fig1-district_mortality_rates.png
+#          results/manuscript/supp_fig2-district_ATEs.png
+#          results/manuscript/supp_fig3-csi_grappe_locations.png
+#          results/manuscript/supp_fig4-modeled_ATE_rate_ratios.png
+#          results/manuscript/supp_fig4b-surface_grid.png
+#
+#--------------------------------------------
+-->
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
@@ -312,7 +344,7 @@ mini_base <- ggplot() +
     strip.text.y.left = element_text(angle = 0, face = "bold", size = 9)
   )
 
-# Manuscript colour scales, matching 06B-fig2-primary_maps.qmd and Supp Fig 4
+# Manuscript colour scales, matching 08B-fig2-primary_maps.qmd and Supp Fig 4
 # above: viridis for mortality, blue-white-red for the ATE rate difference, log
 # teal-white-pink for the rate ratio. oob = squish keeps the few cells beyond a
 # limit at the end colour rather than dropping them (the spline ATE surface

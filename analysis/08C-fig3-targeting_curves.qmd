@@ -1,5 +1,5 @@
 ---
-title: "06d-fig3-targeting-curves"
+title: "08C — Figure 3: targeting curves"
 date: today
 # author: "Ariktha Srivathsan"
 format:
@@ -25,6 +25,21 @@ ratio ("heterogeneity captured") for each mortality aggregation level. Every
 object plotted here is built in `07-targeting-analysis.qmd` and read back from
 `data/targeting_fig3_objects.rda`; this script attaches no model, so it stays a
 pure presentation layer.
+
+<!--
+#--------------------------------------------
+#
+# AVENIR-spatial-ate/analysis/08C-fig3-targeting_curves.qmd
+#
+# Manuscript Figure 3: targeting curves. Presentation only - this script
+# attaches no model and computes nothing; every object it plots is built in
+# 07-targeting-analysis.qmd, so 07 must run before it.
+#
+# Inputs:  data/targeting_fig3_objects.rda  (written by 07)
+# Outputs: results/manuscript/fig3-targeting_curves.png
+#
+#--------------------------------------------
+-->
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)

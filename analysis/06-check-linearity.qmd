@@ -1,5 +1,5 @@
 ---
-title: "08 — Is the linear-in-coordinates ATE plane adequate?"
+title: "06 — Is the linear-in-coordinates ATE plane adequate?"
 date: today
 # author: "Ariktha Srivathsan"
 format:
@@ -19,31 +19,33 @@ execute:
 <!--
 #--------------------------------------------
 #
-# AVENIR-spatial-ate/analysis/08-check-linearity.qmd
+# AVENIR-spatial-ate/analysis/06-check-linearity.qmd
 #
 # Sensitivity analysis: does the linear-in-coordinates constraint on the
 # treatment contrast in the primary spatial model (M1) miss real curvature or
-# diagonal structure in the ATE surface, and does baseline (control-arm)
-# mortality heterogeneity account for the ATE heterogeneity?
+# diagonal structure in the ATE surface?
 #
 # The primary model (M1) is FIXED. Nothing here is a model-selection step:
-# M1 remains primary regardless of what these fits show. All four models were
+# M1 remains primary regardless of what these fits show. All five models were
 # fit in 02A-spatial-models-fit.Rmd; this script only loads the cached fits and
 # the cached prediction surfaces (data/preds_ATE.rds) and summarises them.
 #
 # Model  cached name                        specification
 #   M1   fitmort_child_gen_krig_int         linear plane (primary)
 #   M2   fitmort_child_gen_krig_spline      additive natural splines, df = 4
-<<<<<<< HEAD
-#   M3   fitmort_child_gen_krig_poly        quadratic treatment contrast (+3 df)
-#   M4   fitmort_child_doub_matern          arm-specific Matern deviation field
-=======
 #   M3   fitmort_child_gen_krig_spline_df3  additive natural splines, df = 3
 #                                           (sensitivity: is M2's null a knot-count
 #                                            artefact?)
 #   M4   fitmort_child_gen_krig_poly        quadratic treatment contrast (+3 df)
 #   M5   fitmort_child_doub_matern          arm-specific Matern deviation field
->>>>>>> 078522cee2cf6a26eed9c1790e9e02d4e5a36fae
+#
+# Inputs:  data/fitmort_child_*.rds (M1-M5), data/preds_ATE.rds,
+#          data/niger_adm2_sub.rds
+# Outputs: data/linearity_check_results.rds (correlation matrix, AIC/LRT table
+#          and residual-smooth SDs, for citation in manuscript text);
+#          results/figs/linearity-surface-grid-5x4.png,
+#          results/figs/linearity-spline-surface-pair.png,
+#          results/figs/linearity-residual-smooths.png
 #
 #--------------------------------------------
 -->
@@ -75,36 +77,19 @@ set.seed(20260817)
 
 The primary model M1 constrains the treatment contrast to a plane in the two
 coordinates: the log rate ratio varies as `a0 + a1 * lat_c + a2 * lon_c`. This
-<<<<<<< HEAD
-script asks two questions, both as **sensitivity analyses** — M1 stays primary
-no matter what these show:
+script asks **is the plane adequate?**, as a **sensitivity analysis** — M1 stays
+primary no matter what these results show.
 
-1. **Is the plane adequate?** Three progressively more flexible treatment
-   surfaces (M2 additive splines, M3 quadratic contrast, M4 arm-specific Matern
-   field) are compared to M1 by surface agreement, AIC, a nested LRT (M3 only),
-   and the back-transformed SD of the M4 deviation field.
-2. **Does baseline heterogeneity explain the ATE heterogeneity?** If the RR
-   surface is just a reflection of where baseline mortality is high, control-arm
-   log mortality and log RR should track each other. They do not: the baseline
-   gradient runs roughly north–south while the RR gradient runs roughly
-   east–west (the "oblique ATE surface" of the Discussion).
+Four progressively more flexible treatment surfaces (additive splines at df = 4
+and df = 3, quadratic contrast, arm-specific Matern field) are compared to M1 by
+surface agreement, AIC, nested LRTs (M2, M3 and M4), and the back-transformed SD
+of the M5 deviation field. M3 (df = 3 splines) is a sensitivity sibling of M2: if
+M2's null were an artefact of its df = 4 knot count, M3 would disagree with it.
 
-With 1,084 treated deaths, the expected outcome is that M2–M4 reproduce the
-plane. A null here is a **result** — it bounds the magnitude of any missed
-curvature ("consistent with the linear specification being adequate at the
+With 1,084 treated deaths, the expected outcome is that the more flexible models
+reproduce the plane. A null here is a **result** — it bounds the magnitude of any
+missed curvature ("consistent with the linear specification being adequate at the
 resolution these data support"), it is not an absence of evidence.
-=======
-script asks **Is the plane adequate?** 
-
-Four progressively more flexible treatment
-   surfaces (additive splines at df = 4 and df = 3, quadratic contrast,
-   arm-specific Matern field) are compared to M1 by surface agreement, AIC,
-   nested LRTs (M3 and M4), and the back-transformed SD of the M5 deviation field.
-   M3 (df = 3 splines) is a sensitivity sibling of M2: if M2's null were an
-   artefact of its df = 4 knot count, M3 would disagree with it.
-
-With 1,084 treated deaths, the expected outcome is that the more flexible models reproduce the plane. 
->>>>>>> 078522cee2cf6a26eed9c1790e9e02d4e5a36fae
 
 ```{r Load cached fits and prediction surfaces}
 
@@ -176,7 +161,7 @@ bind_rows(
 
 ```{r base map}
 
-# Reused from 06C: white land, district outlines, scale bar, north arrow.
+# Reused from 08D: white land, district outlines, scale bar, north arrow.
 base_map <- ggplot() +
   geom_sf(data = niger_adm2_sub, fill = "white", color = "black", size = 0.25) +
   theme_minimal(base_size = 12) +
@@ -255,7 +240,7 @@ make_surface_column <- function(colname, fill_scale, col_title, first = FALSE) {
   if (!first) p <- p + theme(strip.text.y.left = element_text(color = NA))
   p
 }
-# Manuscript colour scales (matching 06B-fig2-primary_maps.qmd): viridis for
+# Manuscript colour scales (matching 08B-fig2-primary_maps.qmd): viridis for
 # mortality, blue-white-red for the ATE rate difference, teal-white-pink for
 # the rate ratio. All linear: nothing in fig 2 uses a transform.
 # oob = squish keeps the few cells beyond a limit at the end
@@ -292,7 +277,7 @@ missing real structure, these two rows would not look alike.
 
 This is an internal diagnostic. The supplement carries a four-row version of the
 same comparison — these two models plus the two simpler models that precede them
-in the model-building sequence — built as Supp Fig 4b in `06C-supp_mtrl.qmd`.
+in the model-building sequence — built as Supp Fig 4b in `08D-supp_mtrl.qmd`.
 
 ```{r spline surface pair}
 # Same scaffolding as the 5x4 diagnostic grid (mini_base, rasterise_surface,
