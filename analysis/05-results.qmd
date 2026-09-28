@@ -49,6 +49,44 @@ pre {
 </style>
 ```
 
+<!--
+#--------------------------------------------
+#
+# AVENIR-spatial-ate/analysis/05-results.qmd
+#
+# Consolidated results document: every number and exploratory figure the
+# manuscript text cites, assembled from the objects written by 01-04. Fits
+# nothing except the small department-level heterogeneity tests.
+#
+# The manuscript figures themselves are built in 08A-08D, not here; the maps
+# below are working versions that fed those.
+#
+# Inputs:  data/grappe_mortality_data.rds, data/district_ATE_means.rds,
+#          data/preds_ATE.rds, data/post_prob_dat.rds,
+#          data/model_{aic,lrt}_table.rds, data/csi_dat.rds,
+#          data/csi_preds_mort.rds, data/niger_adm2_sub.rds,
+#          data/fitmort_child_{simp_krig,gen_krig,gen_krig_int}.rds,
+#          data/fit_csi_{simp,gen}_krig.rds
+# Outputs: results/figs/model_mort_pred.png, model_ATE_map.png,
+#          model_posterior_prob_map.png, csi_model_mort_pred.png
+#          data/results-vars.RData (save.image() of the whole environment;
+#                                   the only consumer is x-slide_deck-figs.qmd)
+#
+#--------------------------------------------
+-->
+
+## Overview
+
+This document pulls together the headline results of the spatial ATE analysis:
+trial-level sample composition, department-level mortality and ATE summaries
+with heterogeneity tests, model comparison statistics and Matérn correlation
+ranges, the predicted mortality and ATE surfaces from the spatial models, the
+posterior probability map of a beneficial ATE, and the CSI-level comparison.
+
+It is a reporting layer. Everything it shows was computed in `01`–`04` and is
+read back from `data/`; the two exceptions are the department-level
+heterogeneity tests and the summary tables, which are computed inline.
+
 ```{r}
 #| label: setup
 #| include: false
@@ -944,6 +982,11 @@ Despite the loss of spatial resolution, the CSI-level analysis preserves the bro
 Using a model with treatment indicator, matern correlation, and a random effect for district and csi nested in district, we partition the variance in mortality rates (on the latent scale) into components attributable to treatment, spatial correlation (sub-csi level variance), district-level effects, and csi-level effects.
 
 The variance partitioning results suggest that approximately 97.6% of the variance in mortality is explained by fine-scale spatial correlation, 2.4% is explained by differences between CSIs within districts, and 0% is explained by differences between districts.
+
+<!-- NOTE: those three percentages are transcribed by hand from
+     04-overdispersion.qmd, not computed here — this document never loads
+     var_partition_model.rds. They will not update if 04 is refit. -->
+
 
 # Outro
 

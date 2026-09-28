@@ -49,6 +49,30 @@ pre {
 </style>
 ```
 
+<!--
+#--------------------------------------------
+#
+# AVENIR-spatial-ate/analysis/03-csi-analysis.qmd
+#
+# Repeats the spatial analysis at the CSI (health facility catchment) scale,
+# as a robustness check on the grappe-level models in 02A. CSI-level data are
+# pooled across treatment arms, so these models carry no treatment term: they
+# characterise the mortality surface and its correlation range, not the ATE.
+#
+# refit_csi_models_flag (0-config.R) controls fitting.
+#
+# Inputs:  data/grappe_mortality_data.rds, data/niger_adm2_sub.rds,
+#          data/boxgrid.rds, data/fitmort_child_gen_krig{,_int}.rds
+#          (the last two only for the grappe-vs-CSI Matern range comparison)
+# Outputs: data/csi_dat.rds        (CSI-level analytic dataset; read by 08D)
+#          data/fit_csi_simp_krig.rds, data/fit_csi_gen_krig.rds
+#          data/csi_preds_mort.rds (predicted surface; read by 08B)
+#          results/figs/csi_histograms.png, csi_spatial_coverage.png,
+#          matern_corrs_csi.png
+#
+#--------------------------------------------
+-->
+
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 

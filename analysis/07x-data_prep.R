@@ -3,8 +3,18 @@
 # AVENIR-spatial-ate/analysis/07x-data_prep.R
 #
 # Builds the two phase-level inputs 07-targeting-analysis.qmd reads: grappe x
-# phase mortality, and grappe x round dose counts. Run once before rendering
-# that document; it is deliberately not part of run-all.R.
+# phase mortality, and grappe x round dose counts. run-all.R sources this
+# immediately before rendering 07; run it by hand first if rendering 07 alone.
+#
+# It is sourced rather than rendered, so run-all.R sources it into its own
+# environment — the rm(list = ls()) below would otherwise wipe the caller's
+# globals.
+#
+# Inputs:  AVENIR extracts under `final_data` (Box path, set in 0-config.R):
+#            AVENIR_grappe_phase_2023-07-31.rds
+#            AVENIR_child_census_visit_2025-08-25.rds
+# Outputs: data/grappe_mortality_data_by_phase.rds
+#          data/grappe_dose_counts_by_phase.rds
 #
 #--------------------------------------------
 

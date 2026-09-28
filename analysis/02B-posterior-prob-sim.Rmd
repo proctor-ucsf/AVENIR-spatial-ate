@@ -47,6 +47,25 @@ pre { /* Code block - determines code spacing between lines */
 }
 </style>
 
+<!--
+#--------------------------------------------
+#
+# AVENIR-spatial-ate/analysis/02B-posterior-prob-sim.Rmd
+#
+# Turns the primary model's predictive distribution into a map of the
+# posterior probability that the ATE is beneficial at each grid location.
+#
+# re_simulate (0-config.R) controls the slow step: FALSE loads the cached
+# draws, TRUE re-simulates (~13 min per model).
+#
+# Inputs:  data/boxgrid.rds, data/fitmort_child_gen_krig_int.rds
+# Outputs: data/simulated_responses_gen_krig_int.rds (raw draws)
+#          data/full_pred_sim.rds  (both arms + simulated ATE, long by sim)
+#          data/post_prob_dat.rds  (P(ATE < 0) per grid cell; read by 08B)
+#
+#--------------------------------------------
+-->
+
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE, cache.lazy = FALSE)
 
@@ -55,7 +74,9 @@ rm(list = ls())
 
 ## Overview
 
-This document quantifies spatial uncertainty in the ATE by simulating predicted mortality counts from two fitted spaMM models (`fitmort_child_gen_krig` and `fitmort_child_gen_krig_int`) and computing the posterior probability that the treatment effect is beneficial at each grid location.
+This document quantifies spatial uncertainty in the ATE by simulating predicted mortality counts from the primary fitted spaMM model (`fitmort_child_gen_krig_int`) and computing the posterior probability that the treatment effect is beneficial at each grid location.
+
+The no-interaction model (`fitmort_child_gen_krig`) was simulated alongside it in earlier drafts; those calls are left commented out below rather than deleted, so the two-model comparison can be restored without rebuilding the chunk. Every object here therefore carries a `model` column with a single level.
 
 The workflow:
 
@@ -86,7 +107,7 @@ Prediction data (`newdat`) is constructed by crossing both treatment arm labels 
 
 Simulations use `type = "predVar"` with `variances = list(linPred = TRUE, disp = TRUE)` to sample from the full predictive distribution: uncertainty in the linear predictor (spatial random effect + fixed effects) plus Poisson count dispersion. The number of simulations is controlled by `nsim_input` (set in `0-config.R`).
 
-Simulations took 789.3 sec (13.2 min) for the generalized kriging model without interaction and 765.641 sec (12.8 min) for the model with interaction.
+Simulations take roughly 13 min per model (765.6 sec for the interaction model, 789.3 sec for the no-interaction model when it was still being run), which is why `re_simulate` defaults to `FALSE`.
 
 ```{r simulate responses}
 
@@ -136,6 +157,19 @@ if(re_simulate){
   simulated_responses_gen_krig_int <- readRDS(here("data", "simulated_responses_gen_krig_int.rds"))
 }
 
+# UNUSED — flagged for review, nothing downstream reads p_benefit.
+#
+# Closed-form alternative to the simulation above: a normal approximation to the
+# ATE contrast on the log scale, using only the three treatment coefficients and
+# their covariance block. It ignores the Matern field's contribution to
+# predictive variance, which is why the simulation is what the manuscript uses.
+#
+# It is also mis-specified as written: the coefficient names show the model was
+# fit on coordinates centred and rescaled as (lat - 1448231)/1000, but cvec is
+# built from raw UTM metres, so eta and se do not correspond to the fitted
+# parameterisation despite the "centered as fitted" comment. Correct it to
+# cbind(1, (newdat$lat - 1448231)/1000, (newdat$lon - 552981)/1000) if this is
+# ever revived; otherwise delete the block.
 cvec <- cbind(1, newdat$lat, newdat$lon)      # centered as fitted
 b    <- fixef(fitmort_child_gen_krig_int)[c("isTreated_childTreatment",
                                             "I((lat - 1448231)/1000):isTreated_childTreatment",

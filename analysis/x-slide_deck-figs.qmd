@@ -5,6 +5,23 @@ date: "2024-10-29"
 output: html_document
 ---
 
+<!--
+#--------------------------------------------
+#
+# AVENIR-spatial-ate/analysis/x-slide_deck-figs.qmd
+#
+# SIDE SCRIPT - not a pipeline step, deliberately excluded from run-all.R.
+#
+# Figures for talks, at presentation rather than manuscript proportions. It is
+# the only consumer of data/results-vars.RData, the save.image() dump written
+# at the end of 05-results.qmd, so 05 must have been rendered before this runs.
+#
+# Inputs:  data/results-vars.RData (from 05), data/csi_dat.rds (from 03)
+# Outputs: none saved - figures render inline
+#
+#--------------------------------------------
+-->
+
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 rm(list = ls())
@@ -18,7 +35,7 @@ library(tidyverse)
 library(sf)
 sf_use_s2(FALSE)
 
-source(here::here("0-config.R"))
+source(here::here("analysis", "0-config.R"))
 load(here("data", "results-vars.RData"))
 
 csi_dat <- readRDS(here("data", "csi_dat.rds"))

@@ -48,6 +48,27 @@ pre { /* Code block - determines code spacing between lines */
 }
 </style>
 
+<!--
+#--------------------------------------------
+#
+# AVENIR-spatial-ate/analysis/02A-spatial-models-fit.Rmd
+#
+# Fits every spatial model used in the project and writes the predicted
+# mortality surfaces the rest of the pipeline reads. The slowest step in the
+# pipeline (~90 min to refit everything).
+#
+# refit_models_flag (0-config.R) controls fitting: FALSE loads the cached
+# .rds fits, TRUE refits and overwrites them.
+#
+# Inputs:  data/grappe_mortality_data.rds, data/boxgrid.rds
+# Outputs: data/fitmort_child_*.rds  (one per specification, ~54 MB each)
+#          data/preds_ATE.rds        (both arms predicted over boxgrid, per
+#                                     model, plus the differenced ATE surface)
+#          data/model_aic_table.rds, data/model_lrt_table.rds
+#
+#--------------------------------------------
+-->
+
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 
@@ -58,17 +79,19 @@ rm(list = ls())
 
 This document fits a series of geostatistical models (Poisson regression with Matérn spatial random effects via `spaMM::fitme`) to grappe-level child mortality data from the AVENIR trial. The goal is to estimate and characterize spatial heterogeneity in the average treatment effect (ATE) of child azithromycin.
 
-Five model specifications are evaluated in sequence, each adding one component to the previous:
+Model specifications are evaluated in sequence, each adding one component to the previous:
 
 1. **Simple Kriging** — intercept + Matérn spatial RE + treatment indicator
 2. **Generalized Kriging** — adds linear lat/lon fixed effects to capture large-scale spatial trend in baseline mortality
 3. **Generalized Kriging + Cluster RE** — adds a random intercept per health facility site (`site_code`) for residual between-cluster variance
-4. **Generalized Kriging + Interaction** — adds `treatment × lat` and `treatment × lon` to allow the treatment effect to vary with location (key model for spatial ATE heterogeneity)
+4. **Generalized Kriging + Interaction** — adds `treatment × lat` and `treatment × lon` to allow the treatment effect to vary with location. **This is the primary model** for spatial ATE heterogeneity, and it stays primary regardless of what the specifications below show
 5. **Generalized Kriging + MORDOR** — extends the interaction model with an indicator for districts overlapping the MORDOR azithromycin trial
-6. **Generalized Kriging + Splines** — replaces the linear lat/lon terms (and their treatment interactions) with natural cubic splines, so both the baseline surface and the ATE may curve (additive form)
-7. **Generalized Kriging + Quadratic ATE** — keeps the coordinate main effects linear and makes only the *treatment contrast* quadratic (`trt:lat²`, `trt:lon²`, `trt:lat·lon` on mean-centred coordinates); a 3-parameter test for curvature and diagonal structure in the ATE surface
+6. **Two Matérn fields** — adds an arm-specific Matérn deviation field on top of the interaction model, so the ATE may vary spatially without being tied to a parametric surface
+7. **Matérn by district / district fixed effects** — alternative ways of absorbing between-district variation
+8. **Generalized Kriging + Splines** — replaces the linear lat/lon terms (and their treatment interactions) with natural cubic splines, so both the baseline surface and the ATE may curve (additive form). Refit at `df = 3` as a sensitivity sibling
+9. **Generalized Kriging + Quadratic ATE** — keeps the coordinate main effects linear and makes only the *treatment contrast* quadratic (`trt:lat²`, `trt:lon²`, `trt:lat·lon` on mean-centred coordinates); a 3-parameter test for curvature and diagonal structure in the ATE surface
 
-Models are compared via AIC and likelihood ratio tests (LRT). The four best-fitting models (excluding MORDOR) are used to generate predicted mortality surfaces and spatial ATE maps over the study grid.
+Models are compared via AIC and likelihood ratio tests (LRT). Predicted mortality surfaces are generated for both arms over the study grid and differenced into `preds_ATE.rds`; `06-check-linearity.qmd` reads those surfaces back to test whether the primary model's linear ATE plane is adequate.
 
 ---
 
@@ -813,9 +836,9 @@ one piece of non-additive structure — for a single parameter in the arm contra
 
 The same additive spline refit with `df = 3` per axis (2 interior knots rather than 3)
 is kept as a sensitivity sibling of the model above. It exists so the linearity check
-in `08-check-linearity.qmd` (where it is model **M5**) can show that the additive
+in `06-check-linearity.qmd` (where it is model **M3**) can show that the additive
 spline's null result is not an artefact of the df = 4 knot count. It is **deliberately
-scoped**: its surfaces flow into `preds_ATE.rds` via `models_list` below (so 08 can map
+scoped**: its surfaces flow into `preds_ATE.rds` via `models_list` below (so 06 can map
 them), but it is left out of the consolidated AIC/LRT tables at the end of this document
 and out of the headline results in `05-results.qmd`. Everything else about the
 specification — bare `ns()`, bases replacing the linear terms, `Matern(1 | lon + lat)`
@@ -1191,7 +1214,7 @@ models_list <- list(
   doub_matern = fitmort_child_doub_matern,
   dist_FE = fitmort_child_dist_FE,
   gen_krig_spline = fitmort_child_gen_krig_spline,
-  # df = 3 spline sensitivity (model M5 in 08-check-linearity.qmd). Surfaces are
+  # df = 3 spline sensitivity (model M3 in 06-check-linearity.qmd). Surfaces are
   # needed there; every other consumer of preds_ATE.rds filters by name and ignores it.
   gen_krig_spline_df3 = fitmort_child_gen_krig_spline_df3,
   gen_krig_poly = fitmort_child_gen_krig_poly

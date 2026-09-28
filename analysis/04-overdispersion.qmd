@@ -17,6 +17,27 @@ execute:
 ---
 
 
+<!--
+#--------------------------------------------
+#
+# AVENIR-spatial-ate/analysis/04-overdispersion.qmd
+#
+# Partitions variance in grappe-level child mortality across three spatial
+# scales (fine-scale Matern, between-CSI, between-district), and reports ICCs
+# with bootstrap CIs.
+#
+# refit_overdispersion_models_flag (0-config.R) controls fitting.
+#
+# Inputs:  data/grappe_mortality_data.rds, data/csi_dat.rds (from 03)
+# Outputs: data/icc_results.rds, data/boot_dist.rds, data/boot_csi.rds
+#          data/var_partition_hier_model.rds (lme4, no Matern)
+#          data/var_partition_model.rds      (spaMM, Matern + nested REs)
+#          data/var_part_csi_model.rds       (CSI-level; section disabled,
+#                                             see "CSI-level model" below)
+#
+#--------------------------------------------
+-->
+
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 
@@ -36,7 +57,7 @@ Two complementary approaches are used:
 - A **pure hierarchical model** (`lme4::glmer`) with no Matérn term, to obtain unconfounded estimates of between-CSI and between-district variance.
 - A **spatial hierarchical model** (`spaMM::fitme`) that includes both the Matérn RE and nested random effects for CSI-within-district and district, to partition variance while accounting for fine-scale spatial correlation.
 
-Finally, a CSI-level spatial model is fit to estimate how much variance is lost (absorbed at the district level) when data are aggregated from grappe to CSI.
+A third section fits a CSI-level spatial model to estimate how much variance is lost (absorbed at the district level) when data are aggregated from grappe to CSI. **That section is currently disabled** (`eval=FALSE`, prose commented out): it fits the CSI model and reports its variance components, but never computes the "variance lost" its heading promises. It is kept in place rather than deleted so the comparison can be finished later; nothing downstream depends on it.
 
 ```{r}
 #| label: load-packages

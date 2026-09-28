@@ -9,7 +9,7 @@
 # Sourced by 07-targeting-analysis.qmd only, and sourced AFTER 0-config.R and
 # 0-functions.R: the geospatial parameters (global_crs, proj_crs), the package
 # attachments and the shared raster helpers all come from there rather than
-# being redeclared here. 07 is deliberately not part of run-all.R.
+# being redeclared here.
 #
 # Design note: every function below except build_prediction_table() takes a
 # grappe-level *prediction table*, never a model object, and carries a

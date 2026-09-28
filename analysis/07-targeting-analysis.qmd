@@ -49,6 +49,41 @@ pre {
 </style>
 ```
 
+<!--
+#--------------------------------------------
+#
+# AVENIR-spatial-ate/analysis/07-targeting-analysis.qmd
+#
+# Targeting-rule addendum: if you cannot treat everywhere, does prioritising
+# villages by predicted mortality recover most of the benefit of prioritising
+# by predicted treatment effect? Run under two treatment-by-space
+# specifications from 02A (linear interaction and spline interaction).
+#
+# 07x-data_prep.R must run first; run-all.R sources it immediately before
+# rendering this document. 07x-functions.R holds the helpers.
+#
+# rebuild_targeting_preds_flag / rebuild_targeting_boot_flag (0-config.R)
+# control the two slow steps. Both cached objects carry an attribute stamp of
+# the settings they were built under, and this document stops rather than
+# renders if a stamp no longer matches, so a stale cache cannot silently
+# produce wrong numbers.
+#
+# Inputs:  data/grappe_mortality_data.rds,
+#          data/grappe_mortality_data_by_phase.rds,     (07x-data_prep.R)
+#          data/grappe_dose_counts_by_phase.rds,        (07x-data_prep.R)
+#          data/fitmort_child_gen_krig_int.rds,
+#          data/fitmort_child_gen_krig_spline_df3.rds,
+#          data/preds_ATE.rds, data/niger_adm2_sub.rds
+# Outputs: data/targeting_prediction_table_<model>.rds  (cache)
+#          data/targeting_boot_<model>.rds              (cache)
+#          data/targeting_uncertainty_summaries.rds     (cache)
+#          data/targeting_fig3_objects.rda  (everything 08C draws Figure 3 from)
+#          results/figs/targeting-*.png, uplift-curves.png,
+#          observed-mortality-vs-ate.png
+#
+#--------------------------------------------
+-->
+
 ## Overview
 
 The main analysis estimates geographic heterogeneity in both child mortality risk and the absolute effect of biannual azithromycin distribution across Niger's Dosso region. A programme question follows directly: **if you cannot treat everywhere, does prioritising places by mortality recover most of the benefit of prioritising by treatment effect?**
@@ -87,8 +122,9 @@ source(here::here("analysis", "07x-functions.R"))
 # to predict.default() unless spaMM's methods are registered.
 library(spaMM)
 
-# Note: the three prediction inputs read below are built by `07x-data_prep.R`,
-# which is not part of run-all.R. Run it once before rendering this document.
+# Note: two of the inputs read below are built by `07x-data_prep.R`, which
+# run-all.R sources immediately before rendering this document. Run it by hand
+# first if you are rendering this file on its own.
 #
 # No set.seed() here, and the document is still reproducible: the only
 # stochastic step is the predictive bootstrap draw, which sets `boot_seed`
@@ -126,7 +162,7 @@ nearest_x <- function(target) x_grid[which.min(abs(x_grid - target))]
 model_names <- c("fitmort_child_gen_krig_int",
                  # "fitmort_child_doub_matern",
                  # df = 3 splines (2 interior knots per axis), 02A's sensitivity
-                 # sibling of the df = 4 fit and model M3 in 08-check-linearity.
+                 # sibling of the df = 4 fit and model M3 in 06-check-linearity.
                  # Swap back to "fitmort_child_gen_krig_spline" for df = 4; the
                  # lookup tables below carry entries for both.
                  "fitmort_child_gen_krig_spline_df3")
@@ -562,7 +598,7 @@ surface_tab %>%
 #| fig-width: 11
 #| fig-height: 12
 
-# Design follows Fig 2 of the manuscript (06B-fig2-primary_maps.qmd): a shared
+# Design follows Fig 2 of the manuscript (08B-fig2-primary_maps.qmd): a shared
 # base map, viridis on a fixed 0-35 scale for both arm-specific mortality
 # surfaces so the panels are directly comparable, and a blue-white-red
 # diverging scale centred on zero for the effect. Here the two specifications
@@ -613,7 +649,7 @@ ate_raster <- rasterise_by_model(ate_preds %>% dplyr::select(model, ATE),
 
 # No annotation_scale()/north arrow on the faceted version: ggspatial draws them
 # once per panel, and nine scale bars and nine compasses is clutter in a
-# diagnostic figure. The manuscript figure in 06B keeps them.
+# diagnostic figure. The manuscript figure in 08B keeps them.
 base_map_facet <- ggplot() +
   geom_sf(data = niger_adm2_sub, fill = NA, colour = "black", linewidth = 0.2) +
   scale_x_continuous(name = "Longitude") +
@@ -1760,7 +1796,7 @@ for (this_key in model_keys) {
 #
 # The multi-model objects are saved whole rather than pre-filtered to the primary
 # specification. The figure script names `ref_key` itself and filters, exactly as
-# 06B does, so which model is "primary" stays visible in the figure code rather
+# 08B does, so which model is "primary" stays visible in the figure code rather
 # than being silently baked in here.
 fig3_meta <- list(
   ref_key     = ref_key,        # "gen_krig_int": the primary (linear treatment-by-space interaction) model

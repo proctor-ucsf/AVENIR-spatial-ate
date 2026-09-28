@@ -1,9 +1,32 @@
 ---
-title: "01A-data-prep-mort"
+title: "01 — Data preparation: grappe-level mortality"
 author: "Ariktha Srivathsan, Mia Navarro"
 date: "2024-09-29"
 output: html_document
 ---
+
+<!--
+#--------------------------------------------
+#
+# AVENIR-spatial-ate/analysis/01-data-prep.Rmd
+#
+# First step of the pipeline. Builds the grappe-level analytic dataset and the
+# spatial prediction grid that every downstream script reads.
+#
+# Inputs:  AVENIR extracts under `final_data` (Box path, set in 0-config.R):
+#            AVENIR_grappe_gps_2023-07-31.csv
+#            AVENIR_grappe_phase_2023-07-31.rds
+#          data/untouched/ner_admin_boundaries/ner_admin{1,2}.shp
+# Outputs: data/grappe_mortality_data.rds            (Randomization 1 cohort)
+#          data/grappe_mortality_data_all_rands.rds  (all randomizations, Fig 1)
+#          data/district_ATE_means.rds
+#          data/district_mortality_means_by_treatment_group.rds
+#          data/district_mortality_means_by_randomization_arm.rds
+#          data/niger_adm2_sub.rds                   (study district polygons)
+#          data/boxgrid.rds                          (prediction grid)
+#
+#--------------------------------------------
+-->
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
@@ -330,10 +353,12 @@ dist_rand_summ <- grappe_mort_filt %>%
 
 ### Save processed data
 
-Three objects are saved:
+Five objects are saved:
 
 - `grappe_mortality_data.rds` — Randomization 1 cohort; used in all primary analyses.
-- `district_mortality_means.rds` — District-level mean mortality rates and naive ATE estimates.
+- `district_ATE_means.rds` — District-level naive ATE estimates with bootstrap CIs.
+- `district_mortality_means_by_treatment_group.rds` — District × treatment-arm mortality rates with bootstrap CIs.
+- `district_mortality_means_by_randomization_arm.rds` — District × randomization-arm mortality rates with bootstrap CIs.
 - `grappe_mortality_data_all_rands.rds` — Full data across all randomizations; used in Figure 1.
 
 ```{r save data}
@@ -389,6 +414,9 @@ b_boxgrid <- st_make_grid(
   st_filter(niger_adm2_sub_proj) %>%  # drop points outside study districts
   st_join(niger_adm2_sub_proj %>% dplyr::select(adm2_name), join = st_within) %>%
   rename(district = adm2_name) %>%
+  # Flag the three districts that overlap the earlier MORDOR trial area, so
+  # later scripts can split the surface on prior azithromycin exposure
+  # (see x-mordor-question.qmd and x-district-exclusion-check.qmd).
   mutate(mordorstate = ifelse(district %in% c("Boboye", "Falmey", "Loga"), TRUE, FALSE))
 
 saveRDS(niger_adm2_sub, here("data", "niger_adm2_sub.rds"))

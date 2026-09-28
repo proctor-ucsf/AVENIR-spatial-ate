@@ -14,6 +14,33 @@ editor_options:
   chunk_output_type: console
 ---
 
+<!--
+#--------------------------------------------
+#
+# AVENIR-spatial-ate/analysis/x-assess-spatial-scale-of-correlation.qmd
+#
+# SIDE ANALYSIS - not a pipeline step, deliberately excluded from run-all.R.
+#
+# Ben Arnold's standalone assessment of the spatial scale of correlation in
+# AVENIR I mortality (semivariogram, Matern range, variance partitioning at
+# grappe and CSI scales). It builds its own analytic dataset from the Box
+# extracts rather than reading 01's output, so it does not depend on the rest
+# of the pipeline. 03 and 04 cover the same ground inside the pipeline.
+#
+# WILL NOT RUN AS WRITTEN. The preamble sources two files that do not exist
+# anywhere in this repo:
+#     analysis/0-functions-analysis.R
+#     analysis/0-functions-processing.R
+# They are carried over from the repo layout this document was written
+# against. Restore them, or port the functions it needs into 0-functions.R,
+# before rendering.
+#
+# Inputs:  AVENIR extracts under `final_data` (Box path, set in 0-config.R)
+# Outputs: none by default - the two write_csv() calls are commented out
+#
+#--------------------------------------------
+-->
+
 ## Summary
 
 Assess the spatial scale of correlation in mortality in AVENIR I in the Dosso region. The analysis is limited to Dosso randomization wave 1 to ensure sufficient person-time of observation (24 months) at each cluster location.

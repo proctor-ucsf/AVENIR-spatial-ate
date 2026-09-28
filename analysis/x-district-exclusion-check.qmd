@@ -16,6 +16,28 @@ execute:
   message: false
 ---
 
+<!--
+#--------------------------------------------
+#
+# AVENIR-spatial-ate/analysis/x-district-exclusion-check.qmd
+#
+# SIDE ANALYSIS - not a pipeline step, deliberately excluded from run-all.R.
+#
+# Sensitivity of the primary model to dropping the districts that overlapped
+# the MORDOR trial. See Purpose below.
+#
+# refit_exclusion_models_flag (0-config.R) controls the refits (~4-5 min per
+# subset). The full-data fit is always loaded, never refitted here.
+#
+# Inputs:  data/grappe_mortality_data.rds, data/boxgrid.rds,
+#          data/niger_adm2_sub.rds, data/fitmort_child_gen_krig_int.rds
+# Outputs: data/preds_ATE_district_exclusion.rds
+#          (figures render inline only - the excl_*.png files in results/figs/
+#           were exported by hand, not by this script)
+#
+#--------------------------------------------
+-->
+
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
 
@@ -28,7 +50,7 @@ The primary model (`fitmort_child_gen_krig_int`, the generalized kriging model w
 `treatment × lat` and `treatment × lon` interactions) is fitted to all 1390 grappes.
 Three districts — **Boboye**, **Falmey** and **Loga** — overlapped with the MORDOR trial, so their background mortality may have been depressed by prior MDA, and their treatment effect may be attenuated.
 
-`mordor-question.qmd` approaches this by *adjusting*: adding a `mordorstate` indicator
+`x-mordor-question.qmd` approaches this by *adjusting*: adding a `mordorstate` indicator
 and matching MORDOR villages. This document takes the complementary approach — it
 *removes* the districts and refits, then asks whether the predicted mortality surfaces
 and the ATE surface change in any way that would alter the conclusions:
@@ -501,4 +523,4 @@ is an artefact: prior mass azithromycin administration is a plausible *reason* f
 genuinely weaker effect there, and dropping the districts removes the contrast that
 identifies it. But any statement about spatial heterogeneity in the ATE should be
 reported alongside this sensitivity analysis, and the covariate-adjustment results in
-`mordor-question.qmd` read as the complementary evidence.
+`x-mordor-question.qmd` read as the complementary evidence.
