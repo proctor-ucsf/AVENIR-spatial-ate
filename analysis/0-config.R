@@ -55,19 +55,19 @@ grid_res <- 200
 nsim_input <- 1000
 
 ## Flags to control if models are re-fit
-refit_models_flag <- FALSE # Set to TRUE to refit models, which can take a long time. Set to FALSE to load previously fitted models.
-refit_csi_models_flag <- FALSE
-refit_overdispersion_models_flag <- FALSE
+refit_models_flag <- TRUE # Set to TRUE to refit models, which can take a long time. Set to FALSE to load previously fitted models.
+refit_csi_models_flag <- TRUE
+refit_overdispersion_models_flag <- TRUE
 ## Refits the primary model on district subsets in x-district-exclusion-check.qmd
 ## (~4-5 min per subset). The full-data fit is always loaded, never refitted there.
-refit_exclusion_models_flag <- FALSE
+refit_exclusion_models_flag <- TRUE
 
 ## Flags to control if posterior probability simulations are re-run in script 2B
-re_simulate <- FALSE # Set TRUE to re-run simulations (slow: ~13 min per model)
+re_simulate <- TRUE # Set TRUE to re-run simulations (slow: ~13 min per model)
 
 ## Flags to control if the targeting inputs in script 07 are rebuilt.
 ## Both cached objects carry an attribute stamp of the settings they were built
 ## under, and 07 stops rather than renders if the stamp no longer matches, so
 ## leaving these FALSE cannot silently produce stale numbers.
-rebuild_targeting_preds_flag <- FALSE # Set TRUE to re-predict both arms at every grappe (loads a ~54 MB model per specification)
-rebuild_targeting_boot_flag  <- FALSE # Set TRUE to redraw the predictive bootstrap (slow: the joint covariance over villages x arms)
+rebuild_targeting_preds_flag <- TRUE # Set TRUE to re-predict both arms at every grappe (loads a ~54 MB model per specification)
+rebuild_targeting_boot_flag  <- TRUE # Set TRUE to redraw the predictive bootstrap (slow: the joint covariance over villages x arms)
