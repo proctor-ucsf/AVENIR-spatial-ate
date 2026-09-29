@@ -1133,17 +1133,9 @@ area_ratio_tab <- curves %>%
 ```
 
 
-Every curve above is a functional of the predicted surface $(\hat\mu^0_i, \hat\mu^1_i)$, so its uncertainty is inherited from the uncertainty in that surface. Rather than refit the model — the two-Matérn specification takes **2.77 hours per fit**, so a refit bootstrap at any useful $B$ is not a feasible design — we draw $B$ = `r B_boot` samples of the linear predictor from its joint predictive distribution, holding the covariance parameters ($\rho$, $\nu$, $\lambda$) at their point estimates. This is the same machinery `02B-posterior-prob-sim.Rmd` uses for the posterior probability maps.
-
-Three properties of the scheme matter for reading the bands:
-
-* **The draw is joint across villages *and* arms.** $\widehat{RD}_i = \hat\mu^0_i - \hat\mu^1_i$, and the shared Matérn field is common to both arms, so it cancels in that contrast. Drawing the arms independently would destroy the cancellation and inflate the $\widehat{RD}$ band enormously — the measured cross-arm correlation for a single village under the two-Matérn model is about 0.79.
-* **The bands are pointwise, not simultaneous.** Each coverage level is summarised on its own, so a band covers the curve at any *single* budget at the nominal `r scales::percent(ci_level)` rate, not the whole curve jointly. A simultaneous band would be wider.
-* **Ranking and scoring are separated.** Each replicate orders villages by its own draw but accrues benefit from the point-estimate surface. Doing otherwise makes the effect-ranked envelope select on the quantity it scores, which inflates it (see `degradation_tables()`). Every interval quoted in this document uses the separated version, so every band is a one-sided **degradation** band: the point estimate is the best case and the band is what estimation error costs.
-
-Because the covariance parameters are held fixed, these intervals are **mildly optimistic** — they do not carry the uncertainty in the range and smoothness of the Matérn field itself. They also carry no uncertainty from the choice of specification, which is exactly why the three models are shown side by side rather than pooled.
 
 ```{r uncertainty summaries}
+#| eval: false
 
 # The O(n^2) concordance loop is the expensive step in this document: 3 rules x
 # B replicates x 3 models, each building 1400x1400 outer products. Every
@@ -1621,18 +1613,10 @@ My interpretation of the heatmap (all numbers `r ref_display`): Treating the hig
 The `rd` curve reaches its maximum of `r sprintf("%.0f", rd_peak)`% of the universal-treatment total at `r scales::percent(rd_peak_at, accuracy = 1)` coverage, then returns to 100% at full coverage by construction. The excess above 100% is the predicted cost of treating the villages the model expects harm in; it is not a recommendation to withhold treatment from them.
 
 
-**But some comparisons survive the uncertainty and others do not, and the difference is not what you would guess from the bands alone.** Every rule within a replicate is computed from the same draw of the surface, so a *difference* between two rules can be much better or much worse determined than either level:
-
-* **Targeting scale is robust.** The village rule beats the department rule in `r scales::percent(p_village_beats_dept, accuracy = 0.1)` of draws, and that difference has a *narrower* interval (`r sprintf("%.2f", width_diff_village_dept)` wide) than the village curve's own level (`r sprintf("%.2f", width_level_village)`). The shared surface uncertainty largely cancels. The village-versus-CSI comparison is weaker, holding in `r scales::percent(p_village_beats_csi, accuracy = 0.1)` of draws.
-* **The headline gap is not robust.** The distance between the effect-ranked envelope and the village mortality rule has an interval `r sprintf("%.2f", width_diff_rd_village)` wide — *wider* than the village level itself. Uncertainty does not cancel in that contrast, because the envelope and the mortality rule respond differently to the same perturbation of the surface.
-
-So "targeting at village scale beats department scale" is well supported here, while "mortality-based targeting recovers most of what effect-based targeting could" is a point estimate with a great deal of noise around it.
-
-**Relative efficiency** We're defining it to be the efficiency of the given rule relative to the RD one: $R_r(x) = y_r(x) / y_{\text{rd}}(x)$ on the shared grid, the fraction of achievable benefit retained by a rule a programme could actually apply, at a given coverage. Bounded above by 1 by construction, and $\to 1$ as $x \to 1$. Unstable as $x \to 0$, so the grid is read from `r scales::percent(eff_floor)` of person-time upwards.
-
 ```{r efficiency curves}
 #| fig-width: 13
 #| fig-height: 5.4
+#| eval: false
 
 envelope <- curves %>%
   dplyr::filter(rule == "rd") %>%
@@ -1774,6 +1758,7 @@ Under `r ref_display`, the village-level mortality rule scores `r sprintf("%.2f"
 ```{r structural notes}
 #| results: asis
 #| echo: false
+#| eval: false
 
 # One bullet per specification: whether the Matern field cancels in the arm
 # contrast is the single largest determinant of these numbers.
