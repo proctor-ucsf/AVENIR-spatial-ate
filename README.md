@@ -103,5 +103,3 @@ Scripts prefixed `x-` are not pipeline steps and are excluded from
 | [`x-district-exclusion-check.qmd`](analysis/x-district-exclusion-check.qmd) | The complementary approach: *removes* those districts, refits the primary model, and compares the surfaces |
 | [`x-assess-spatial-scale-of-correlation.qmd`](analysis/x-assess-spatial-scale-of-correlation.qmd) | Standalone assessment of the spatial scale of correlation (semivariogram, Matérn range, variance partitioning). **Does not currently run** — it sources two helper files that are not in this repo |
 | [`x-slide_deck-figs.qmd`](analysis/x-slide_deck-figs.qmd) | Figures for talks, at presentation proportions |
-
-
