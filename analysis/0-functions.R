@@ -688,6 +688,7 @@ make_raster_map <- function(
 #--------------------------------------
 
 sim2tib <- function(sim_responses, newdat, modelname = NA_character_) {
+  sim_responses <- unclass(sim_responses) # drop spaMM class attributes
   sim_tibs <- as_tibble(
     sim_responses,
     .name_repair = ~ paste0("sim_", seq_along(.))
