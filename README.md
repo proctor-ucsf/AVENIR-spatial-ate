@@ -1,7 +1,6 @@
 # AVENIR-spatial-ate
 
-Estimating spatially continuous under-5 mortality rates and average treatment
-effects (ATE) in the AVENIR trial.
+Estimation of fine-scale spatial heterogeneity in treatment effects in a large cluster-randomized trial
 
 This repository contains the full analysis code for a secondary, spatial
 analysis of the AVENIR cluster-randomized trial of biannual mass azithromycin
@@ -9,10 +8,6 @@ distribution in the Dosso region of Niger. The analysis fits geospatial models
 to village-level mortality counts to estimate continuous surfaces of
 mortality and of treatment effect across the trial area, and asks whether the
 effect of azithromycin varies systematically over space.
-
-A programmatic question follows from these surfaces: if a programme cannot treat 
-everywhere, does prioritising places by predicted mortality recover most of the 
-benefit of prioritising by predicted treatment effect?
 
 ## Data availability
 
