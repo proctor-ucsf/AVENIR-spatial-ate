@@ -62,6 +62,23 @@ d_gps <-
 # Phase-level mortality data: one row per grappe × study phase
 grappe_phase_mort <-
   readRDS(paste0(final_data,"AVENIR_grappe_phase_2023-07-31.rds"))
+```
+
+```{r load shapefiles}
+
+# Niger admin boundaries
+### Map downloaded from https://data.humdata.org/dataset/cod-ab-ner
+niger_shp_url <- "https://data.humdata.org/dataset/c0e0998c-b45a-4aea-ac06-c1de1d94e596/resource/b2a4cf8d-da46-4f52-bed0-865160470dac/download/ner_admin_boundaries.shp.zip"
+
+niger_zip <- file.path(shpfile_path, "ner_admin_boundaries.zip")
+niger_dir <- file.path(shpfile_path, "ner_admin_boundaries")
+
+if (!dir.exists(niger_dir)) {
+  dir.create(niger_dir, recursive = TRUE)
+  
+  download.file(niger_shp_url, destfile = niger_zip)
+  unzip(zipfile = niger_zip, exdir = niger_dir)
+}
 
 # Load Niger boundaries map from Humanitarian Data Exchange
 # Map downloaded from https://data.humdata.org/dataset/cod-ab-ner on 10 March 2026
