@@ -3,7 +3,7 @@
 
 # Configure data paths & load required packages
 
-# by Mia Navarro (mia.navarro@ucsf.edu); Ariktha Srivathsan (ariktha.srivathsan@ucsf.edu)
+# by Ariktha Srivathsan (ariktha.srivathsan@ucsf.edu)
 
 # Load required packages ----
 
