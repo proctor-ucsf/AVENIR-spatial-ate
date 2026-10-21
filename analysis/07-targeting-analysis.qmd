@@ -1,7 +1,7 @@
 ---
 title: "AVENIR spatial ATE: Baseline mortality as a targeting rule for MDA"
 date: today
-authors: "Ariktha Srivathsan + Anthropic's Opus 5"
+# authors: "Ariktha Srivathsan"
 format:
   html:
     toc: true
