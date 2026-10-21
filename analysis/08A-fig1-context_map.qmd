@@ -283,7 +283,7 @@ alt_fig1 <- plot_grappe_map +
               guides = "collect",
               axes = "collect",
               design = design) +
-  plot_annotation(tag_levels = "A")
+  plot_annotation(tag_levels = "A", tag_suffix = ")")
 
 alt_fig1
 
