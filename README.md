@@ -39,7 +39,6 @@ cd AVENIR-spatial-ate
 Then, from R in the project root:
 
 ```r
-renv::restore()                 # install the pinned package versions
 source("analysis/run-all.R")    # render the full pipeline in order
 ```
 
