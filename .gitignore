@@ -81,4 +81,5 @@ rsconnect/
 
 .quarto/
 /.quarto/
+analysis/.quarto/
 **/*.quarto_ipynb
