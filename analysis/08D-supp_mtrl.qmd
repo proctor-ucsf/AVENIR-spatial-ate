@@ -11,7 +11,7 @@ format:
     df-print: paged
     self-contained: true
 execute:
-  cache: true
+  cache: false
   warning: false
   message: false
 ---
