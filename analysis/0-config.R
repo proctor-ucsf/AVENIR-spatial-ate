@@ -38,7 +38,18 @@ library(viridis)
 final_data <- "~/Library/CloudStorage/Box-Box/AVENIR/Data/Mortality/rounds_1to5/final/"
 
 figure_path <- paste0(here::here(), "/results/figs/")
+manuscript_figs_path <- paste0(here::here(), "/results/manuscript/")
 shpfile_path <- paste0(here::here(), "/data/untouched/")
+
+
+if (!dir.exists(figure_path)) {
+  dir.create(figure_path, recursive = TRUE)
+}
+
+if (!dir.exists(manuscript_figs_path)) {
+  dir.create(manuscript_figs_path, recursive = TRUE)
+}
+
 
 # Set up ----
 

@@ -287,14 +287,15 @@ alt_fig1 <- plot_grappe_map +
 
 alt_fig1
 
-ggsave(here("results", "manuscript", "fig1-context-map-dosso.png"),
+ggsave(paste0(manuscript_figs_path, "fig1-context-map-dosso.png"),
        alt_fig1,
        device = "png",
        width = 210,
        height = 140,
        units = "mm",
        dpi = 300,
-       bg = "white")
+       bg = "white",
+       create.dir = TRUE)
 
 ```
 

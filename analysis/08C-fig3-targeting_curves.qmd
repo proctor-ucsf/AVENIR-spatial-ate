@@ -210,7 +210,7 @@ fig3 <- pl3 + coord_equal() +
 
 fig3
 
-ggsave(here("results", "manuscript", "fig3-targeting_curves.png"),
+ggsave(paste0(manuscript_figs_path, "fig3-targeting_curves.png"),
        plot = fig3, bg = "white", width = 7, height = 7.2, dpi = 300)
 
 fig3_gr <- pl3  +

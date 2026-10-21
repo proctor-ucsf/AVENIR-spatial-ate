@@ -49,6 +49,7 @@ pre {
 </style>
 ```
 
+```{=html}
 <!--
 #--------------------------------------------
 #
@@ -74,18 +75,13 @@ pre {
 #
 #--------------------------------------------
 -->
+```
 
 ## Overview
 
-This document pulls together the headline results of the spatial ATE analysis:
-trial-level sample composition, department-level mortality and ATE summaries
-with heterogeneity tests, model comparison statistics and Matérn correlation
-ranges, the predicted mortality and ATE surfaces from the spatial models, the
-posterior probability map of a beneficial ATE, and the CSI-level comparison.
+This document pulls together the headline results of the spatial ATE analysis: trial-level sample composition, department-level mortality and ATE summaries with heterogeneity tests, model comparison statistics and Matérn correlation ranges, the predicted mortality and ATE surfaces from the spatial models, the posterior probability map of a beneficial ATE, and the CSI-level comparison.
 
-It is a reporting layer. Everything it shows was computed in `01`–`04` and is
-read back from `data/`; the two exceptions are the department-level
-heterogeneity tests and the summary tables, which are computed inline.
+It is a reporting layer. Everything it shows was computed in `01`–`04` and is read back from `data/`; the two exceptions are the department-level heterogeneity tests and the summary tables, which are computed inline.
 
 ```{r}
 #| label: setup
@@ -152,7 +148,6 @@ dist_summ <- dist_summ %>%
   dplyr::filter(district %in% districts)
 
 ```
-
 
 ```{r}
 #| label: precompute-stats
@@ -373,7 +368,6 @@ n_deaths_per1000 <- base_map +
 n_deaths | n_deaths_per1000
 ```
 
-
 ## Relationships between mortality outcomes and person-time, by treatment group
 
 ```{r}
@@ -518,7 +512,6 @@ data_mort_control | data_mort_treat | data_mort_ate
 
 ```
 
-
 ### Boboye's positive ATE
 
 Boboye is the only department with a positive ATE (higher mortality in treatment than control), so we look more closely at the spatial distribution of outcomes within that department.
@@ -620,7 +613,13 @@ lrts %>%
 
 ## Matern correlations
 
-![](images/matern_corrs-2.png)
+```{r}
+
+knitr::include_graphics(c(
+  here::here("results", "figs", "matern_corrs.png")
+))
+
+```
 
 From the above correlation plots, we see that the simple kriging model has a much longer range (`r round(range_simp_km, 1)`^★^ km) and slower decay than the generalized kriging models (range: `r round(range_gen_km, 1)`^★^ km for the base generalized kriging model). This is likely because the larger spatial range in the simple kriging model is trying to account for spatial variation that could be explained by the lat/lon covariates in the generalized kriging models. Based on a LRT (χ² = `r round(lrt_gen_vs_simp_stat, 2)`^★^, p = `r formatC(lrt_gen_vs_simp_p, format = "f", digits = 3)`^★^) and AIC values (simple kriging: `r round(aic_simp, 1)`^★^; generalized kriging: `r round(aic_gen, 1)`^★^), the generalized kriging models all outperformed the simple kriging model.
 
@@ -892,7 +891,6 @@ width = 8, height = 6, units = "in")
 
 ```
 
-
 The posterior probability map provides a probabilistic interpretation of treatment benefit. Areas with high probability (close to 1) indicate strong evidence that treatment reduces mortality, while lower values indicate uncertainty or potential harm. Compared to the base generalized model, the interaction model produces more spatially differentiated probability surfaces, particularly in regions like Boboye, where the probability of benefit is substantially lower. This reinforces the conclusion that treatment effects are spatially heterogeneous.
 
 This was estimated using a simulation-based approach where we drew samples from the posterior distribution of model parameters, calculated the ATE for each sample, and then computed the proportion of samples where the ATE was less than 0 at each location. This approach accounts for uncertainty in model parameters and provides a more nuanced assessment of treatment effects across space.
@@ -901,12 +899,14 @@ This was estimated using a simulation-based approach where we drew samples from 
 
 We also fit spatial models at the CSI level, which has less spatial granularity than the grappe-level data but may still capture some spatial correlation. The `r n_csis`^★^ CSIs had a median of `r csi_med_deaths`^★^ deaths per CSI (range: `r csi_min_deaths`–`r csi_max_deaths`^★^) and a median of `r scales::comma(csi_med_pt)`^★^ person-years per CSI (range: `r scales::comma(csi_min_pt)`–`r scales::comma(csi_max_pt)`^★^). Since the randomization was at the grappe level, we cannot include a term for the treatment indicator in the CSI-level models, but we can still fit spatial models to predict mortality rates across the study area and compare the spatial correlation structure to the grappe-level models, akin to how it will be done in future programmatic surveillance analyses.
 
-![](images/matern_corrs_csi.png)
-
 ```{r}
 #| label: csi-model-predictions
 #| fig.height: 6
 #| fig.width: 8
+
+knitr::include_graphics(c(
+  here::here("results", "figs", "matern_corrs_csi.png")
+))
 
 csi_preds_long <- csi_preds %>%
   dplyr::select(-c(isTreated_child))
@@ -971,11 +971,7 @@ width = 8, height = 6, units = "in")
 
 ```
 
-
-
 Despite the loss of spatial resolution, the CSI-level analysis preserves the broad spatial gradients in mortality. However, the increased correlation range suggests that aggregation smooths over local variability, effectively inflating the apparent spatial scale of dependence. This implies that CSI-level surveillance may be adequate for identifying large-scale patterns but may miss localized hotspots or heterogeneity in treatment effects that are detectable at the grappe level.
-
-
 
 # Variance partitioning
 
@@ -983,10 +979,11 @@ Using a model with treatment indicator, matern correlation, and a random effect 
 
 The variance partitioning results suggest that approximately 97.6% of the variance in mortality is explained by fine-scale spatial correlation, 2.4% is explained by differences between CSIs within districts, and 0% is explained by differences between districts.
 
+```{=html}
 <!-- NOTE: those three percentages are transcribed by hand from
      04-overdispersion.qmd, not computed here — this document never loads
      var_partition_model.rds. They will not update if 04 is refit. -->
-
+```
 
 # Outro
 
@@ -996,7 +993,6 @@ The variance partitioning results suggest that approximately 97.6% of the varian
 save.image(here("data", "results-vars.RData"))
 
 ```
-
 
 ```{r}
 #| label: r-session-info

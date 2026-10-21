@@ -315,7 +315,7 @@ fig2 <- data_mort_control +
 
 fig2
 
-ggsave(here("results", "manuscript", "fig2-primary_maps-white.png"),
+ggsave(paste0(manuscript_figs_path, "fig2-primary_maps-white.png"),
        plot = fig2, bg = "white", width = 10.5, height = 10, dpi = 300)
  
 ```

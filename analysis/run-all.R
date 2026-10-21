@@ -48,10 +48,6 @@ render_script("01-data-prep.Rmd")
 # 02B simulates the posterior probability that the ATE is beneficial at each
 # location; controlled by re_simulate in 0-config.R.
 
-if (!dir.exists(figure_path)) {
-  dir.create(figure_path, recursive = TRUE)
-}
-
 render_script("02A-spatial-models-fit.Rmd")
 render_script("02B-posterior-prob-sim.Rmd")
 
